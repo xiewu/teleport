@@ -143,7 +143,7 @@ int ListCredentials(const char *reason, CredentialInfo **infosOut,
   // A semaphore is needed, otherwise we return before the prompt has a chance
   // to resolve.
   dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-  [ctx evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics
+  [ctx evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometricsOrWatch
       localizedReason:[NSString stringWithUTF8String:reason]
                 reply:^void(BOOL success, NSError *_Nullable error) {
                   if (success) {
@@ -186,7 +186,7 @@ int DeleteCredential(const char *reason, const char *appLabel, char **errOut) {
   // A semaphore is needed, otherwise we return before the prompt has a chance
   // to resolve.
   dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-  [ctx evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics
+  [ctx evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometricsOrWatch
       localizedReason:[NSString stringWithUTF8String:reason]
                 reply:^void(BOOL success, NSError *_Nullable error) {
                   if (success) {

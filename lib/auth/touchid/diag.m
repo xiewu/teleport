@@ -67,7 +67,7 @@ void RunDiag(DiagResult *diagOut) {
   // reasons (no password set, device locked, lid is closed, etc).
   LAContext *ctx = [[LAContext alloc] init];
   diagOut->passed_la_policy_test =
-      [ctx canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics
+      [ctx canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometricsOrWatch
                        error:NULL];
 
   // Attempt to write a non-permanent key to the enclave.

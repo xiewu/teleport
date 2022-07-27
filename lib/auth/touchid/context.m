@@ -52,7 +52,7 @@ int AuthContextGuard(AuthContext *actx, const char *reason, uintptr_t handle,
   // A semaphore is needed, otherwise we return before the prompt has a chance
   // to resolve.
   dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-  [ctx evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics
+  [ctx evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometricsOrWatch
       localizedReason:[NSString stringWithUTF8String:reason]
                 reply:^void(BOOL success, NSError *_Nullable error) {
                   if (success) {
