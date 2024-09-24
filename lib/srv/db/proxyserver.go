@@ -527,7 +527,7 @@ func sortDatabaseServers(availableServers []types.DatabaseServer) []types.Databa
 	// Shuffle every server whithin their status, but return them in priority
 	// order.
 	shuffle := getShuffleFunc()
-	return append(shuffle(healthy), append(shuffle(unhealthy), shuffle(unknown)...)...)
+	return append(shuffle(healthy), append(shuffle(unknown), shuffle(unhealthy)...)...)
 }
 
 // isReverseTunnelDownError returns true if the provided error indicates that
