@@ -30,8 +30,8 @@ func TestServerStatus(t *testing.T) {
 		expectedStatus DatabaseServerStatus
 	}{
 		"all success":          {[]bool{true, true, true}, DatabaseServerStatusHealthy},
-		"2nd failed":           {[]bool{true, false, true}, DatabaseServerStatusHealthy},
-		"last two failed":      {[]bool{false, false, true}, DatabaseServerStatusUnhealthy},
+		"2nd failed":           {[]bool{true, false, true}, DatabaseServerStatusWarning},
+		"last two failed":      {[]bool{false, false, true}, DatabaseServerStatusWarning},
 		"all failure":          {[]bool{false, false, false}, DatabaseServerStatusUnhealthy},
 		"single success check": {[]bool{true}, DatabaseServerStatusHealthy},
 		"single failure check": {[]bool{false}, DatabaseServerStatusUnhealthy},
@@ -51,14 +51,15 @@ func TestServerStatus(t *testing.T) {
 				Spec: types.DatabaseServerSpecV3{
 					Database: &types.DatabaseV3{
 						Status: types.DatabaseStatusV3{
-							Health: &types.DatabaseHealthV1{
-								HealthChecks: checks,
+							Health: types.DatabaseHealthV1{
+								Checks: checks,
 							},
 						},
 					},
 				},
 			}
-			require.Equal(t, tc.expectedStatus, ServerStatus(server))
+			status, _ := ServerStatus(server)
+			require.Equal(t, tc.expectedStatus, status)
 		})
 	}
 }
