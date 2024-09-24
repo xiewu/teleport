@@ -376,6 +376,12 @@ message DatabaseStatusV3 {
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "azure"
   ];
+
+  HealthV1 Health = 6 [(gogoproto.jsontag) = "health,omitempty"];
+}
+
+message HealthV1 {
+  repeated ConnectionDiagnosticSpecV1 Diagnostics = 1 [(gogoproto.jsontag) = "diagnostics"];
 }
 
 // IAMPolicyStatus represents states that describe if an AWS database
