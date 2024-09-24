@@ -512,7 +512,8 @@ func sortDatabaseServers(availableServers []types.DatabaseServer) []types.Databa
 	)
 
 	for _, server := range availableServers {
-		switch common.ServerStatus(server) {
+		status, _ := common.ServerStatus(server)
+		switch status {
 		case common.DatabaseServerStatusUnknown:
 			unknown = append(unknown, server)
 		case common.DatabaseServerStatusHealthy:
@@ -524,7 +525,7 @@ func sortDatabaseServers(availableServers []types.DatabaseServer) []types.Databa
 		}
 	}
 
-	// Shuffle every server whithin their status, but return them in priority
+	// Shuffle every server within their status, but return them in priority
 	// order.
 	shuffle := getShuffleFunc()
 	return slices.Concat(

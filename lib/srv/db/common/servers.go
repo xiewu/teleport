@@ -16,7 +16,11 @@
 
 package common
 
-import "github.com/gravitational/teleport/api/types"
+import (
+	"time"
+
+	"github.com/gravitational/teleport/api/types"
+)
 
 // DatabaseServerStatus define the status of a database server given a database.
 // The codes are organized in order, where the smallest number represents a
@@ -30,51 +34,37 @@ const (
 	DatabaseServerStatusUnhealthy
 )
 
-// TODO: make it easier to read through
-//
-// assuming we'll have only 3 checks:
-// - HEALTHY:
-//   - last two checks succeeded
-//   - last and third checks succeeded (TODO)
-//
-// - WARNING:
-//   - last succeeded but all other two failed
-//
-// - UNHEALTHY:
-//   - all failed
-func ServerStatus(server types.DatabaseServer) DatabaseServerStatus {
+// ServerStatus returns server status and update time.
+// Healthy: all checks went fine.
+// Warning: some checks went fine.
+// Unhealthy: none checks went fine.
+// Unknown: there were no checks so far.
+func ServerStatus(server types.DatabaseServer) (DatabaseServerStatus, time.Time) {
 	checks := server.GetDatabase().GetHealthchecks()
 	totalChecks := len(checks)
 	if totalChecks == 0 {
-		return DatabaseServerStatusUnknown
+		return DatabaseServerStatusUnknown, time.Now()
 	}
 
-	lastSucceded := checks[0].IsSuccess()
-	if totalChecks == 1 {
-		if lastSucceded {
-			return DatabaseServerStatusHealthy
+	succeeded := 0
+	var latest time.Time
+
+	for _, check := range checks {
+		if check.Time.After(latest) {
+			latest = check.Time
 		}
-
-		return DatabaseServerStatusUnhealthy
-	}
-
-	totalSucceeded := 0
-	if lastSucceded {
-		totalSucceeded += 1
-	}
-
-	for _, check := range checks[1:] {
-		if check.IsSuccess() {
-			totalSucceeded += 1
+		if check.Diagnostic.Success {
+			succeeded++
 		}
 	}
 
-	switch {
-	case lastSucceded && totalSucceeded == 0:
-		return DatabaseServerStatusWarning
-	case totalSucceeded < 2:
-		return DatabaseServerStatusUnhealthy
+	if succeeded == totalChecks {
+		return DatabaseServerStatusHealthy, latest
 	}
 
-	return DatabaseServerStatusHealthy
+	if succeeded == 0 {
+		return DatabaseServerStatusUnhealthy, latest
+	}
+
+	return DatabaseServerStatusWarning, latest
 }
