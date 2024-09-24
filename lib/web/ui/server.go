@@ -27,6 +27,7 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/services"
+	"github.com/gravitational/teleport/lib/srv/db/common"
 )
 
 // Label describes label for webapp
@@ -338,6 +339,19 @@ type Database struct {
 	AWS *AWS `json:"aws,omitempty"`
 	// RequireRequest indicates if a returned resource is only accessible after an access request
 	RequiresRequest bool `json:"requiresRequest,omitempty"`
+	// Health indicates the overall status of the underlying database resource. This health score is aggregated from health scores of multiple agents.
+	Health *DatabaseHealth `json:"health,omitempty"`
+}
+
+type DatabaseHealth struct {
+	// Score indicates overall health.
+	// 0 - green, OK. Connection should go without issues.
+	// 1 - yellow, warning. Connection may or may not work.
+	// 2 - red, error. Connection will most likely fail.
+	// 3 - gray, unknown. No history, we don't know what will happen.
+	Status common.DatabaseServerStatus `json:"status,omitempty"`
+	// Status gets reported to user.
+	Message string `json:"message,omitempty"`
 }
 
 // AWS contains AWS specific fields.
@@ -358,6 +372,8 @@ const (
 func MakeDatabase(database types.Database, dbUsers, dbNames []string, requiresRequest bool) Database {
 	uiLabels := makeLabels(database.GetAllLabels())
 
+	// checks := database.GetHealthchecks()
+
 	db := Database{
 		Kind:            database.GetKind(),
 		Name:            database.GetName(),
@@ -370,6 +386,10 @@ func MakeDatabase(database types.Database, dbUsers, dbNames []string, requiresRe
 		Hostname:        stripProtocolAndPort(database.GetURI()),
 		URI:             database.GetURI(),
 		RequiresRequest: requiresRequest,
+		Health: &DatabaseHealth{
+			Status:  common.DatabaseServerStatusHealthy,
+			Message: "TODO: actually calculate things",
+		},
 	}
 
 	if database.IsAWSHosted() {
