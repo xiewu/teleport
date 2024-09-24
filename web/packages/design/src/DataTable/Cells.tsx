@@ -18,7 +18,7 @@
 
 import React from 'react';
 
-import { displayDate } from 'shared/services/loc';
+import { displayDate } from '../loc';
 
 import { Label, Flex } from 'design';
 import * as Icons from 'design/Icon';
