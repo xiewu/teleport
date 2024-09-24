@@ -20,7 +20,7 @@ import { format } from 'date-fns';
 
 import { cfg } from 'design/config';
 
-import Logger from 'shared/libs/logger';
+import Logger from 'design/logger';
 
 const DEFAULT_LOCALE = 'en-US';
 const isTest = process.env.NODE_ENV === 'test';
