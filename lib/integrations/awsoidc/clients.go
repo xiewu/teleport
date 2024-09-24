@@ -33,6 +33,7 @@ import (
 	"github.com/gravitational/trace"
 
 	awsutils "github.com/gravitational/teleport/api/utils/aws"
+	"github.com/gravitational/teleport/lib/modules"
 )
 
 // AWSClientRequest contains the required fields to set up an AWS service client.
@@ -198,4 +199,48 @@ func checkAccountID(ctx context.Context, clt callerIdentityGetter, wantAccountID
 		return trace.BadParameter("expected account ID %s but current account ID is %s", wantAccountID, currentAccountID)
 	}
 	return nil
+}
+
+type identityTokenRetriever struct {
+	IntegrationTokenGenerator
+	integrationName string
+}
+
+func (i identityTokenRetriever) GetIdentityToken() ([]byte, error) {
+	token, err := i.GenerateAWSOIDCToken(context.TODO(), i.integrationName)
+	return []byte(token), trace.Wrap(err)
+}
+
+// TODO
+func NewCredentialsProvider(ctx context.Context, client IntegrationTokenGenerator, region string, integrationName string) (aws.CredentialsProvider, error) {
+	integration, err := client.GetIntegration(ctx, integrationName)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	awsOIDCIntegration := integration.GetAWSOIDCIntegrationSpec()
+	if awsOIDCIntegration == nil {
+		return nil, trace.BadParameter("invalid integration subkind, expected awsoidc, got %s", integration.GetSubKind())
+	}
+
+	opts := []func(*config.LoadOptions) error{
+		config.WithRegion(region),
+	}
+	if modules.GetModules().IsBoringBinary() {
+		opts = append(opts, config.WithUseFIPSEndpoint(aws.FIPSEndpointStateEnabled))
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return stscreds.NewWebIdentityRoleProvider(
+		sts.NewFromConfig(cfg),
+		awsOIDCIntegration.RoleARN,
+		identityTokenRetriever{
+			IntegrationTokenGenerator: client,
+			integrationName:           integrationName,
+		},
+	), nil
 }

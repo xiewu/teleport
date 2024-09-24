@@ -19,12 +19,12 @@
 package alpnproxy
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/gravitational/trace"
 	"github.com/sirupsen/logrus"
 
@@ -40,7 +40,7 @@ type AWSAccessMiddleware struct {
 	DefaultLocalProxyHTTPMiddleware
 
 	// AWSCredentials are AWS Credentials used by LocalProxy for request's signature verification.
-	AWSCredentials *credentials.Credentials
+	AWSCredentials aws.CredentialsProvider
 
 	Log logrus.FieldLogger
 
@@ -133,7 +133,7 @@ func (m *AWSAccessMiddleware) HandleRequest(rw http.ResponseWriter, req *http.Re
 }
 
 func (m *AWSAccessMiddleware) handleCommonRequest(rw http.ResponseWriter, req *http.Request) bool {
-	if err := awsutils.VerifyAWSSignature(req, m.AWSCredentials); err != nil {
+	if err := awsutils.VerifyAWSSignature(req.Context(), req, m.AWSCredentials); err != nil {
 		m.Log.WithError(err).Error("AWS signature verification failed.")
 		rw.WriteHeader(http.StatusForbidden)
 		return true
@@ -141,23 +141,33 @@ func (m *AWSAccessMiddleware) handleCommonRequest(rw http.ResponseWriter, req *h
 	return false
 }
 
+func staticAWSCredentialsProvider(accessKeyID, secretID, sessionToken string) aws.CredentialsProvider {
+	return aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{
+			AccessKeyID:     accessKeyID,
+			SecretAccessKey: secretID,
+			SessionToken:    sessionToken,
+		}, nil
+	})
+}
+
 func (m *AWSAccessMiddleware) handleRequestByAssumedRole(rw http.ResponseWriter, req *http.Request, assumedRole *sts.AssumeRoleOutput) bool {
-	credentials := credentials.NewStaticCredentials(
-		aws.StringValue(assumedRole.Credentials.AccessKeyId),
-		aws.StringValue(assumedRole.Credentials.SecretAccessKey),
-		aws.StringValue(assumedRole.Credentials.SessionToken),
+	credentials := staticAWSCredentialsProvider(
+		aws.ToString(assumedRole.Credentials.AccessKeyId),
+		aws.ToString(assumedRole.Credentials.SecretAccessKey),
+		aws.ToString(assumedRole.Credentials.SessionToken),
 	)
 
-	if err := awsutils.VerifyAWSSignature(req, credentials); err != nil {
+	if err := awsutils.VerifyAWSSignature(req.Context(), req, credentials); err != nil {
 		m.Log.WithError(err).Error("AWS signature verification failed.")
 		rw.WriteHeader(http.StatusForbidden)
 		return true
 	}
 
-	m.Log.Debugf("Rewriting headers for AWS request by assumed role %q.", aws.StringValue(assumedRole.AssumedRoleUser.Arn))
+	m.Log.Debugf("Rewriting headers for AWS request by assumed role %q.", aws.ToString(assumedRole.AssumedRoleUser.Arn))
 
 	// Add a custom header for marking the special request.
-	req.Header.Add(appcommon.TeleportAWSAssumedRole, aws.StringValue(assumedRole.AssumedRoleUser.Arn))
+	req.Header.Add(appcommon.TeleportAWSAssumedRole, aws.ToString(assumedRole.AssumedRoleUser.Arn))
 
 	// Rename the original authorization header to ensure older app agents
 	// (that don't support the requests by assumed roles) will fail.
@@ -181,7 +191,7 @@ func (m *AWSAccessMiddleware) HandleResponse(response *http.Response) error {
 		return nil
 	}
 
-	if strings.EqualFold(sigV4.Service, sts.EndpointsID) {
+	if strings.EqualFold(sigV4.Service, sts.ServiceID) {
 		return trace.Wrap(m.handleSTSResponse(response))
 	}
 	return nil
@@ -209,8 +219,10 @@ func (m *AWSAccessMiddleware) handleSTSResponse(response *http.Response) error {
 		return nil
 	}
 
-	m.assumedRoles.Store(aws.StringValue(assumedRole.Credentials.AccessKeyId), assumedRole)
-	m.Log.Debugf("Saved credentials for assumed role %q.", aws.StringValue(assumedRole.AssumedRoleUser.Arn))
+	if assumedRole.Credentials != nil || assumedRole.Credentials.AccessKeyId != nil {
+		m.assumedRoles.Store(aws.ToString(assumedRole.Credentials.AccessKeyId), assumedRole)
+		m.Log.Debugf("Saved credentials for assumed role %q.", aws.ToString(assumedRole.AssumedRoleUser.Arn))
+	}
 	return nil
 }
 

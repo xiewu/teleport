@@ -32,7 +32,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	accessgraphv1alpha "github.com/gravitational/teleport/gen/proto/go/accessgraph/v1alpha"
-	awsutil "github.com/gravitational/teleport/lib/utils/aws"
 )
 
 // pollAWSS3Buckets is a function that returns a function that fetches
@@ -71,7 +70,8 @@ func (a *awsFetcher) fetchS3Buckets(ctx context.Context) ([]*accessgraphv1alpha.
 		}
 	}
 
-	region := awsutil.GetKnownRegions()[0]
+	// "us-east-1" is the default s3 region.
+	region := "us-east-1"
 	if len(a.Regions) > 0 {
 		region = a.Regions[0]
 	}

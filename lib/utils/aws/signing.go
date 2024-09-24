@@ -19,7 +19,6 @@
 package aws
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -50,8 +49,8 @@ type SigningService struct {
 
 // SigningServiceConfig is the SigningService configuration.
 type SigningServiceConfig struct {
-	// SessionProvider is a provider for AWS Sessions.
-	SessionProvider AWSSessionProvider
+	// MakeCredentialsProvider is a provider for AWS Sessions.
+	MakeCredentialsProvider MakeCredentialsProviderFunc
 	// Clock is used to override time in tests.
 	Clock clockwork.Clock
 	// CredentialsGetter is used to obtain STS credentials.
@@ -63,8 +62,8 @@ func (s *SigningServiceConfig) CheckAndSetDefaults() error {
 	if s.Clock == nil {
 		s.Clock = clockwork.NewRealClock()
 	}
-	if s.SessionProvider == nil {
-		return trace.BadParameter("session provider is required")
+	if s.MakeCredentialsProvider == nil {
+		return trace.BadParameter("credentials provider is required")
 	}
 	if s.CredentialsGetter == nil {
 		// Use cachedCredentialsGetter by default. cachedCredentialsGetter
@@ -162,23 +161,23 @@ func (s *SigningService) SignRequest(ctx context.Context, req *http.Request, sig
 	// would reject the requests.
 	unsignedHeaders := removeUnsignedHeaders(reqCopy)
 
-	session, err := s.SessionProvider(ctx, signCtx.SigningRegion, signCtx.Integration)
+	hostCredentials, err := s.MakeCredentialsProvider(ctx, signCtx.SigningRegion, signCtx.Integration)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 	credentials, err := s.CredentialsGetter.Get(ctx, GetCredentialsRequest{
-		Provider:    session,
-		Expiry:      signCtx.Expiry,
-		SessionName: signCtx.SessionName,
-		RoleARN:     signCtx.AWSRoleArn,
-		ExternalID:  signCtx.AWSExternalID,
-		Tags:        signCtx.SessionTags,
+		CredentialsProvider: hostCredentials,
+		Expiry:              signCtx.Expiry,
+		SessionName:         signCtx.SessionName,
+		RoleARN:             signCtx.AWSRoleArn,
+		ExternalID:          signCtx.AWSExternalID,
+		Tags:                signCtx.SessionTags,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 	signer := NewSigner(credentials, signCtx.SigningName)
-	_, err = signer.Sign(reqCopy, bytes.NewReader(payload), signCtx.SigningName, signCtx.SigningRegion, s.Clock.Now())
+	err = signer.Sign(ctx, reqCopy, payload, signCtx.SigningName, signCtx.SigningRegion, s.Clock.Now())
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

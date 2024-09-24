@@ -40,7 +40,6 @@ import (
 	"github.com/gravitational/teleport"
 	apievents "github.com/gravitational/teleport/api/types/events"
 	apiaws "github.com/gravitational/teleport/api/utils/aws"
-	"github.com/gravitational/teleport/lib/cloud"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/events"
 	"github.com/gravitational/teleport/lib/srv/db/common"
@@ -137,6 +136,7 @@ func (e *Engine) HandleConnection(ctx context.Context, _ *common.Session) error 
 	}
 	defer e.Audit.OnSessionEnd(e.Context, e.sessionCtx)
 
+	/* TODO cache ambient credentials and support assume_role_arn
 	meta := e.sessionCtx.Database.GetAWS()
 	awsSession, err := e.CloudClients.GetAWSSession(ctx, meta.Region,
 		cloud.WithAssumeRoleFromAWSMeta(meta),
@@ -145,10 +145,11 @@ func (e *Engine) HandleConnection(ctx context.Context, _ *common.Session) error 
 	if err != nil {
 		return trace.Wrap(err)
 	}
+	*/
 	signer, err := libaws.NewSigningService(libaws.SigningServiceConfig{
-		Clock:             e.Clock,
-		SessionProvider:   libaws.StaticAWSSessionProvider(awsSession),
-		CredentialsGetter: e.CredentialsGetter,
+		Clock:                   e.Clock,
+		MakeCredentialsProvider: libaws.DefaultMakeCredentialsProvider,
+		CredentialsGetter:       e.CredentialsGetter,
 	})
 	if err != nil {
 		return trace.Wrap(err)

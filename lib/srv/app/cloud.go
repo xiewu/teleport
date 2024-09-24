@@ -28,11 +28,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
-	"github.com/aws/aws-sdk-go/aws/credentials/ssocreds"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	awssession "github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials/ec2rolecreds"
+	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
@@ -91,16 +91,16 @@ type AWSSigninResponse struct {
 
 // CloudConfig is the configuration for cloud service.
 type CloudConfig struct {
-	// SessionGetter returns an AWS session.
-	SessionGetter awsutils.AWSSessionProvider
+	// TODO
+	MakeCredentialsProvider awsutils.MakeCredentialsProviderFunc
 	// Clock is used to override time in tests.
 	Clock clockwork.Clock
 }
 
 // CheckAndSetDefaults validates the config.
 func (c *CloudConfig) CheckAndSetDefaults() error {
-	if c.SessionGetter == nil {
-		return trace.BadParameter("missing session getter")
+	if c.MakeCredentialsProvider == nil {
+		return trace.BadParameter("missing MakeCredentialsProvider")
 	}
 	if c.Clock == nil {
 		c.Clock = clockwork.NewRealClock()
@@ -159,7 +159,7 @@ func (c *cloud) GetAWSSigninURL(ctx context.Context, req AWSSigninRequest) (*AWS
 // getAWSSigninToken gets the signin token required for the AWS sign in URL.
 //
 // https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_enable-console-custom-url.html
-func (c *cloud) getAWSSigninToken(ctx context.Context, req *AWSSigninRequest, endpoint string, options ...func(*stscreds.AssumeRoleProvider)) (string, error) {
+func (c *cloud) getAWSSigninToken(ctx context.Context, req *AWSSigninRequest, endpoint string, options ...func(*stscreds.AssumeRoleOptions)) (string, error) {
 	// It is stated in the user guide linked above:
 	// When you use DurationSeconds in an AssumeRole* operation, you must call
 	// it as an IAM user with long-term credentials. Otherwise, the call to the
@@ -173,12 +173,12 @@ func (c *cloud) getAWSSigninToken(ctx context.Context, req *AWSSigninRequest, en
 
 	// Sign In requests target IAM endpoints which don't require a region.
 	region := ""
-	session, err := c.cfg.SessionGetter(ctx, region, req.Integration)
+	credentialsProvider, err := c.cfg.MakeCredentialsProvider(ctx, region, req.Integration)
 	if err != nil {
 		return "", trace.Wrap(err)
 	}
 
-	temporarySession, err := isSessionUsingTemporaryCredentials(session)
+	temporarySession, err := isSessionUsingTemporaryCredentials(ctx, credentialsProvider)
 	if err != nil {
 		return "", trace.Wrap(err)
 	}
@@ -188,7 +188,7 @@ func (c *cloud) getAWSSigninToken(ctx context.Context, req *AWSSigninRequest, en
 		return "", trace.Wrap(err)
 	}
 
-	options = append(options, func(creds *stscreds.AssumeRoleProvider) {
+	options = append(options, func(creds *stscreds.AssumeRoleOptions) {
 		// Setting role session name to Teleport username will allow to
 		// associate CloudTrail events with the Teleport user.
 		creds.RoleSessionName = awsutils.MaybeHashRoleSessionName(req.Identity.Username)
@@ -212,7 +212,10 @@ func (c *cloud) getAWSSigninToken(ctx context.Context, req *AWSSigninRequest, en
 			creds.ExternalID = aws.String(req.ExternalID)
 		}
 	})
-	stsCredentials, err := stscreds.NewCredentials(session, req.Identity.RouteToApp.AWSRoleARN, options...).Get()
+	client := sts.NewFromConfig(aws.Config{
+		Credentials: credentialsProvider,
+	})
+	stsCredentials, err := stscreds.NewAssumeRoleProvider(client, req.Identity.RouteToApp.AWSRoleARN, options...).Retrieve(ctx)
 	if err != nil {
 		return "", trace.Wrap(err)
 	}
@@ -268,17 +271,13 @@ func (c *cloud) getAWSSigninToken(ctx context.Context, req *AWSSigninRequest, en
 // using temporary credentials.
 //
 // https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp.html
-func isSessionUsingTemporaryCredentials(session *awssession.Session) (bool, error) {
-	if session.Config == nil || session.Config.Credentials == nil {
-		return false, trace.NotFound("session credentials not found")
-	}
-
-	credentials, err := session.Config.Credentials.Get()
+func isSessionUsingTemporaryCredentials(ctx context.Context, credentialsProvider aws.CredentialsProvider) (bool, error) {
+	credentials, err := credentialsProvider.Retrieve(ctx)
 	if err != nil {
 		return false, trace.Wrap(err)
 	}
 
-	switch credentials.ProviderName {
+	switch credentials.Source {
 	case ec2rolecreds.ProviderName:
 		return false, nil
 

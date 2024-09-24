@@ -90,8 +90,8 @@ type ConnectionsHandlerConfig struct {
 	// Cloud provides cloud provider access related functionality.
 	Cloud Cloud
 
-	// AWSSessionProvider is used to provide AWS Sessions.
-	AWSSessionProvider awsutils.AWSSessionProvider
+	// TODO
+	MakeCredentialsProvider awsutils.MakeCredentialsProviderFunc
 
 	// TLSConfig is the *tls.Config for this server.
 	TLSConfig *tls.Config
@@ -139,13 +139,13 @@ func (c *ConnectionsHandlerConfig) CheckAndSetDefaults() error {
 	if c.TLSConfig == nil {
 		return trace.BadParameter("tls config missing")
 	}
-	if c.AWSSessionProvider == nil {
-		return trace.BadParameter("aws session provider missing")
+	if c.MakeCredentialsProvider == nil {
+		return trace.BadParameter("MakeCredentialsProvider missing")
 	}
 	if c.Cloud == nil {
 		cloud, err := NewCloud(CloudConfig{
-			Clock:         c.Clock,
-			SessionGetter: c.AWSSessionProvider,
+			Clock:                   c.Clock,
+			MakeCredentialsProvider: c.MakeCredentialsProvider,
 		})
 		if err != nil {
 			return trace.Wrap(err)
@@ -210,8 +210,8 @@ func NewConnectionsHandler(closeContext context.Context, cfg *ConnectionsHandler
 	}
 
 	awsSigner, err := awsutils.NewSigningService(awsutils.SigningServiceConfig{
-		Clock:           cfg.Clock,
-		SessionProvider: cfg.AWSSessionProvider,
+		Clock:                   cfg.Clock,
+		MakeCredentialsProvider: cfg.MakeCredentialsProvider,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)

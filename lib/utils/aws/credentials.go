@@ -20,20 +20,18 @@ package aws
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/client"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
-	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/utils"
@@ -41,8 +39,8 @@ import (
 
 // GetCredentialsRequest is the request for obtaining STS credentials.
 type GetCredentialsRequest struct {
-	// Provider is the user session used to create the STS client.
-	Provider client.ConfigProvider
+	// CredentialsProvider is the user session used to create the STS client.
+	CredentialsProvider aws.CredentialsProvider
 	// Expiry is session expiry to be requested.
 	Expiry time.Time
 	// SessionName is the session name to be requested.
@@ -58,7 +56,7 @@ type GetCredentialsRequest struct {
 // CredentialsGetter defines an interface for obtaining STS credentials.
 type CredentialsGetter interface {
 	// Get obtains STS credentials.
-	Get(ctx context.Context, request GetCredentialsRequest) (*credentials.Credentials, error)
+	Get(ctx context.Context, request GetCredentialsRequest) (aws.CredentialsProvider, error)
 }
 
 type credentialsGetter struct {
@@ -70,23 +68,25 @@ func NewCredentialsGetter() CredentialsGetter {
 }
 
 // Get obtains STS credentials.
-func (g *credentialsGetter) Get(_ context.Context, request GetCredentialsRequest) (*credentials.Credentials, error) {
-	logrus.Debugf("Creating STS session %q for %q.", request.SessionName, request.RoleARN)
-	return stscreds.NewCredentials(request.Provider, request.RoleARN,
-		func(cred *stscreds.AssumeRoleProvider) {
-			cred.RoleSessionName = MaybeHashRoleSessionName(request.SessionName)
-			cred.Expiry.SetExpiration(request.Expiry, 0)
+func (g *credentialsGetter) Get(ctx context.Context, request GetCredentialsRequest) (aws.CredentialsProvider, error) {
+	slog.DebugContext(ctx, "Creating STS session.", "session_name", request.SessionName, "role_arn", request.RoleARN)
+	client := sts.New(sts.Options{
+		Credentials: request.CredentialsProvider,
+	})
+	return stscreds.NewAssumeRoleProvider(client, request.RoleARN, func(cred *stscreds.AssumeRoleOptions) {
+		cred.RoleSessionName = MaybeHashRoleSessionName(request.SessionName)
+		// TODO
+		cred.Duration = request.Expiry.Sub(time.Now())
 
-			if request.ExternalID != "" {
-				cred.ExternalID = aws.String(request.ExternalID)
-			}
+		if request.ExternalID != "" {
+			cred.ExternalID = aws.String(request.ExternalID)
+		}
 
-			cred.Tags = make([]*sts.Tag, 0, len(request.Tags))
-			for key, value := range request.Tags {
-				cred.Tags = append(cred.Tags, &sts.Tag{Key: aws.String(key), Value: aws.String(value)})
-			}
-		},
-	), nil
+		cred.Tags = make([]ststypes.Tag, 0, len(request.Tags))
+		for key, value := range request.Tags {
+			cred.Tags = append(cred.Tags, ststypes.Tag{Key: aws.String(key), Value: aws.String(value)})
+		}
+	}), nil
 }
 
 // CachedCredentialsGetterConfig is the config for creating a CredentialsGetter that caches credentials.
@@ -114,7 +114,7 @@ func (c *CachedCredentialsGetterConfig) SetDefaults() {
 
 // credentialRequestCacheKey credentials request cache key.
 type credentialRequestCacheKey struct {
-	provider    client.ConfigProvider
+	provider    aws.CredentialsProvider
 	expiry      time.Time
 	sessionName string
 	roleARN     string
@@ -126,7 +126,7 @@ type credentialRequestCacheKey struct {
 // request.
 func newCredentialRequestCacheKey(req GetCredentialsRequest) credentialRequestCacheKey {
 	k := credentialRequestCacheKey{
-		provider:    req.Provider,
+		provider:    req.CredentialsProvider,
 		expiry:      req.Expiry,
 		sessionName: req.SessionName,
 		roleARN:     req.RoleARN,
@@ -168,73 +168,30 @@ func NewCachedCredentialsGetter(config CachedCredentialsGetterConfig) (Credentia
 
 // Get returns cached credentials if found, or fetch it from the configured
 // getter.
-func (g *cachedCredentialsGetter) Get(ctx context.Context, request GetCredentialsRequest) (*credentials.Credentials, error) {
-	credentials, err := utils.FnCacheGet(ctx, g.cache, newCredentialRequestCacheKey(request), func(ctx context.Context) (*credentials.Credentials, error) {
+func (g *cachedCredentialsGetter) Get(ctx context.Context, request GetCredentialsRequest) (aws.CredentialsProvider, error) {
+	credentials, err := utils.FnCacheGet(ctx, g.cache, newCredentialRequestCacheKey(request), func(ctx context.Context) (aws.CredentialsProvider, error) {
 		credentials, err := g.config.Getter.Get(ctx, request)
 		return credentials, trace.Wrap(err)
 	})
 	return credentials, trace.Wrap(err)
 }
 
-type staticCredentialsGetter struct {
-	credentials *credentials.Credentials
-}
-
-// NewStaticCredentialsGetter returns a CredentialsGetter that always returns
-// the same provided credentials.
-//
-// Used in testing to mock CredentialsGetter.
-func NewStaticCredentialsGetter(credentials *credentials.Credentials) CredentialsGetter {
-	return &staticCredentialsGetter{
-		credentials: credentials,
-	}
-}
-
-// Get returns the credentials provided to NewStaticCredentialsGetter.
-func (g *staticCredentialsGetter) Get(_ context.Context, _ GetCredentialsRequest) (*credentials.Credentials, error) {
-	if g.credentials == nil {
-		return nil, trace.NotFound("no credentials found")
-	}
-	return g.credentials, nil
-}
-
-// AWSSessionProvider defines a function that creates an AWS Session.
 // It must use ambient credentials if Integration is empty.
 // It must use Integration credentials otherwise.
-type AWSSessionProvider func(ctx context.Context, region string, integration string) (*session.Session, error)
+type MakeCredentialsProviderFunc func(ctx context.Context, region string, integration string) (aws.CredentialsProvider, error)
 
-// StaticAWSSessionProvider is a helper method that returns a static session.
-// Must not be used to provide sessions when using Integrations.
-func StaticAWSSessionProvider(awsSession *session.Session) AWSSessionProvider {
-	return func(ctx context.Context, region, integration string) (*session.Session, error) {
-		if integration != "" {
-			return nil, trace.BadParameter("integration %q is not allowed to use static sessions", integration)
-		}
-		return awsSession, nil
+func DefaultMakeCredentialsProvider(ctx context.Context, region string, integration string) (aws.CredentialsProvider, error) {
+	opts := []func(*config.LoadOptions) error{
+		config.WithRegion(region),
 	}
-}
-
-// SessionProviderUsingAmbientCredentials returns an AWS Session using ambient credentials.
-// This is in contrast with AWS Sessions that can be generated using an AWS OIDC Integration.
-func SessionProviderUsingAmbientCredentials() AWSSessionProvider {
-	return func(ctx context.Context, region, integration string) (*session.Session, error) {
-		if integration != "" {
-			return nil, trace.BadParameter("integration %q is not allowed to use ambient sessions", integration)
-		}
-		useFIPSEndpoint := endpoints.FIPSEndpointStateUnset
-		if modules.GetModules().IsBoringBinary() {
-			useFIPSEndpoint = endpoints.FIPSEndpointStateEnabled
-		}
-		session, err := session.NewSessionWithOptions(session.Options{
-			SharedConfigState: session.SharedConfigEnable,
-			Config: aws.Config{
-				UseFIPSEndpoint: useFIPSEndpoint,
-			},
-		})
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-
-		return session, nil
+	if modules.GetModules().IsBoringBinary() {
+		opts = append(opts, config.WithUseFIPSEndpoint(aws.FIPSEndpointStateEnabled))
 	}
+
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return cfg.Credentials, nil
 }

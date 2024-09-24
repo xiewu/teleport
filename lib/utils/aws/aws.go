@@ -19,7 +19,6 @@
 package aws
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -31,10 +30,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/arn"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	v4 "github.com/aws/aws-sdk-go/aws/signer/v4"
-	"github.com/aws/aws-sdk-go/service/iam"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/gravitational/trace"
 
 	apievents "github.com/gravitational/teleport/api/types/events"
@@ -150,14 +147,14 @@ func IsSignedByAWSSigV4(r *http.Request) bool {
 // VerifyAWSSignature verifies the request signature ensuring that the request originates from tsh aws command execution
 // AWS CLI signs the request with random generated credentials that are passed to LocalProxy by
 // the AWSCredentials LocalProxyConfig configuration.
-func VerifyAWSSignature(req *http.Request, credentials *credentials.Credentials) error {
+func VerifyAWSSignature(ctx context.Context, req *http.Request, credentialsProvider aws.CredentialsProvider) error {
 	sigV4, err := ParseSigV4(req.Header.Get("Authorization"))
 	if err != nil {
 		return trace.BadParameter(err.Error())
 	}
 
 	// Verifies the request is signed by the expected access key ID.
-	credValue, err := credentials.Get()
+	credValue, err := credentialsProvider.Retrieve(ctx)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -195,8 +192,8 @@ func VerifyAWSSignature(req *http.Request, credentials *credentials.Credentials)
 		return trace.BadParameter(err.Error())
 	}
 
-	signer := NewSigner(credentials, sigV4.Service)
-	_, err = signer.Sign(reqCopy, bytes.NewReader(payload), sigV4.Service, sigV4.Region, t)
+	signer := NewSigner(credentialsProvider, sigV4.Service)
+	err = signer.Sign(ctx, reqCopy, payload, sigV4.Service, sigV4.Region, t)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -212,20 +209,6 @@ func VerifyAWSSignature(req *http.Request, credentials *credentials.Credentials)
 		return trace.AccessDenied("signature verification failed")
 	}
 	return nil
-}
-
-// NewSigner creates a new V4 signer.
-func NewSigner(credentials *credentials.Credentials, signingServiceName string) *v4.Signer {
-	options := func(s *v4.Signer) {
-		// s3 and s3control requests are signed with URL unescaped (found by
-		// searching "DisableURIPathEscaping" in "aws-sdk-go/service"). Both
-		// services use "s3" as signing name. See description of
-		// "DisableURIPathEscaping" for more details.
-		if signingServiceName == "s3" {
-			s.DisableURIPathEscaping = true
-		}
-	}
-	return v4.NewSigner(credentials, options)
 }
 
 // filterHeaders removes request headers that are not in the headers list and returns the removed header keys.
@@ -384,7 +367,7 @@ func BuildRoleARN(username, region, accountID string) (string, error) {
 	}
 	roleARN := arn.ARN{
 		Partition: partition,
-		Service:   iam.ServiceName,
+		Service:   iamServiceName,
 		AccountID: accountID,
 		Resource:  resource,
 	}
@@ -424,7 +407,7 @@ func ParseRoleARN(roleARN string) (*arn.ARN, error) {
 // Example role ARN: arn:aws:iam::123456789012:role/some-role-name
 func checkRoleARN(parsed *arn.ARN) error {
 	parts := strings.Split(parsed.Resource, "/")
-	if parts[0] != "role" || parsed.Service != iam.ServiceName {
+	if parts[0] != "role" || parsed.Service != iamServiceName {
 		return trace.BadParameter("%q is not an AWS IAM role ARN", parsed)
 	}
 	if len(parts) < 2 || len(parts[len(parts)-1]) == 0 {
@@ -486,7 +469,7 @@ func RoleARN(partition, accountID, role string) string {
 func iamResourceARN(partition, accountID, resourceType, resourceName string) string {
 	return arn.ARN{
 		Partition: partition,
-		Service:   "iam",
+		Service:   iamServiceName,
 		AccountID: accountID,
 		Resource:  fmt.Sprintf("%s/%s", resourceType, resourceName),
 	}.String()
@@ -518,3 +501,5 @@ func MaybeHashRoleSessionName(roleSessionName string) (ret string) {
 	slog.DebugContext(context.Background(), "AWS role session name is too long. Using a hash instead.", "hashed", ret, "original", roleSessionName)
 	return ret
 }
+
+const iamServiceName = "iam"

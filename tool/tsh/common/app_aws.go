@@ -26,8 +26,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsarn "github.com/aws/aws-sdk-go/aws/arn"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
 
@@ -134,7 +134,7 @@ type awsApp struct {
 
 	cf *CLIConf
 
-	credentials     *credentials.Credentials
+	credentials     aws.CredentialsProvider
 	credentialsOnce sync.Once
 }
 
@@ -189,7 +189,7 @@ func (a *awsApp) StartLocalProxies(ctx context.Context, opts ...alpnproxy.LocalP
 // GetAWSCredentials generates fake AWS credentials that are used for
 // signing an AWS request during AWS API calls and verified on local AWS proxy
 // side.
-func (a *awsApp) GetAWSCredentials() (*credentials.Credentials, error) {
+func (a *awsApp) GetAWSCredentials() (aws.CredentialsProvider, error) {
 	// There is no specific format or value required for access key and secret,
 	// as long as the AWS clients and the local proxy are using the same
 	// credentials. The only constraint is the access key must have a length
@@ -198,11 +198,15 @@ func (a *awsApp) GetAWSCredentials() (*credentials.Credentials, error) {
 	//
 	// https://docs.aws.amazon.com/STS/latest/APIReference/API_Credentials.html
 	a.credentialsOnce.Do(func() {
-		a.credentials = credentials.NewStaticCredentials(
-			getEnvOrDefault(awsAccessKeyIDEnvVar, uuid.NewString()),
-			getEnvOrDefault(awsSecretAccessKeyEnvVar, uuid.NewString()),
-			"",
-		)
+		a.credentials = aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+			return aws.Credentials{
+				AccessKeyID:     getEnvOrDefault(awsAccessKeyIDEnvVar, uuid.NewString()),
+				SecretAccessKey: getEnvOrDefault(awsSecretAccessKeyEnvVar, uuid.NewString()),
+				SessionToken:    "",
+				Source:          "tsh",
+				CanExpire:       false,
+			}, nil
+		})
 	})
 
 	if a.credentials == nil {
@@ -223,7 +227,7 @@ func (a *awsApp) GetEnvVars() (map[string]string, error) {
 		return nil, trace.Wrap(err)
 	}
 
-	credValues, err := cred.Get()
+	credValues, err := cred.Retrieve(context.TODO())
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

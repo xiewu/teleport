@@ -48,7 +48,7 @@ import (
 	"testing"
 	"time"
 
-	awssession "github.com/aws/aws-sdk-go/aws/session"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/google/renameio/v2"
 	"github.com/google/uuid"
 	"github.com/gravitational/roundtrip"
@@ -4513,27 +4513,27 @@ func (process *TeleportProcess) initProxyEndpoint(conn *Connector) error {
 			return trace.Wrap(err)
 		}
 
-		awsSessionGetter := func(ctx context.Context, region, integration string) (*awssession.Session, error) {
+		makeAWSCredentialsProvider := func(ctx context.Context, region string, integration string) (awssdk.CredentialsProvider, error) {
 			if integration == "" {
-				return awsutils.SessionProviderUsingAmbientCredentials()(ctx, region, integration)
+				return awsutils.DefaultMakeCredentialsProvider(ctx, region, integration)
 			}
 
-			return awsoidc.NewSessionV1(ctx, conn.Client, region, integration)
+			return awsoidc.NewCredentialsProvider(ctx, conn.Client, region, integration)
 		}
 
 		connectionsHandler, err := app.NewConnectionsHandler(process.GracefulExitContext(), &app.ConnectionsHandlerConfig{
-			Clock:              process.Clock,
-			DataDir:            cfg.DataDir,
-			Emitter:            asyncEmitter,
-			Authorizer:         authorizer,
-			HostID:             cfg.HostUUID,
-			AuthClient:         conn.Client,
-			AccessPoint:        accessPoint,
-			TLSConfig:          serverTLSConfig,
-			ConnectionMonitor:  connMonitor,
-			CipherSuites:       cfg.CipherSuites,
-			ServiceComponent:   teleport.ComponentWebProxy,
-			AWSSessionProvider: awsSessionGetter,
+			Clock:                   process.Clock,
+			DataDir:                 cfg.DataDir,
+			Emitter:                 asyncEmitter,
+			Authorizer:              authorizer,
+			HostID:                  cfg.HostUUID,
+			AuthClient:              conn.Client,
+			AccessPoint:             accessPoint,
+			TLSConfig:               serverTLSConfig,
+			ConnectionMonitor:       connMonitor,
+			CipherSuites:            cfg.CipherSuites,
+			ServiceComponent:        teleport.ComponentWebProxy,
+			MakeCredentialsProvider: makeAWSCredentialsProvider,
 		})
 		if err != nil {
 			return trace.Wrap(err)
@@ -5905,19 +5905,19 @@ func (process *TeleportProcess) initApps() {
 		}
 
 		connectionsHandler, err := app.NewConnectionsHandler(process.ExitContext(), &app.ConnectionsHandlerConfig{
-			Clock:              process.Config.Clock,
-			DataDir:            process.Config.DataDir,
-			AuthClient:         conn.Client,
-			AccessPoint:        accessPoint,
-			Authorizer:         authorizer,
-			TLSConfig:          tlsConfig,
-			CipherSuites:       process.Config.CipherSuites,
-			HostID:             process.Config.HostUUID,
-			Emitter:            asyncEmitter,
-			ConnectionMonitor:  connMonitor,
-			ServiceComponent:   teleport.ComponentApp,
-			Logger:             logger,
-			AWSSessionProvider: awsutils.SessionProviderUsingAmbientCredentials(),
+			Clock:                   process.Config.Clock,
+			DataDir:                 process.Config.DataDir,
+			AuthClient:              conn.Client,
+			AccessPoint:             accessPoint,
+			Authorizer:              authorizer,
+			TLSConfig:               tlsConfig,
+			CipherSuites:            process.Config.CipherSuites,
+			HostID:                  process.Config.HostUUID,
+			Emitter:                 asyncEmitter,
+			ConnectionMonitor:       connMonitor,
+			ServiceComponent:        teleport.ComponentApp,
+			Logger:                  logger,
+			MakeCredentialsProvider: awsutils.DefaultMakeCredentialsProvider,
 		})
 		if err != nil {
 			return trace.Wrap(err)
