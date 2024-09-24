@@ -17,7 +17,6 @@
  */
 
 import React, { useState } from 'react';
-import { ServersideSearchPanelWithPageIndicator } from 'teleport/components/ServersideSearchPanel';
 
 import { SortType, TableProps } from 'design/DataTable/types';
 
@@ -40,27 +39,6 @@ export const WithServersideProps = () => {
     onFetchMore: () => setAllData([...allData, ...extraData]),
     fetchStatus: '',
   };
-  props.serversideProps = {
-    serversideSearchPanel: (
-      <ServersideSearchPanelWithPageIndicator
-        pageIndicators={{
-          from: 1,
-          to: allData.length,
-          totalCount: allData.length,
-        }}
-        params={{
-          search: '',
-          query: '',
-          sort: { fieldName: 'hostname', dir: 'ASC' },
-        }}
-        setParams={() => null}
-        pathname=""
-        replaceHistory={() => null}
-      />
-    ),
-    sort: sort,
-    setSort: setSort,
-  };
   return <Table<DummyDataType> {...props} />;
 };
 
@@ -72,27 +50,6 @@ export const WithServersidePropsEmpty = () => {
   props.fetching = {
     onFetchMore: () => {},
     fetchStatus: '',
-  };
-  props.serversideProps = {
-    serversideSearchPanel: (
-      <ServersideSearchPanelWithPageIndicator
-        pageIndicators={{
-          from: 1,
-          to: 0,
-          totalCount: 0,
-        }}
-        params={{
-          search: '',
-          query: '',
-          sort: { fieldName: 'hostname', dir: 'ASC' },
-        }}
-        setParams={() => null}
-        pathname=""
-        replaceHistory={() => null}
-      />
-    ),
-    sort: sort,
-    setSort: setSort,
   };
   return <Table<DummyDataType> {...props} />;
 };
