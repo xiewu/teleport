@@ -20,8 +20,6 @@ import React from 'react';
 
 import styled from 'styled-components';
 
-import { LogoHero } from 'teleport/components/LogoHero';
-
 import { Box, Flex } from 'design';
 import cloudCity from 'design/assets/images/backgrounds/cloud-city.png';
 
@@ -34,9 +32,7 @@ export const WelcomeWrapper = ({ children }) => {
         {/* Flexing column here to prevent margin collapse
         between WelcomeHeader and chidlren */}
         <Flex flexDirection="column">
-          <WelcomeHeader>
-            <LogoHero my="12px" />
-          </WelcomeHeader>
+          <WelcomeHeader></WelcomeHeader>
           {children}
         </Flex>
         <OnboardFooter />
