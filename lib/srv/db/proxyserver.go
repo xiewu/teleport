@@ -28,6 +28,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -506,20 +507,19 @@ func sortDatabaseServers(availableServers []types.DatabaseServer) []types.Databa
 	var (
 		healthy   []types.DatabaseServer
 		unhealthy []types.DatabaseServer
+		warning   []types.DatabaseServer
 		unknown   []types.DatabaseServer
 	)
 
 	for _, server := range availableServers {
-		checks := server.GetDatabase().GetHealthchecks()
-		if len(checks) > 0 {
+		switch common.ServerStatus(server) {
+		case common.DatabaseServerStatusUnknown:
 			unknown = append(unknown, server)
-			continue
-		}
-
-		// TODO: check frequence of errors instead of only using the last one.
-		if checks[0].IsSuccess() {
+		case common.DatabaseServerStatusHealthy:
 			healthy = append(healthy, server)
-		} else {
+		case common.DatabaseServerStatusWarning:
+			warning = append(warning, server)
+		case common.DatabaseServerStatusUnhealthy:
 			unhealthy = append(unhealthy, server)
 		}
 	}
@@ -527,7 +527,12 @@ func sortDatabaseServers(availableServers []types.DatabaseServer) []types.Databa
 	// Shuffle every server whithin their status, but return them in priority
 	// order.
 	shuffle := getShuffleFunc()
-	return append(shuffle(healthy), append(shuffle(unknown), shuffle(unhealthy)...)...)
+	return slices.Concat(
+		shuffle(healthy),
+		shuffle(warning),
+		shuffle(unknown),
+		shuffle(unhealthy),
+	)
 }
 
 // isReverseTunnelDownError returns true if the provided error indicates that
