@@ -149,7 +149,7 @@ type Database interface {
 	GetHealthchecks() []HealthCheck
 	// TODO
 	// TODO: should we use an interface for this?
-	AppendHealtCheck(DatabaseHealthCheckV1)
+	AppendHealthCheck(*DatabaseHealthCheckV1)
 }
 
 // TODO
@@ -170,7 +170,7 @@ func (d *DatabaseV3) GetHealthchecks() (checks []HealthCheck) {
 }
 
 // TODO
-func (d *DatabaseV3) AppendHealtCheck(check *DatabaseHealthCheckV1) {
+func (d *DatabaseV3) AppendHealthCheck(check *DatabaseHealthCheckV1) {
 	d.Status.Health.HealthChecks = append(d.Status.Health.HealthChecks, check)
 }
 
