@@ -381,7 +381,7 @@ message DatabaseStatusV3 {
 }
 
 message DatabaseHealthV1 {
-  repeated DatabaseHealthCheckV1 HealthChecks = 1;
+  repeated DatabaseHealthCheckV1 HealthChecks = 1 [(gogoproto.jsontag) = "checks,omitempty"];
 }
 
 message DatabaseHealthCheckV1 {
