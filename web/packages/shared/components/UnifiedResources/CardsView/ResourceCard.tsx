@@ -19,7 +19,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import styled, { css } from 'styled-components';
 
-import { Box, ButtonLink, Flex, Label, Text } from 'design';
+import { Box, ButtonLink, Flex, Label, Text, LabelState } from 'design';
 import { CheckboxInput } from 'design/Checkbox';
 
 import { ResourceIcon } from 'design/ResourceIcon';
@@ -66,6 +66,7 @@ export function ResourceCard({
   selectResource,
   requiresRequest,
   selected,
+  status,
 }: Omit<ResourceItemProps, 'listViewProps' | 'expandAllLabels'>) {
   const { primaryDesc, secondaryDesc } = cardViewProps;
 
@@ -157,6 +158,21 @@ export function ResourceCard({
     }
   };
 
+  // TODO
+  let showStatus = false;
+  let statusKind = 'secondary';
+  if (status !== undefined) {
+    showStatus = true;
+    switch (status) {
+    case 0:
+      statusKind = 'ready';
+    case 1:
+      statusKind = 'warning';
+    case 2:
+      statusKind = 'danger';
+    }
+  }
+
   return (
     <CardContainer
       onMouseEnter={() => setHovered(true)}
@@ -215,11 +231,26 @@ export function ResourceCard({
           <Flex flexDirection="column" flex="1" minWidth="0" ml={3} gap={1}>
             <Flex flexDirection="row" alignItems="center">
               <SingleLineBox flex="1">
-                <HoverTooltip tipContent={name} showOnlyOnOverflow>
-                  <Text typography="body1">{name}</Text>
-                </HoverTooltip>
+                <Flex
+                  alignItems="center"
+                  justifyContent="space-between"
+                >
+                  <HoverTooltip tipContent={name} showOnlyOnOverflow>
+                    <Text typography="body1">{name}</Text>
+                  </HoverTooltip>
+                  {hovered && <CopyButton name={name} mr={2} />}
+                  { showStatus && <LabelState
+                    kind="secondary"
+                    width="10px"
+                    p={0}
+                    mr={5}
+                    style={{
+                      minHeight: '10px',
+                      minWidth: '10px',
+                    }}
+                  />}
+                </Flex>
               </SingleLineBox>
-              {hovered && <CopyButton name={name} mr={2} />}
               {ActionButton}
             </Flex>
             <Flex flexDirection="row" alignItems="center">

@@ -47,6 +47,11 @@ export interface UnifiedResourceDatabase {
   protocol: DbProtocol;
   labels: ResourceLabel[];
   requiresRequest?: boolean;
+  health: UnifiedResourceDatabaseHealth;
+}
+
+export interface UnifiedResourceDatabaseHealth {
+  status: Number;
 }
 
 export interface UnifiedResourceNode {
@@ -126,6 +131,7 @@ export interface UnifiedResourceViewItem {
   cardViewProps: CardViewSpecificProps;
   listViewProps: ListViewSpecificProps;
   requiresRequest?: boolean;
+  status?: Number;
 }
 
 export enum PinningSupport {
@@ -163,6 +169,7 @@ export type ResourceItemProps = {
   requiresRequest?: boolean;
   pinningSupport: PinningSupport;
   expandAllLabels: boolean;
+  status?: Number;
 };
 
 // Props that are needed for the Card view.
