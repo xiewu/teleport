@@ -466,7 +466,7 @@ func (s *ProxyServer) Connect(ctx context.Context, proxyCtx *common.ProxyContext
 	// There may be multiple database servers proxying the same database. If
 	// we get a connection problem error trying to dial one of them, likely
 	// the database server is down so try the next one.
-	for _, server := range getShuffleFunc()(proxyCtx.Servers) {
+	for _, server := range sortDatabaseServers(proxyCtx.Servers) {
 		attemptedServers++
 		s.log.DebugContext(ctx, "Dialing to database service.", "server", server)
 		tlsConfig, err := s.getConfigForServer(ctx, proxyCtx.Identity, server)
@@ -499,6 +499,35 @@ func (s *ProxyServer) Connect(ctx context.Context, proxyCtx *common.ProxyContext
 		return serviceConn, nil
 	}
 	return nil, trace.BadParameter("failed to connect to any of the database servers")
+}
+
+// TODO
+func sortDatabaseServers(availableServers []types.DatabaseServer) []types.DatabaseServer {
+	var (
+		healthy   []types.DatabaseServer
+		unhealthy []types.DatabaseServer
+		unknown   []types.DatabaseServer
+	)
+
+	for _, server := range availableServers {
+		checks := server.GetDatabase().GetHealthchecks()
+		if len(checks) > 0 {
+			unknown = append(unknown, server)
+			continue
+		}
+
+		// TODO: check frequence of errors instead of only using the last one.
+		if checks[0].IsSuccess() {
+			healthy = append(healthy, server)
+		} else {
+			unhealthy = append(unhealthy, server)
+		}
+	}
+
+	// Shuffle every server whithin their status, but return them in priority
+	// order.
+	shuffle := getShuffleFunc()
+	return append(shuffle(healthy), append(shuffle(unhealthy), shuffle(unknown)...)...)
 }
 
 // isReverseTunnelDownError returns true if the provided error indicates that

@@ -145,6 +145,33 @@ type Database interface {
 	// IsUsernameCaseInsensitive returns true if the database username is case
 	// insensitive.
 	IsUsernameCaseInsensitive() bool
+	// TODO
+	GetHealthchecks() []HealthCheck
+	// TODO
+	// TODO: should we use an interface for this?
+	AppendHealtCheck(DatabaseHealthCheckV1)
+}
+
+// TODO
+type HealthCheck interface {
+	IsSuccess() bool
+}
+
+func (c *DatabaseHealthCheckV1) IsSuccess() bool {
+	return c.Diagnostic.Success
+}
+
+// TODO
+func (d *DatabaseV3) GetHealthchecks() (checks []HealthCheck) {
+	for _, check := range d.Status.Health.HealthChecks {
+		checks = append(checks, check)
+	}
+	return checks
+}
+
+// TODO
+func (d *DatabaseV3) AppendHealtCheck(check *DatabaseHealthCheckV1) {
+	d.Status.Health.HealthChecks = append(d.Status.Health.HealthChecks, check)
 }
 
 // NewDatabaseV3 creates a new database resource.
