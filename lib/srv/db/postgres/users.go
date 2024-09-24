@@ -204,6 +204,15 @@ func (e *Engine) applyPermissions(ctx context.Context, sessionCtx *common.Sessio
 		Auth:         e.Auth,
 		CloudClients: e.CloudClients,
 		Log:          e.Log,
+		UpdateHealthFunc: func(check types.DatabaseHealthCheckV1) error {
+			dbSvc := sessionCtx.Database.GetName()
+			err := e.UpdateProxiedDatabase(dbSvc, func(db types.Database, hostID string) error {
+				check.HostID = hostID
+				common.PrependHealthCheck(db, check)
+				return nil
+			})
+			return trace.Wrap(err)
+		},
 	})
 	if err != nil {
 		return trace.Wrap(err)

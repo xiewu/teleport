@@ -59,6 +59,12 @@ type Config struct {
 
 	Clock clockwork.Clock
 	Log   *slog.Logger
+
+	// UpdateProxiedDatabase finds the proxied database by name and uses the
+	// provided function to update the database's status. Returns
+	// trace.NotFound if the name is not found otherwise forwards the error
+	// from the provided callback function.
+	UpdateProxiedDatabase func(string, func(types.Database, string) error) error
 }
 
 // loadEnvVar parses the named env vars as a duration.
@@ -115,6 +121,9 @@ func (c *Config) CheckAndSetDefaults(ctx context.Context) error {
 	}
 	if c.CloudClients == nil {
 		return trace.BadParameter("missing parameter CloudClients")
+	}
+	if c.UpdateProxiedDatabase == nil {
+		return trace.BadParameter("missing parameter UpdateProxiedDatabase")
 	}
 	if c.Log == nil {
 		c.Log = slog.Default().With(teleport.ComponentKey, "db:obj_importer")

@@ -25,6 +25,7 @@ import (
 
 	dbobjectv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/dbobject/v1"
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/lib/srv/db/common"
 	"github.com/gravitational/teleport/lib/srv/db/common/databaseobjectimportrule"
 	"github.com/gravitational/teleport/lib/srv/db/objects"
 )
@@ -130,5 +131,17 @@ func (f *objectFetcher) connectAsAdmin(ctx context.Context, databaseName string)
 
 		startupParams: map[string]string{},
 	}
-	return conn.connectAsAdmin(ctx)
+	pgConn, err := conn.connectAsAdmin(ctx)
+	f.updateHealthStatus(ctx, err)
+	return pgConn, trace.Wrap(err)
+}
+
+func (f *objectFetcher) updateHealthStatus(ctx context.Context, connErr error) {
+	check := common.NewConnectivityHealthcheck(connErr, "Database object fetcher")
+	err := f.cfg.UpdateHealthFunc(check)
+	if err != nil {
+		f.cfg.Log.WarnContext(ctx, "Failed to update database healthcheck",
+			"error", err,
+		)
+	}
 }

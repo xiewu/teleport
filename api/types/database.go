@@ -146,6 +146,9 @@ type Database interface {
 	// insensitive.
 	IsUsernameCaseInsensitive() bool
 	GetHealthchecks() []*DatabaseHealthCheckV1
+
+	SetStatusHealth(DatabaseHealthV1)
+	GetStatusHealth() DatabaseHealthV1
 }
 
 func (d *DatabaseV3) GetHealthchecks() (checks []*DatabaseHealthCheckV1) {
@@ -378,6 +381,14 @@ func (d *DatabaseV3) SetStatusCA(ca string) {
 // GetStatusCA gets the database CA certificate in the status field.
 func (d *DatabaseV3) GetStatusCA() string {
 	return d.Status.CACert
+}
+
+func (d *DatabaseV3) SetStatusHealth(health DatabaseHealthV1) {
+	d.Status.Health = health
+}
+
+func (d *DatabaseV3) GetStatusHealth() DatabaseHealthV1 {
+	return d.Status.Health
 }
 
 // GetMySQL returns the MySQL options from spec.
