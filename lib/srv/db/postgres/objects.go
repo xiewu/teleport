@@ -18,6 +18,9 @@ package postgres
 
 import (
 	"context"
+	"log/slog"
+	"math/rand/v2"
+	"strconv"
 	"time"
 
 	"github.com/gravitational/trace"
@@ -136,7 +139,25 @@ func (f *objectFetcher) connectAsAdmin(ctx context.Context, databaseName string)
 	return pgConn, trace.Wrap(err)
 }
 
+func injectSyntheticError(db types.Database) error {
+	str, found := db.GetAllLabels()["teleport.dev/synthetic-err-prob"]
+	if !found {
+		return nil
+	}
+	chance, err := strconv.ParseFloat(str, 64)
+	if err != nil {
+		return nil
+	}
+	roll := rand.Float64()
+	if chance > roll {
+		slog.Debug("Injecting synthetic err", "probability", chance, "roll", roll)
+		return trace.BadParameter("Synthetic err probability: %.2f, roll %.2f", chance, roll)
+	}
+	return nil
+}
+
 func (f *objectFetcher) updateHealthStatus(ctx context.Context, connErr error) {
+	connErr = trace.NewAggregate(connErr, injectSyntheticError(f.db))
 	check := common.NewConnectivityHealthcheck(connErr)
 	err := f.cfg.UpdateHealthFunc(check)
 	if err != nil {
