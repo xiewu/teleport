@@ -164,13 +164,13 @@ export function ResourceCard({
   if (status !== undefined) {
     showStatus = true;
     switch (status) {
-    case 0:
+    case 1:
       statusKind = 'success';
       break;
-    case 1:
+    case 2:
       statusKind = 'warning';
       break;
-    case 2:
+    case 4:
       statusKind = 'danger';
       break;
     }
