@@ -59,53 +59,6 @@ type DatabaseServer interface {
 	ProxiedService
 }
 
-// DatabaseServerStatus define the status of a database server given a database.
-// The codes are organized in order, where the smallest number represents a
-// healthy server.
-type DatabaseServerStatus int
-
-const (
-	DatabaseServerStatusHealthy DatabaseServerStatus = iota
-	DatabaseServerStatusWarning
-	DatabaseServerStatusUnknown
-	DatabaseServerStatusUnhealthy
-)
-
-// GetDatabaseServerStatus returns server status and update time.
-// Healthy: all checks went fine.
-// Warning: some checks went fine.
-// Unhealthy: none checks went fine.
-// Unknown: there were no checks so far.
-func GetDatabaseServerStatus(server DatabaseServer) (DatabaseServerStatus, time.Time) {
-	checks := server.GetDatabase().GetHealthchecks()
-	totalChecks := len(checks)
-	if totalChecks == 0 {
-		return DatabaseServerStatusUnknown, time.Now()
-	}
-
-	succeeded := 0
-	var latest time.Time
-
-	for _, check := range checks {
-		if check.Time.After(latest) {
-			latest = check.Time
-		}
-		if check.Diagnostic.Success {
-			succeeded++
-		}
-	}
-
-	if succeeded == totalChecks {
-		return DatabaseServerStatusHealthy, latest
-	}
-
-	if succeeded == 0 {
-		return DatabaseServerStatusUnhealthy, latest
-	}
-
-	return DatabaseServerStatusWarning, latest
-}
-
 // NewDatabaseServerV3 creates a new database server instance.
 func NewDatabaseServerV3(meta Metadata, spec DatabaseServerSpecV3) (*DatabaseServerV3, error) {
 	s := &DatabaseServerV3{

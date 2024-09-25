@@ -25,42 +25,35 @@ import (
 	"github.com/gravitational/teleport/lib/utils"
 )
 
-func NewConnectivityHealthcheck(connErr error, details string) types.DatabaseHealthCheckV1 {
+func NewConnectivityHealthcheck(connErr error) types.DatabaseHealthCheckV1 {
 	if connErr != nil && utils.IsOKNetworkError(connErr) {
 		// normal network teardown errors should not indicate unhealthy db
 		// connectivity.
 		connErr = nil
 	}
 
-	diagnostic := &types.ConnectionDiagnosticSpecV1{
-		Success: true,
-		Message: types.DiagnosticMessageSuccess,
-		Traces: []*types.ConnectionDiagnosticTrace{
-			types.NewTraceDiagnosticConnection(
-				types.ConnectionDiagnosticTrace_CONNECTIVITY,
-				details,
-				connErr,
-			),
-		},
-	}
-	if connErr != nil {
-		diagnostic.Success = false
-		diagnostic.Message = types.DiagnosticMessageFailed
+	hc := types.DatabaseHealthCheckV1{
+		Time:    time.Now(),
+		Status:  types.DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY,
+		Message: "",
 	}
 
-	return types.DatabaseHealthCheckV1{
-		Time:       time.Now(),
-		Diagnostic: diagnostic,
+	if connErr != nil {
+		hc.Status = types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY
+		hc.Message = connErr.Error()
 	}
+
+	return hc
 }
 
 func PrependHealthCheck(db types.Database, check types.DatabaseHealthCheckV1) {
 	health := db.GetStatusHealth()
-	checks := make([]*types.DatabaseHealthCheckV1, 0, min(3, len(health.Checks)+1))
-	checks[0] = &check
-	if len(health.Checks) > 0 {
-		checks = append(checks, health.Checks[:cap(checks)-1]...)
+
+	checks := append([]*types.DatabaseHealthCheckV1{&check}, health.Checks...)
+	if len(checks) > 3 {
+		checks = checks[:3]
 	}
+
 	health.Checks = checks
 	db.SetStatusHealth(health)
 }

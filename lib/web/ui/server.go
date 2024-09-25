@@ -19,8 +19,10 @@
 package ui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gravitational/teleport/api/constants"
 	integrationv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/integration/v1"
@@ -348,7 +350,7 @@ type DatabaseHealth struct {
 	// 1 - yellow, warning. Connection may or may not work.
 	// 2 - red, error. Connection will most likely fail.
 	// 3 - gray, unknown. No history, we don't know what will happen.
-	Status types.DatabaseServerStatus `json:"status,omitempty"`
+	Status types.DatabaseServerStatus `json:"status"`
 	// Status gets reported to user.
 	Message string `json:"message,omitempty"`
 }
@@ -370,8 +372,40 @@ const (
 // MakeDatabase creates database objects.
 func MakeDatabase(database types.Database, dbUsers, dbNames []string, requiresRequest bool) Database {
 	uiLabels := makeLabels(database.GetAllLabels())
+	// find distinct, non-empty agents. count numbers per status ones.
+	var latest time.Time
 
-	// checks := database.GetHealthchecks()
+	agents := map[string]*types.DatabaseHealthCheckV1{}
+	for _, check := range database.GetStatusHealth().Checks {
+		if check.Time.After(latest) {
+			latest = check.Time
+		}
+
+		if check.HostID != "" {
+			agents[check.HostID] = check
+		}
+	}
+
+	statusCounts := map[types.DatabaseServerStatus]int{}
+	for _, check := range agents {
+		statusCounts[check.Status] = statusCounts[check.Status] + 1
+	}
+
+	// report the least severe status. 'unknown' is less severe than 'unhealthy'.
+	status := types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNKNOWN
+
+	severity := []types.DatabaseServerStatus{
+		types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY,
+		types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNKNOWN,
+		types.DatabaseServerStatus_DATABASE_SERVER_STATUS_WARNING,
+		types.DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY,
+	}
+
+	for _, st := range severity {
+		if statusCounts[st] > 0 {
+			status = st
+		}
+	}
 
 	db := Database{
 		Kind:            database.GetKind(),
@@ -386,8 +420,13 @@ func MakeDatabase(database types.Database, dbUsers, dbNames []string, requiresRe
 		URI:             database.GetURI(),
 		RequiresRequest: requiresRequest,
 		Health: &DatabaseHealth{
-			Status:  types.DatabaseServerStatusHealthy,
-			Message: "TODO: actually calculate things",
+			Status: status,
+			Message: fmt.Sprintf("Agents: %v (H:%v/W:%v/E:%v/?:%v). Last updated: %s", len(agents),
+				statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY],
+				statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_WARNING],
+				statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY],
+				statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNKNOWN],
+				latest),
 		},
 	}
 

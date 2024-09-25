@@ -137,7 +137,7 @@ func (f *objectFetcher) connectAsAdmin(ctx context.Context, databaseName string)
 }
 
 func (f *objectFetcher) updateHealthStatus(ctx context.Context, connErr error) {
-	check := common.NewConnectivityHealthcheck(connErr, "Database object fetcher")
+	check := common.NewConnectivityHealthcheck(connErr)
 	err := f.cfg.UpdateHealthFunc(check)
 	if err != nil {
 		f.cfg.Log.WarnContext(ctx, "Failed to update database healthcheck",
