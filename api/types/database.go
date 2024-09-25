@@ -156,7 +156,10 @@ type Database interface {
 // Unhealthy: none checks went fine.
 // Unknown: there were no checks so far.
 func GetDatabaseServerStatus(database Database) (DatabaseServerStatus, time.Time) {
-	checks := database.GetStatusHealth().Checks
+	return CalculateDbStatusFromHealthChecks(database.GetStatusHealth().Checks)
+}
+
+func CalculateDbStatusFromHealthChecks(checks []*DatabaseHealthCheckV1) (DatabaseServerStatus, time.Time) {
 	totalChecks := len(checks)
 	if totalChecks == 0 {
 		return DatabaseServerStatus_DATABASE_SERVER_STATUS_UNKNOWN, time.Now()

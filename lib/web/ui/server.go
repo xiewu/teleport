@@ -379,20 +379,21 @@ func MakeDatabase(database types.Database, dbUsers, dbNames []string, requiresRe
 	// find distinct, non-empty agents. count numbers per status ones.
 	var latest time.Time
 
-	agents := map[string]*types.DatabaseHealthCheckV1{}
+	agents := map[string][]*types.DatabaseHealthCheckV1{}
 	for _, check := range database.GetStatusHealth().Checks {
 		if check.Time.After(latest) {
 			latest = check.Time
 		}
 
 		if check.HostID != "" {
-			agents[check.HostID] = check
+			agents[check.HostID] = append(agents[check.HostID], check)
 		}
 	}
 
 	statusCounts := map[types.DatabaseServerStatus]int{}
-	for _, check := range agents {
-		statusCounts[check.Status] = statusCounts[check.Status] + 1
+	for _, checks := range agents {
+		status, _ := types.CalculateDbStatusFromHealthChecks(checks)
+		statusCounts[status]++
 	}
 
 	// report the least severe status. 'unknown' is less severe than 'unhealthy'.
