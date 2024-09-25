@@ -349,7 +349,7 @@ type DatabaseHealth struct {
 	// 1 - yellow, warning. Connection may or may not work.
 	// 2 - red, error. Connection will most likely fail.
 	// 3 - gray, unknown. No history, we don't know what will happen.
-	Status common.DatabaseServerStatus `json:"status,omitempty"`
+	Status common.DatabaseServerStatus `json:"status"`
 	// Status gets reported to user.
 	Message string `json:"message,omitempty"`
 }
