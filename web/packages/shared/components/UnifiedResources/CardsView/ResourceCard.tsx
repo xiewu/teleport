@@ -161,16 +161,20 @@ export function ResourceCard({
   // TODO
   let showStatus = false;
   let statusKind = 'secondary';
+  let statusText = 'Unknown'
   if (status !== undefined) {
     showStatus = true;
     switch (status) {
     case 1:
+      statusText = 'Healthy'
       statusKind = 'success';
       break;
     case 2:
+      statusText = 'Warning'
       statusKind = 'warning';
       break;
     case 3:
+      statusText = 'Unhealthy'
       statusKind = 'danger';
       break;
     }
@@ -242,16 +246,20 @@ export function ResourceCard({
                     <Text typography="body1">{name}</Text>
                   </HoverTooltip>
                   {hovered && <CopyButton name={name} mr={2} />}
-                  { showStatus && <LabelState
-                    kind={statusKind}
-                    width="10px"
-                    p={0}
-                    mr={5}
-                    style={{
-                      minHeight: '10px',
-                      minWidth: '10px',
-                    }}
-                  />}
+                  { showStatus && (
+                    <HoverTooltip tipContent={statusText}>
+                      <LabelState
+                        kind={statusKind}
+                        width="10px"
+                        p={0}
+                        mr={5}
+                        style={{
+                          minHeight: '10px',
+                          minWidth: '10px',
+                        }}
+                      />
+                    </HoverTooltip>
+                )}
                 </Flex>
               </SingleLineBox>
               {ActionButton}
