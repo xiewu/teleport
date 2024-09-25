@@ -93,6 +93,7 @@ func (f *objectFetcher) getDatabaseNames(ctx context.Context) ([]string, error) 
 		f.cfg.Log.WarnContext(ctx, "No default database configured, using default.", "db_name", dbName)
 	}
 	conn, err := f.connectAsAdmin(ctx, dbName)
+	f.updateHealthStatus(ctx, err)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -135,7 +136,6 @@ func (f *objectFetcher) connectAsAdmin(ctx context.Context, databaseName string)
 		startupParams: map[string]string{},
 	}
 	pgConn, err := conn.connectAsAdmin(ctx)
-	f.updateHealthStatus(ctx, err)
 	return pgConn, trace.Wrap(err)
 }
 
@@ -157,6 +157,10 @@ func injectSyntheticError(db types.Database) error {
 }
 
 func (f *objectFetcher) updateHealthStatus(ctx context.Context, connErr error) {
+	f.cfg.Log.DebugContext(ctx, "Updating health status",
+		"db", f.db.GetName(),
+		"connErr", connErr,
+	)
 	connErr = trace.NewAggregate(connErr, injectSyntheticError(f.db))
 	check := common.NewConnectivityHealthcheck(connErr)
 	err := f.cfg.UpdateHealthFunc(check)
