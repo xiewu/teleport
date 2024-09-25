@@ -353,6 +353,10 @@ type DatabaseHealth struct {
 	Status types.DatabaseServerStatus `json:"status"`
 	// Status gets reported to user.
 	Message string `json:"message,omitempty"`
+
+	// TODO
+	HealthyServers int `json:"healthy_servers"`
+	TotalServers   int `json:"total_servers"`
 }
 
 // AWS contains AWS specific fields.
@@ -427,6 +431,8 @@ func MakeDatabase(database types.Database, dbUsers, dbNames []string, requiresRe
 				statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY],
 				statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNKNOWN],
 				latest),
+			HealthyServers: statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY],
+			TotalServers:   len(agents),
 		},
 	}
 

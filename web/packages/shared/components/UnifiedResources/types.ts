@@ -52,6 +52,8 @@ export interface UnifiedResourceDatabase {
 
 export interface UnifiedResourceDatabaseHealth {
   status: Number;
+  total_servers: Number;
+  healthy_servers: Number;
 }
 
 export interface UnifiedResourceNode {
@@ -131,7 +133,13 @@ export interface UnifiedResourceViewItem {
   cardViewProps: CardViewSpecificProps;
   listViewProps: ListViewSpecificProps;
   requiresRequest?: boolean;
-  status?: Number;
+  status?: ResourceStatus;
+}
+
+export interface ResourceStatus {
+  status: Number;
+  total_servers: Number;
+  healthy_servers: Number;
 }
 
 export enum PinningSupport {
@@ -169,7 +177,7 @@ export type ResourceItemProps = {
   requiresRequest?: boolean;
   pinningSupport: PinningSupport;
   expandAllLabels: boolean;
-  status?: Number;
+  status?: ResourceStatus;
 };
 
 // Props that are needed for the Card view.

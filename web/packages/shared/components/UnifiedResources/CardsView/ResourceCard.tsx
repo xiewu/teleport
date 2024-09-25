@@ -164,7 +164,7 @@ export function ResourceCard({
   let statusText = 'Unknown'
   if (status !== undefined) {
     showStatus = true;
-    switch (status) {
+    switch (status.status) {
     case 1:
       statusText = 'Healthy'
       statusKind = 'success';
@@ -177,6 +177,10 @@ export function ResourceCard({
       statusText = 'Unhealthy'
       statusKind = 'danger';
       break;
+    }
+
+    if (statusText !== 'Unknown') {
+      statusText += ' (' + status.healthy_servers + '/' + status.total_servers + ')';
     }
   }
 

@@ -86,7 +86,7 @@ export function makeUnifiedResourceViewItemDatabase(
       secondaryDesc: resource.description,
     },
     requiresRequest: resource.requiresRequest,
-    status: resource.health?.status,
+    status: resource.health,
   };
 }
 
