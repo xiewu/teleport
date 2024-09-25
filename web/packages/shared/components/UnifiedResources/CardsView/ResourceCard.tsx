@@ -170,7 +170,7 @@ export function ResourceCard({
     case 2:
       statusKind = 'warning';
       break;
-    case 4:
+    case 3:
       statusKind = 'danger';
       break;
     }
