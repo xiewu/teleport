@@ -2984,11 +2984,11 @@ func getHealthStatusString(database types.Database) string {
 	status, _ := types.GetDatabaseServerStatus(database)
 	switch status {
 	case types.DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY:
-		return "[\033[32m✔\033[0m] "
+		return "[\033[32m✔\033[0m]"
 	case types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY:
-		return "[\033[31m✘\033[0m] "
+		return "[\033[31m✘\033[0m]"
 	case types.DatabaseServerStatus_DATABASE_SERVER_STATUS_WARNING:
-		return "[\033[33m⚠\033[0m] "
+		return "[\033[33m▲\033[0m]"
 	default:
 		return ""
 	}
