@@ -27,7 +27,6 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/services"
-	"github.com/gravitational/teleport/lib/srv/db/common"
 )
 
 // Label describes label for webapp
@@ -349,7 +348,7 @@ type DatabaseHealth struct {
 	// 1 - yellow, warning. Connection may or may not work.
 	// 2 - red, error. Connection will most likely fail.
 	// 3 - gray, unknown. No history, we don't know what will happen.
-	Status common.DatabaseServerStatus `json:"status,omitempty"`
+	Status types.DatabaseServerStatus `json:"status,omitempty"`
 	// Status gets reported to user.
 	Message string `json:"message,omitempty"`
 }
@@ -387,7 +386,7 @@ func MakeDatabase(database types.Database, dbUsers, dbNames []string, requiresRe
 		URI:             database.GetURI(),
 		RequiresRequest: requiresRequest,
 		Health: &DatabaseHealth{
-			Status:  common.DatabaseServerStatusHealthy,
+			Status:  types.DatabaseServerStatusHealthy,
 			Message: "TODO: actually calculate things",
 		},
 	}

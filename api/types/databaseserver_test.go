@@ -184,3 +184,43 @@ func makeDatabaseServer(t *testing.T, dbName, agentName string) DatabaseServer {
 	require.NoError(t, err)
 	return databaseServer
 }
+
+func TestServerStatus(t *testing.T) {
+	for name, tc := range map[string]struct {
+		checks         []bool
+		expectedStatus DatabaseServerStatus
+	}{
+		"all success":          {[]bool{true, true, true}, DatabaseServerStatusHealthy},
+		"2nd failed":           {[]bool{true, false, true}, DatabaseServerStatusWarning},
+		"last two failed":      {[]bool{false, false, true}, DatabaseServerStatusWarning},
+		"all failure":          {[]bool{false, false, false}, DatabaseServerStatusUnhealthy},
+		"single success check": {[]bool{true}, DatabaseServerStatusHealthy},
+		"single failure check": {[]bool{false}, DatabaseServerStatusUnhealthy},
+		"unknown":              {[]bool{}, DatabaseServerStatusUnknown},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var checks []*DatabaseHealthCheckV1
+			for _, success := range tc.checks {
+				checks = append(checks, &DatabaseHealthCheckV1{
+					Diagnostic: &ConnectionDiagnosticSpecV1{
+						Success: success,
+					},
+				})
+			}
+
+			server := &DatabaseServerV3{
+				Spec: DatabaseServerSpecV3{
+					Database: &DatabaseV3{
+						Status: DatabaseStatusV3{
+							Health: DatabaseHealthV1{
+								Checks: checks,
+							},
+						},
+					},
+				},
+			}
+			status, _ := GetDatabaseServerStatus(server)
+			require.Equal(t, tc.expectedStatus, status)
+		})
+	}
+}

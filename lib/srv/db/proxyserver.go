@@ -512,15 +512,15 @@ func sortDatabaseServers(availableServers []types.DatabaseServer) []types.Databa
 	)
 
 	for _, server := range availableServers {
-		status, _ := common.ServerStatus(server)
+		status, _ := types.GetDatabaseServerStatus(server)
 		switch status {
-		case common.DatabaseServerStatusUnknown:
+		case types.DatabaseServerStatusUnknown:
 			unknown = append(unknown, server)
-		case common.DatabaseServerStatusHealthy:
+		case types.DatabaseServerStatusHealthy:
 			healthy = append(healthy, server)
-		case common.DatabaseServerStatusWarning:
+		case types.DatabaseServerStatusWarning:
 			warning = append(warning, server)
-		case common.DatabaseServerStatusUnhealthy:
+		case types.DatabaseServerStatusUnhealthy:
 			unhealthy = append(unhealthy, server)
 		}
 	}
