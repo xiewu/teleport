@@ -171,6 +171,18 @@ func (r *ConnectorRef) IsSameProvider(other *ConnectorRef) bool {
 	return other != nil && other.Type == r.Type && other.ID == r.ID
 }
 
+func (u *UserV2) Equal(o *UserV2) bool {
+	return deriveTeleportEqualUserV2(u, o)
+}
+
+func (s LoginStatus) Equal(o LoginStatus) bool {
+	return deriveTeleportEqualLoginStatus(s, o)
+}
+
+func (s CreatedBy) Equal(o CreatedBy) bool {
+	return deriveTeleportEqualCreatedBy(s, o)
+}
+
 // GetVersion returns resource version
 func (u *UserV2) GetVersion() string {
 	return u.Version
@@ -577,6 +589,10 @@ func (c CreatedBy) String() string {
 // String returns debug friendly representation of this identity
 func (i *ExternalIdentity) String() string {
 	return fmt.Sprintf("OIDCIdentity(connectorID=%v, username=%v)", i.ConnectorID, i.Username)
+}
+
+func (i *ExternalIdentity) Equal(o *ExternalIdentity) bool {
+	return deriveTeleportEqualExternalIdentity(i, o)
 }
 
 // Check returns nil if all parameters are great, err otherwise

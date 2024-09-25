@@ -84,6 +84,10 @@ func NewReview(metadata header.Metadata, spec ReviewSpec) (*Review, error) {
 	return member, nil
 }
 
+func (r *Review) Equal(o *Review) bool {
+	return deriveTeleportEqualAccessListReview(r, o)
+}
+
 // CheckAndSetDefaults validates fields and populates empty fields with default values.
 func (r *Review) CheckAndSetDefaults() error {
 	r.SetKind(types.KindAccessListReview)
@@ -143,6 +147,10 @@ func (r ReviewSpec) MarshalJSON() ([]byte, error) {
 		Alias:      (Alias)(r),
 		ReviewDate: r.ReviewDate.Format(time.RFC3339Nano),
 	})
+}
+
+func (r *ReviewChanges) Equal(o *ReviewChanges) bool {
+	return deriveTeleportEqualAccessListReviewChanges(r, o)
 }
 
 func (r *ReviewChanges) UnmarshalJSON(data []byte) error {

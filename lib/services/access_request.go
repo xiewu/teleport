@@ -26,7 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
@@ -1614,7 +1613,7 @@ func (c *thresholdCollector) pushThreshold(t types.AccessReviewThreshold) (uint3
 
 	// don't bother double-storing equivalent thresholds
 	for i, threshold := range c.Thresholds {
-		if cmp.Equal(t, threshold) {
+		if t.Equal(&threshold) {
 			return uint32(i), nil
 		}
 	}

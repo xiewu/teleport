@@ -18,11 +18,13 @@ package accesslist
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"golang.org/x/exp/maps"
 
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/header"
@@ -169,6 +171,10 @@ type Owner struct {
 	IneligibleStatus string `json:"ineligible_status" yaml:"ineligible_status"`
 }
 
+func (o *Owner) Equal(owner *Owner) bool {
+	return deriveTeleportEqualAccessListOwner(o, owner)
+}
+
 // Audit describes the audit configuration for an access list.
 type Audit struct {
 	// NextAuditDate is the date that the next audit should be performed.
@@ -207,6 +213,22 @@ type Requires struct {
 	Traits trait.Traits `json:"traits" yaml:"traits"`
 }
 
+func (r *Requires) Equal(other *Requires) bool {
+	if r == nil && other == nil {
+		return true
+	}
+
+	if (r != nil && other == nil) ||
+		(r == nil && other != nil) {
+		return false
+	}
+
+	return slices.Equal(r.Roles, other.Roles) &&
+		maps.EqualFunc(r.Traits, other.Traits, func(i []string, i2 []string) bool {
+			return slices.Equal(i, i2)
+		})
+}
+
 // IsEmpty returns true when no roles or traits are set
 func (r *Requires) IsEmpty() bool {
 	return len(r.Roles) == 0 && len(r.Traits) == 0
@@ -239,6 +261,10 @@ func NewAccessList(metadata header.Metadata, spec Spec) (*AccessList, error) {
 	}
 
 	return accessList, nil
+}
+
+func (a *AccessList) Equal(o *AccessList) bool {
+	return deriveTeleportEqualAccessList(a, o)
 }
 
 // CheckAndSetDefaults validates fields and populates empty fields with default values.

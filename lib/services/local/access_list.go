@@ -22,7 +22,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
@@ -422,7 +421,7 @@ func (a *AccessListService) UpsertAccessListWithMembers(ctx context.Context, acc
 						newMember.Spec.AddedBy = existingMember.Spec.AddedBy
 
 						// Compare members and update if necessary.
-						if !cmp.Equal(newMember, existingMember) {
+						if !newMember.Equal(existingMember) {
 							// Update the member.
 							upserted, err := a.memberService.WithPrefix(accessList.GetName()).UpsertResource(ctx, newMember)
 							if err != nil {

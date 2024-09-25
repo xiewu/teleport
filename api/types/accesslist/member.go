@@ -77,6 +77,10 @@ func NewAccessListMember(metadata header.Metadata, spec AccessListMemberSpec) (*
 	return member, nil
 }
 
+func (a *AccessListMember) Equal(o *AccessListMember) bool {
+	return deriveTeleportEqualAccessListMember(a, o)
+}
+
 // CheckAndSetDefaults validates fields and populates empty fields with default values.
 func (a *AccessListMember) CheckAndSetDefaults() error {
 	a.SetKind(types.KindAccessListMember)

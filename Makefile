@@ -1544,7 +1544,7 @@ GODERIVE := $(TOOLINGDIR)/bin/goderive
 .PHONY: derive
 derive:
 	cd $(TOOLINGDIR) && go build -o $(GODERIVE) ./cmd/goderive/main.go
-	$(GODERIVE) ./api/types ./api/types/discoveryconfig
+	$(GODERIVE) ./api/types ./api/types/accesslist ./api/types/discoveryconfig
 
 # derive-up-to-date checks if the generated derived functions are up to date.
 .PHONY: derive-up-to-date

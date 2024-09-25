@@ -22,11 +22,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gravitational/trace"
+	"golang.org/x/exp/maps"
 
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/utils"
@@ -58,6 +60,30 @@ func ValidateUserRoles(ctx context.Context, u types.User, roleGetter RoleGetter)
 
 // UsersEquals checks if the users are equal
 func UsersEquals(u types.User, other types.User) bool {
+	eq := (u == nil && other == nil) ||
+		u != nil && other != nil &&
+			u.GetKind() == other.GetKind() &&
+			u.GetSubKind() == other.GetSubKind() &&
+			u.GetVersion() == other.GetVersion()
+
+	if !eq {
+		return false
+	}
+
+	md := other.GetMetadata()
+	return types.Metadata.IsEqual(u.GetMetadata(), &md) &&
+		types.ExternalIdentity.Equal(u.GetOIDCIdentities(), other.GetOIDCIdentities()) &&
+		types.ExternalIdentity.Equal(u.GetSAMLIdentities(), other.GetSAMLIdentities()) &&
+		types.ExternalIdentity.Equal(u.GetGithubIdentities(), other.GetGithubIdentities()) &&
+		slices.Equal(u.GetRoles(), other.GetRoles()) &&
+		maps.EqualFunc(u.GetTraits(), other.GetTraits(), func(s1 []string, s2 []string) bool {
+			return slices.Equal(s1, s2)
+		}) &&
+		types.LoginStatus.Equal(u.GetStatus(), other.GetStatus()) &&
+		u.Expiry().Equal(other.Expiry()) &&
+		types.CreatedBy.Equal(u.GetCreatedBy(), other.GetCreatedBy()) &&
+		slices.Equal(u.GetTrustedDeviceIDs(), other.GetTrustedDeviceIDs())
+
 	return cmp.Equal(u, other,
 		ignoreProtoXXXFields(),
 		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),

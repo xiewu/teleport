@@ -159,6 +159,10 @@ func NewAccessRequestWithResources(name string, user string, roles []string, res
 	return &req, nil
 }
 
+func (t *AccessReviewThreshold) Equal(o *AccessReviewThreshold) bool {
+	return deriveTeleportEqualAccessReviewThreshold(t, o)
+}
+
 // GetUser gets User
 func (r *AccessRequestV3) GetUser() string {
 	return r.Spec.User

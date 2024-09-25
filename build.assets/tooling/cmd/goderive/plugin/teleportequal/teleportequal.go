@@ -118,6 +118,10 @@ func removeIgnoredFieldsFromStruct(name string, strct *types.Struct) types.Type 
 			continue
 		}
 
+		if fieldName == "IneligibleStatus" {
+			continue
+		}
+
 		// Ignore XXX_ fields, which are proto fields.
 		if strings.HasPrefix(fieldName, "XXX_") {
 			continue
