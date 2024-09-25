@@ -165,11 +165,14 @@ export function ResourceCard({
     showStatus = true;
     switch (status) {
     case 0:
-      statusKind = 'ready';
+      statusKind = 'success';
+      break;
     case 1:
       statusKind = 'warning';
+      break;
     case 2:
       statusKind = 'danger';
+      break;
     }
   }
 
@@ -240,7 +243,7 @@ export function ResourceCard({
                   </HoverTooltip>
                   {hovered && <CopyButton name={name} mr={2} />}
                   { showStatus && <LabelState
-                    kind="secondary"
+                    kind={statusKind}
                     width="10px"
                     p={0}
                     mr={5}

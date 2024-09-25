@@ -53,6 +53,7 @@ export function makeDatabase(json: any): Database {
     hostname: json.hostname,
     aws: madeAws,
     requiresRequest,
+    health: json.health,
   };
 }
 

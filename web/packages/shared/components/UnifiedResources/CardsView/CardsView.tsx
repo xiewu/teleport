@@ -59,6 +59,7 @@ export function CardsView({
           selected={selectedResources.includes(key)}
           selectResource={() => onSelectResource(key)}
           pinResource={() => onPinResource(key)}
+          status={item.status}
         />
       ))}
       {isProcessing && (

@@ -47,7 +47,7 @@ export interface UnifiedResourceDatabase {
   protocol: DbProtocol;
   labels: ResourceLabel[];
   requiresRequest?: boolean;
-  health: UnifiedResourceDatabaseHealth;
+  health?: UnifiedResourceDatabaseHealth;
 }
 
 export interface UnifiedResourceDatabaseHealth {

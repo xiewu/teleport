@@ -48,6 +48,11 @@ export interface Database {
   hostname: string;
   aws?: Aws;
   requiresRequest?: boolean;
+  health?: DatabaseHealth;
+}
+
+export interface DatabaseHealth {
+  status: Number;
 }
 
 export type DatabasesResponse = {
