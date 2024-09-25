@@ -413,6 +413,11 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		return nil, trace.Wrap(err)
 	}
 
+	var server *Server
+	config.UpdateProxiedDatabase = func(s string, f func(types.Database, string) error) error {
+		return server.updateProxiedDatabase(s, f)
+	}
+
 	err := config.CheckAndSetDefaults(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -425,7 +430,7 @@ func New(ctx context.Context, config Config) (*Server, error) {
 
 	closeCtx, closeCancelFunc := context.WithCancel(ctx)
 	connCtx, connCancelFunc := context.WithCancel(ctx)
-	server := &Server{
+	server = &Server{
 		cfg:              config,
 		logrusLogger:     logrus.WithField(teleport.ComponentKey, teleport.ComponentDatabase),
 		log:              slog.With(teleport.ComponentKey, teleport.ComponentDatabase),
@@ -456,7 +461,6 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		types.DatabaseCA,
 	)
 
-	server.cfg.UpdateProxiedDatabase = server.updateProxiedDatabase
 	return server, nil
 }
 
