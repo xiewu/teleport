@@ -20,6 +20,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -490,17 +491,34 @@ func (c *UnifiedResourceCache) getDatabaseServers(ctx context.Context) ([]types.
 	if err != nil {
 		return nil, trace.Wrap(err, "getting database servers for unified resource watcher")
 	}
-	// because it's possible to have multiple replicas of a database server serving the same database
-	// we only want to store one based on its internal database resource
-	unique := map[string]struct{}{}
-	resources := make([]types.DatabaseServer, 0, len(newDbs))
+
+	agg := map[string]types.DatabaseServer{}
+
 	for _, dbServer := range newDbs {
-		db := dbServer.GetDatabase()
-		if _, ok := unique[db.GetName()]; ok {
-			continue
+		status, updated := types.GetDatabaseServerStatus(dbServer.GetDatabase())
+		check := &types.DatabaseHealthCheckV1{
+			Time:    updated,
+			HostID:  dbServer.GetHostID(),
+			Status:  status,
+			Message: fmt.Sprintf("Aggregate status from %v health checks: %v", len(dbServer.GetDatabase().GetStatusHealth().Checks), strings.TrimPrefix(status.String(), "DATABASE_SERVER_STATUS_")),
 		}
-		unique[db.GetName()] = struct{}{}
-		resources = append(resources, dbServer)
+
+		dbName := dbServer.GetDatabase().GetName()
+
+		if _, found := agg[dbName]; !found {
+			agg[dbName] = dbServer
+			dbServer.GetDatabase().SetStatusHealth(types.DatabaseHealthV1{Checks: nil})
+		}
+
+		health := agg[dbName].GetDatabase().GetStatusHealth()
+		health.Checks = append(health.Checks, check)
+		agg[dbName].GetDatabase().SetStatusHealth(health)
+	}
+
+	resources := make([]types.DatabaseServer, 0, len(agg))
+
+	for _, server := range agg {
+		resources = append(resources, server)
 	}
 
 	return resources, nil

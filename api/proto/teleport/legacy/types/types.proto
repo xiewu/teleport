@@ -394,10 +394,21 @@ message DatabaseHealthCheckV1 {
     (gogoproto.jsontag) = "time,omitempty"
   ];
 
-  ConnectionDiagnosticSpecV1 Diagnostic = 2 [(gogoproto.jsontag) = "diagnostic"];
+  //  ConnectionDiagnosticSpecV1 Diagnostic = 2 [(gogoproto.jsontag) = "diagnostic"];
 
   // HostID is the ID of the host the database server is running on.
   string HostID = 3 [(gogoproto.jsontag) = "host_id"];
+
+  DatabaseServerStatus Status = 4 [(gogoproto.jsontag) = "status"];
+
+  string Message = 5 [(gogoproto.jsontag) = "message"];
+}
+
+enum DatabaseServerStatus {
+  DATABASE_SERVER_STATUS_UNKNOWN = 0;
+  DATABASE_SERVER_STATUS_HEALTHY = 1;
+  DATABASE_SERVER_STATUS_WARNING = 2;
+  DATABASE_SERVER_STATUS_UNHEALTHY = 3;
 }
 
 // IAMPolicyStatus represents states that describe if an AWS database

@@ -172,7 +172,7 @@ func (e *Engine) updateServerVersion(sessionCtx *common.Session, serverConn *cli
 	// Note that sessionCtx.Database is a copy of the database cached by
 	// database service. Call e.UpdateProxiedDatabase to do the update instead of
 	// setting the copy.
-	doUpdate := func(db types.Database) error {
+	doUpdate := func(db types.Database, _ string) error {
 		db.SetMySQLServerVersion(serverVersion)
 		return nil
 	}

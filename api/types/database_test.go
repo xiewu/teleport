@@ -1174,3 +1174,42 @@ func TestGetAdminUser(t *testing.T) {
 		})
 	}
 }
+
+func TestServerStatus(t *testing.T) {
+	for name, tc := range map[string]struct {
+		checks         []bool
+		expectedStatus DatabaseServerStatus
+	}{
+		"all success":          {[]bool{true, true, true}, DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY},
+		"2nd failed":           {[]bool{true, false, true}, DatabaseServerStatus_DATABASE_SERVER_STATUS_WARNING},
+		"last two failed":      {[]bool{false, false, true}, DatabaseServerStatus_DATABASE_SERVER_STATUS_WARNING},
+		"all failure":          {[]bool{false, false, false}, DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY},
+		"single success check": {[]bool{true}, DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY},
+		"single failure check": {[]bool{false}, DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY},
+		"unknown":              {[]bool{}, DatabaseServerStatus_DATABASE_SERVER_STATUS_UNKNOWN},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var checks []*DatabaseHealthCheckV1
+
+			for _, success := range tc.checks {
+				checks = append(checks, &DatabaseHealthCheckV1{
+					Status: map[bool]DatabaseServerStatus{
+						true:  DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY,
+						false: DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY,
+					}[success],
+				})
+			}
+
+			db := &DatabaseV3{
+				Status: DatabaseStatusV3{
+					Health: DatabaseHealthV1{
+						Checks: checks,
+					},
+				},
+			}
+
+			status, _ := GetDatabaseServerStatus(db)
+			require.Equal(t, tc.expectedStatus, status)
+		})
+	}
+}

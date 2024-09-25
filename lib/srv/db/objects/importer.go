@@ -27,6 +27,7 @@ import (
 	dbobjectv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/dbobject/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/utils/retryutils"
+	"github.com/gravitational/teleport/lib/srv/db/common"
 	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/lib/utils/interval"
 )
@@ -55,6 +56,15 @@ func startDatabaseImporter(ctx context.Context, cfg Config, database types.Datab
 		Auth:         cfg.Auth,
 		CloudClients: cfg.CloudClients,
 		Log:          cfg.Log,
+		UpdateHealthFunc: func(check types.DatabaseHealthCheckV1) error {
+			dbSvc := database.GetName()
+			err := cfg.UpdateProxiedDatabase(dbSvc, func(db types.Database, hostID string) error {
+				check.HostID = hostID
+				common.PrependHealthCheck(db, check)
+				return nil
+			})
+			return trace.Wrap(err)
+		},
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)

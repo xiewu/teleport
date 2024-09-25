@@ -145,18 +145,44 @@ type Database interface {
 	// IsUsernameCaseInsensitive returns true if the database username is case
 	// insensitive.
 	IsUsernameCaseInsensitive() bool
-	GetHealthchecks() []*DatabaseHealthCheckV1
+
+	SetStatusHealth(DatabaseHealthV1)
+	GetStatusHealth() DatabaseHealthV1
 }
 
-func (d *DatabaseV3) GetHealthchecks() (checks []*DatabaseHealthCheckV1) {
-	if d == nil {
-		return nil
+// GetDatabaseServerStatus returns server status and update time.
+// Healthy: all checks went fine.
+// Warning: some checks went fine.
+// Unhealthy: none checks went fine.
+// Unknown: there were no checks so far.
+func GetDatabaseServerStatus(database Database) (DatabaseServerStatus, time.Time) {
+	checks := database.GetStatusHealth().Checks
+	totalChecks := len(checks)
+	if totalChecks == 0 {
+		return DatabaseServerStatus_DATABASE_SERVER_STATUS_UNKNOWN, time.Now()
 	}
 
-	for _, check := range d.Status.Health.Checks {
-		checks = append(checks, check)
+	succeeded := 0
+	var latest time.Time
+
+	for _, check := range checks {
+		if check.Time.After(latest) {
+			latest = check.Time
+		}
+		if check.Status != DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY {
+			succeeded++
+		}
 	}
-	return checks
+
+	if succeeded == totalChecks {
+		return DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY, latest
+	}
+
+	if succeeded == 0 {
+		return DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY, latest
+	}
+
+	return DatabaseServerStatus_DATABASE_SERVER_STATUS_WARNING, latest
 }
 
 // NewDatabaseV3 creates a new database resource.
@@ -378,6 +404,14 @@ func (d *DatabaseV3) SetStatusCA(ca string) {
 // GetStatusCA gets the database CA certificate in the status field.
 func (d *DatabaseV3) GetStatusCA() string {
 	return d.Status.CACert
+}
+
+func (d *DatabaseV3) SetStatusHealth(health DatabaseHealthV1) {
+	d.Status.Health = health
+}
+
+func (d *DatabaseV3) GetStatusHealth() DatabaseHealthV1 {
+	return d.Status.Health
 }
 
 // GetMySQL returns the MySQL options from spec.

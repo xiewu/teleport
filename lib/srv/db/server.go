@@ -159,6 +159,8 @@ type Config struct {
 	// discoveryResourceChecker performs some pre-checks when creating databases
 	// discovered by the discovery service.
 	discoveryResourceChecker cloud.DiscoveryResourceChecker
+
+	UpdateProxiedDatabase func(string, func(types.Database, string) error) error
 }
 
 // NewAuditFn defines a function that creates an audit logger.
@@ -274,6 +276,12 @@ func (c *Config) CheckAndSetDefaults(ctx context.Context) (err error) {
 			ImportRules:          c.AuthClient,
 			Auth:                 c.Auth,
 			CloudClients:         c.CloudClients,
+			UpdateProxiedDatabase: func(dbSvc string, fn func(types.Database, string) error) error {
+				// server config is checked before we actually make the server,
+				// so we need to delay evaluation of the configured callback
+				// func by wrapping it in another func instead of passing it directly.
+				return trace.Wrap(c.UpdateProxiedDatabase(dbSvc, fn))
+			},
 		})
 		if err != nil {
 			return trace.Wrap(err)
@@ -405,6 +413,11 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		return nil, trace.Wrap(err)
 	}
 
+	var server *Server
+	config.UpdateProxiedDatabase = func(s string, f func(types.Database, string) error) error {
+		return server.updateProxiedDatabase(s, f)
+	}
+
 	err := config.CheckAndSetDefaults(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -417,7 +430,7 @@ func New(ctx context.Context, config Config) (*Server, error) {
 
 	closeCtx, closeCancelFunc := context.WithCancel(ctx)
 	connCtx, connCancelFunc := context.WithCancel(ctx)
-	server := &Server{
+	server = &Server{
 		cfg:              config,
 		logrusLogger:     logrus.WithField(teleport.ComponentKey, teleport.ComponentDatabase),
 		log:              slog.With(teleport.ComponentKey, teleport.ComponentDatabase),
@@ -1181,16 +1194,18 @@ func (s *Server) createEngine(sessionCtx *common.Session, audit common.Audit) (c
 				Clock:      s.cfg.Clock,
 			}
 		},
-		UpdateProxiedDatabase: func(name string, doUpdate func(types.Database) error) error {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			db, found := s.proxiedDatabases[name]
-			if !found {
-				return trace.NotFound("%q not found among registered databases", name)
-			}
-			return trace.Wrap(doUpdate(db))
-		},
+		UpdateProxiedDatabase: s.updateProxiedDatabase,
 	})
+}
+
+func (s *Server) updateProxiedDatabase(name string, doUpdate func(db types.Database, hostID string) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	db, found := s.proxiedDatabases[name]
+	if !found {
+		return trace.NotFound("%q not found among registered databases", name)
+	}
+	return trace.Wrap(doUpdate(db, s.cfg.HostID))
 }
 
 func (s *Server) authorize(ctx context.Context) (*common.Session, error) {
