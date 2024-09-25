@@ -137,6 +137,51 @@ func (c *Client) CollectProfile(ctx context.Context, profileName string, seconds
 	return result, nil
 }
 
+func (c *Client) GetDatabaseHealthCheck(ctx context.Context, name string) ([]byte, error) {
+	u, err := url.Parse("/db/health?name=" + name)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	resp, err := c.do(ctx, http.MethodGet, *u, nil)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	result, err := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, trace.BadParameter("Unable to get db health %q: %s", name, result)
+	}
+
+	return result, nil
+}
+func (c *Client) RunDatabaseHealthCheck(ctx context.Context, name string) ([]byte, error) {
+	u, err := url.Parse("/db/health?name=" + name)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	resp, err := c.do(ctx, http.MethodPost, *u, nil)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	result, err := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, trace.BadParameter("Unable to run db health %q: %s", name, result)
+	}
+
+	return result, nil
+}
+
 func (c *Client) do(ctx context.Context, method string, u url.URL, body []byte) (*http.Response, error) {
 	u.Scheme = "http"
 	u.Host = "debug"

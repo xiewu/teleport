@@ -561,6 +561,11 @@ func Run(options Options) (app *kingpin.Application, executedCommand string, con
 	collectProfilesCmd.Alias(collectProfileUsageExamples) // We're using "alias" section to display usage examples.
 	collectProfilesCmd.Arg("PROFILES", fmt.Sprintf("Comma-separated profile names to be exported. Supported profiles: %s. Default: %s", strings.Join(maps.Keys(debugclient.SupportedProfiles), ","), strings.Join(defaultCollectProfiles, ","))).StringVar(&ccf.Profiles)
 	collectProfilesCmd.Flag("seconds", "For CPU and trace profiles, profile for the given duration (if set to 0, it returns a profile snapshot). For other profiles, return a delta profile. Default: 0").Short('s').Default("0").IntVar(&ccf.ProfileSeconds)
+	debugDBCmd := debugCmd.Command("db", "Database service commands")
+	debugDBGetHealthCmd := debugDBCmd.Command("get-healthcheck", "Get healthcheck for a database")
+	debugDBGetHealthCmd.Arg("name", "Name of the database").StringVar(&ccf.DatabaseName)
+	debugDBRunHealthCmd := debugDBCmd.Command("run-healthcheck", "Run healthcheck for a database")
+	debugDBRunHealthCmd.Arg("name", "Name of the database").StringVar(&ccf.DatabaseName)
 
 	backendCmd := app.Command("backend", "Commands for managing backend data.")
 	backendCmd.Hidden()
@@ -727,6 +732,10 @@ Examples:
 		err = onGetLogLevel(ccf.ConfigFile)
 	case collectProfilesCmd.FullCommand():
 		err = onCollectProfiles(ccf.ConfigFile, ccf.Profiles, ccf.ProfileSeconds)
+	case debugDBGetHealthCmd.FullCommand():
+		err = onDebugDBGetHealth(context.Background(), ccf.ConfigFile, ccf.DatabaseName)
+	case debugDBRunHealthCmd.FullCommand():
+		err = onDebugDBRunHealth(context.Background(), ccf.ConfigFile, ccf.DatabaseName)
 	case backendCloneCmd.FullCommand():
 		err = onClone(context.Background(), ccf.ConfigFile)
 	}

@@ -67,6 +67,7 @@ import (
 	"github.com/gravitational/teleport/lib/srv/db/snowflake"
 	"github.com/gravitational/teleport/lib/srv/db/spanner"
 	"github.com/gravitational/teleport/lib/srv/db/sqlserver"
+	"github.com/gravitational/teleport/lib/srv/debug"
 	discoverycommon "github.com/gravitational/teleport/lib/srv/discovery/common"
 	"github.com/gravitational/teleport/lib/utils"
 )
@@ -820,6 +821,10 @@ func (s *Server) Start(ctx context.Context) (err error) {
 
 	// Start the cloud-based databases CA renewer.
 	go s.startCARenewer(ctx)
+
+	debug.RegisterDatabaseServicePlugin(&debugServicePlugin{
+		server: s,
+	})
 
 	return nil
 }

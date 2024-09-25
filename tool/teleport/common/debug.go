@@ -46,6 +46,9 @@ type DebugClient interface {
 	GetLogLevel(context.Context) (string, error)
 	// CollectProfile collects a pprof profile.
 	CollectProfile(context.Context, string, int) ([]byte, error)
+
+	RunDatabaseHealthCheck(ctx context.Context, name string) ([]byte, error)
+	GetDatabaseHealthCheck(ctx context.Context, name string) ([]byte, error)
 }
 
 func onSetLogLevel(configPath string, level string) error {
@@ -205,4 +208,33 @@ func convertToReadableErr(err error, dataDir, socketPath string) error {
 	default:
 		return err
 	}
+}
+
+func onDebugDBGetHealth(ctx context.Context, configPath, name string) error {
+	clt, dataDir, socketPath, err := newDebugClient(configPath)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	data, err := clt.GetDatabaseHealthCheck(ctx, name)
+	if err != nil {
+		return convertToReadableErr(err, dataDir, socketPath)
+	}
+
+	fmt.Println(string(data))
+	return nil
+}
+func onDebugDBRunHealth(ctx context.Context, configPath, name string) error {
+	clt, dataDir, socketPath, err := newDebugClient(configPath)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	data, err := clt.RunDatabaseHealthCheck(ctx, name)
+	if err != nil {
+		return convertToReadableErr(err, dataDir, socketPath)
+	}
+
+	fmt.Println(string(data))
+	return nil
 }

@@ -36,6 +36,8 @@ import (
 type Objects interface {
 	StartImporter(ctx context.Context, database types.Database) error
 	StopImporter(databaseName string) error
+
+	RunHealthCheck(ctx context.Context, name string) error
 }
 
 type Config struct {
@@ -153,8 +155,9 @@ func (c *Config) disabled() bool {
 type objects struct {
 	cfg Config
 
-	importerMap    map[string]context.CancelFunc
-	importersMutex sync.RWMutex
+	importerMap     map[string]context.CancelFunc
+	importerImplMap map[string]*singleDatabaseImporter
+	importersMutex  sync.RWMutex
 }
 
 func NewObjects(ctx context.Context, cfg Config) (Objects, error) {
@@ -163,8 +166,9 @@ func NewObjects(ctx context.Context, cfg Config) (Objects, error) {
 		return nil, trace.Wrap(err)
 	}
 	result := &objects{
-		cfg:         cfg,
-		importerMap: make(map[string]context.CancelFunc),
+		cfg:             cfg,
+		importerMap:     make(map[string]context.CancelFunc),
+		importerImplMap: make(map[string]*singleDatabaseImporter),
 	}
 	if result.disabled() {
 		cfg.Log.WarnContext(ctx, "Objects importer is disabled through config.")
@@ -188,13 +192,26 @@ func (o *objects) StartImporter(ctx context.Context, database types.Database) er
 	if _, ok := o.importerMap[database.GetName()]; ok {
 		return trace.AlreadyExists("importer for database %q already started", database.GetName())
 	}
-	stopImporterFunc, err := startDatabaseImporter(ctx, o.cfg, database)
+	impl, stopImporterFunc, err := startDatabaseImporter(ctx, o.cfg, database)
 	if err != nil {
 		// register dummy "stop" function to avoid errors on shutdown.
 		o.importerMap[database.GetName()] = func() {}
 		return trace.Wrap(err)
 	}
 	o.importerMap[database.GetName()] = stopImporterFunc
+	o.importerImplMap[database.GetName()] = impl
+	return nil
+}
+
+func (o *objects) RunHealthCheck(ctx context.Context, name string) error {
+	o.importersMutex.Lock()
+	defer o.importersMutex.Unlock()
+	impl, ok := o.importerImplMap[name]
+	if !ok {
+		return trace.NotFound("no importer found for database %q", name)
+	}
+	// this is racy
+	impl.scan(ctx)
 	return nil
 }
 
@@ -215,6 +232,7 @@ func (o *objects) StopImporter(name string) error {
 		stopImporterFunc()
 	}
 	delete(o.importerMap, name)
+	delete(o.importerImplMap, name)
 	return nil
 }
 

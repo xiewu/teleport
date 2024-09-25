@@ -48,7 +48,7 @@ type objWithExpiry struct {
 	expiry time.Time
 }
 
-func startDatabaseImporter(ctx context.Context, cfg Config, database types.Database) (context.CancelFunc, error) {
+func startDatabaseImporter(ctx context.Context, cfg Config, database types.Database) (*singleDatabaseImporter, context.CancelFunc, error) {
 	cfg.Log = cfg.Log.With("database", database.GetName(), "protocol", database.GetProtocol())
 
 	fetcher, err := GetObjectFetcher(ctx, database, ObjectFetcherConfig{
@@ -67,14 +67,14 @@ func startDatabaseImporter(ctx context.Context, cfg Config, database types.Datab
 		},
 	})
 	if err != nil {
-		return nil, trace.Wrap(err)
+		return nil, nil, trace.Wrap(err)
 	}
 
 	cancelCtx, cancel := context.WithCancel(ctx)
 	imp := newSingleDatabaseImporter(cfg, database, fetcher)
 	go imp.start(cancelCtx)
 	cfg.Log.InfoContext(ctx, "Successfully started database importer.")
-	return cancel, nil
+	return imp, cancel, nil
 }
 
 func newSingleDatabaseImporter(cfg Config, database types.Database, fetcher ObjectFetcher) *singleDatabaseImporter {

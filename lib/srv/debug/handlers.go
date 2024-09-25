@@ -41,6 +41,10 @@ type LogLeveler interface {
 // NewServeMux returns a http mux that handles all the debug service endpoints.
 func NewServeMux(logger *slog.Logger, leveler LogLeveler) *http.ServeMux {
 	mux := http.NewServeMux()
+
+	mux.Handle("GET /db/health", handleGetDatabaseHealthCheck(logger))
+	mux.Handle("POST /db/health", handleRunDatabaseHealthCheck(logger))
+
 	mux.HandleFunc("/debug/pprof/cmdline", pprofMiddleware(logger, "cmdline", pprof.Cmdline))
 	mux.HandleFunc("/debug/pprof/profile", pprofMiddleware(logger, "profile", pprof.Profile))
 	mux.HandleFunc("/debug/pprof/symbol", pprofMiddleware(logger, "symbol", pprof.Symbol))
