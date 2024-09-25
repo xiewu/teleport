@@ -432,7 +432,7 @@ func MakeDatabase(database types.Database, dbUsers, dbNames []string, requiresRe
 				statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY],
 				statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNKNOWN],
 				latest),
-			HealthyServers: statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY],
+			HealthyServers: statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY] + statusCounts[types.DatabaseServerStatus_DATABASE_SERVER_STATUS_WARNING],
 			TotalServers:   len(agents),
 		},
 	}
