@@ -2980,6 +2980,20 @@ func formatUsersForDB(database types.Database, accessChecker services.AccessChec
 
 // TODO(greedy52) more refactoring on db printing and move them to db_print.go.
 
+func getHealthStatusString(database types.Database) string {
+	status, _ := types.GetDatabaseServerStatus(database)
+	switch status {
+	case types.DatabaseServerStatus_DATABASE_SERVER_STATUS_HEALTHY:
+		return "[\033[32m✔\033[0m] "
+	case types.DatabaseServerStatus_DATABASE_SERVER_STATUS_UNHEALTHY:
+		return "[\033[31m✘\033[0m] "
+	case types.DatabaseServerStatus_DATABASE_SERVER_STATUS_WARNING:
+		return "[\033[33m⚠\033[0m] "
+	default:
+		return ""
+	}
+}
+
 func getDatabaseRow(proxy, cluster, clusterFlag string, database types.Database, active []tlsca.RouteToDatabase, accessChecker services.AccessChecker, verbose bool) databaseTableRow {
 	displayName := common.FormatResourceName(database, verbose)
 	var connect string
@@ -3011,6 +3025,7 @@ func getDatabaseRow(proxy, cluster, clusterFlag string, database types.Database,
 		DatabaseRoles: formatDatabaseRolesForDB(database, accessChecker),
 		Labels:        common.FormatLabels(database.GetAllLabels(), verbose),
 		Connect:       connect,
+		Status:        getHealthStatusString(database),
 	}
 }
 

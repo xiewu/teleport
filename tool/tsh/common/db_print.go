@@ -42,6 +42,7 @@ type databaseTableRow struct {
 	DatabaseRoles string
 	Labels        string
 	Connect       string
+	Status        string
 }
 
 func makeTableColumnTitles(row any) (out []string) {
