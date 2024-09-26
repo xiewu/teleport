@@ -21,6 +21,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -152,6 +153,36 @@ func (c *UnifiedResourceCache) putLocked(resource resource) {
 	c.resources[key] = resource
 	c.nameTree.ReplaceOrInsert(&item{Key: sortKey.byName, Value: key})
 	c.typeTree.ReplaceOrInsert(&item{Key: sortKey.byType, Value: key})
+
+	resourceDB, ok1 := (resource).(types.DatabaseServer)
+	oldResourceDB, ok2 := (oldResource).(types.DatabaseServer)
+	if ok1 && ok2 {
+		status := resourceDB.GetDatabase().GetStatusHealth()
+		statusOld := oldResourceDB.GetDatabase().GetStatusHealth()
+		checks := append(status.Checks, statusOld.Checks...)
+		// group checks by hostname
+		checksMap := map[string][]*types.DatabaseHealthCheckV1{}
+		for _, check := range checks {
+			checksMap[check.HostID] = append(checksMap[check.HostID], check)
+		}
+
+		var checksFinal []*types.DatabaseHealthCheckV1
+		// pick three newest entries for each agent
+		for _, values := range checksMap {
+			// sort values by time. newest elements will be first.
+			sort.Slice(values, func(i, j int) bool {
+				return values[i].Time.After(values[j].Time)
+			})
+
+			// keep latest 3
+			if len(values) > 3 {
+				values = values[:3]
+			}
+			checksFinal = append(checksFinal, values...)
+		}
+		status.Checks = checksFinal
+		resourceDB.GetDatabase().SetStatusHealth(status)
+	}
 }
 
 func putResources[T resource](cache *UnifiedResourceCache, resources []T) {
