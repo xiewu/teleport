@@ -372,11 +372,6 @@ type Server struct {
 	closeConnFunc context.CancelFunc
 }
 
-type HealthChecker interface {
-	StartHealthCheck(ctx context.Context, database types.Database) error
-	StopHealthCheck(dbSvc string) error
-}
-
 // monitoredDatabases is a collection of databases from different sources
 // like configuration file, dynamic resources and imported from cloud.
 //
@@ -1387,14 +1382,20 @@ func (s *Server) trackSession(ctx context.Context, sessionCtx *common.Session) e
 	return nil
 }
 
+type HealthChecker interface {
+	StartHealthCheck(ctx context.Context, database types.Database) error
+	StopHealthCheck(dbSvc string) error
+	RunHealthCheck(ctx context.Context, name string) error
+}
+
 func newNetworkHealthChecker(ctx context.Context, cfg networkHealthCheckerConfig) (*networkHealthChecker, error) {
 	err := cfg.CheckAndSetDefaults(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 	return &networkHealthChecker{
-		cfg:           cfg,
-		dbCancelFuncs: make(map[string]context.CancelFunc),
+		cfg:       cfg,
+		databases: make(map[string]databaseCheckInfo),
 	}, nil
 }
 
@@ -1458,22 +1459,27 @@ func (c *networkHealthCheckerConfig) loadTimeEnvVar(ctx context.Context, name st
 }
 
 type networkHealthChecker struct {
-	cfg           networkHealthCheckerConfig
-	dbCancelFuncs map[string]context.CancelFunc
-	mu            sync.Mutex
+	cfg       networkHealthCheckerConfig
+	databases map[string]databaseCheckInfo
+	mu        sync.Mutex
+}
+
+type databaseCheckInfo struct {
+	cancel   context.CancelFunc
+	database types.Database
 }
 
 func (c *networkHealthChecker) StartHealthCheck(ctx context.Context, db types.Database) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if cancel, ok := c.dbCancelFuncs[db.GetName()]; ok {
-		cancel()
+	if dbCheckInfo, ok := c.databases[db.GetName()]; ok {
+		dbCheckInfo.cancel()
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	go c.startDatabase(ctx, db)
-	c.dbCancelFuncs[db.GetName()] = cancel
+	c.databases[db.GetName()] = databaseCheckInfo{cancel, db}
 	return nil
 }
 
@@ -1528,9 +1534,41 @@ func (c *networkHealthChecker) StopHealthCheck(dbSvc string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if cancel, ok := c.dbCancelFuncs[dbSvc]; ok {
-		cancel()
-		delete(c.dbCancelFuncs, dbSvc)
+	if dbCheckInfo, ok := c.databases[dbSvc]; ok {
+		dbCheckInfo.cancel()
+		delete(c.databases, dbSvc)
+	}
+	return nil
+}
+
+func (c *networkHealthChecker) getDB(name string) (types.Database, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	dbCheckInfo, ok := c.databases[name]
+	if !ok {
+		return nil, trace.NotFound("no checker found for database %q", name)
+	}
+	return dbCheckInfo.database, nil
+}
+func (c *networkHealthChecker) RunHealthCheck(ctx context.Context, name string) error {
+	db, err := c.getDB(name)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	// TODO: this is mostly copy/pasted, we can refactor to reduce code repitition
+	log := c.cfg.Log.With(
+		"database", db.GetName(),
+		"protocol", db.GetProtocol(),
+		"uri", db.GetURI(),
+	)
+	err = c.check(ctx, db)
+	err = c.cfg.OnHealthCheck(db.GetName(), common.NewConnectivityHealthcheck(err))
+	if err != nil {
+		log.DebugContext(ctx, "Failed to update database health",
+			"error", err,
+		)
+		return trace.Wrap(err)
 	}
 	return nil
 }

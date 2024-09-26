@@ -36,8 +36,6 @@ import (
 type Objects interface {
 	StartImporter(ctx context.Context, database types.Database) error
 	StopImporter(databaseName string) error
-
-	RunHealthCheck(ctx context.Context, name string) error
 }
 
 type Config struct {
@@ -200,18 +198,6 @@ func (o *objects) StartImporter(ctx context.Context, database types.Database) er
 	}
 	o.importerMap[database.GetName()] = stopImporterFunc
 	o.importerImplMap[database.GetName()] = impl
-	return nil
-}
-
-func (o *objects) RunHealthCheck(ctx context.Context, name string) error {
-	o.importersMutex.Lock()
-	defer o.importersMutex.Unlock()
-	impl, ok := o.importerImplMap[name]
-	if !ok {
-		return trace.NotFound("no importer found for database %q", name)
-	}
-	// this is racy
-	impl.scan(ctx)
 	return nil
 }
 

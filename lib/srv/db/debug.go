@@ -21,8 +21,9 @@ package db
 import (
 	"context"
 
-	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/trace"
+
+	"github.com/gravitational/teleport/api/types"
 )
 
 type debugServicePlugin struct {
@@ -34,7 +35,7 @@ func (p *debugServicePlugin) GetProxiedDatabase(ctx context.Context, name string
 }
 
 func (p *debugServicePlugin) RunHealthCheck(ctx context.Context, name string) (types.Database, error) {
-	err := p.server.cfg.DatabaseObjects.RunHealthCheck(ctx, name)
+	err := p.server.cfg.DatabaseHealth.RunHealthCheck(ctx, name)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
