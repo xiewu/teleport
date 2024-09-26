@@ -93,7 +93,9 @@ func (f *objectFetcher) getDatabaseNames(ctx context.Context) ([]string, error) 
 		f.cfg.Log.WarnContext(ctx, "No default database configured, using default.", "db_name", dbName)
 	}
 	conn, err := f.connectAsAdmin(ctx, dbName)
-	f.updateHealthStatus(ctx, err)
+	// TODO(gavin)(healthchecks): I disabled this in favor of doing all checks
+	// via tcp network health check that applies to all db protocols.
+	// f.updateHealthStatus(ctx, err)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

@@ -19,6 +19,8 @@
 package service
 
 import (
+	"time"
+
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport"
@@ -145,23 +147,30 @@ func (process *TeleportProcess) initDatabaseService() (retErr error) {
 
 	// Create and start the database service.
 	dbService, err := db.New(process.ExitContext(), db.Config{
-		Clock:                process.Clock,
-		DataDir:              process.Config.DataDir,
-		AuthClient:           conn.Client,
-		AccessPoint:          accessPoint,
-		Emitter:              asyncEmitter,
-		Authorizer:           authorizer,
-		TLSConfig:            tlsConfig,
-		Limiter:              connLimiter,
-		GetRotation:          process.GetRotation,
-		Hostname:             process.Config.Hostname,
-		HostID:               process.Config.HostUUID,
-		Databases:            databases,
-		CloudLabels:          process.cloudLabels,
-		ResourceMatchers:     process.Config.Databases.ResourceMatchers,
-		AWSMatchers:          process.Config.Databases.AWSMatchers,
-		AzureMatchers:        process.Config.Databases.AzureMatchers,
-		OnHeartbeat:          process.OnHeartbeat(teleport.ComponentDatabase),
+		Clock:            process.Clock,
+		DataDir:          process.Config.DataDir,
+		AuthClient:       conn.Client,
+		AccessPoint:      accessPoint,
+		Emitter:          asyncEmitter,
+		Authorizer:       authorizer,
+		TLSConfig:        tlsConfig,
+		Limiter:          connLimiter,
+		GetRotation:      process.GetRotation,
+		Hostname:         process.Config.Hostname,
+		HostID:           process.Config.HostUUID,
+		Databases:        databases,
+		CloudLabels:      process.cloudLabels,
+		ResourceMatchers: process.Config.Databases.ResourceMatchers,
+		AWSMatchers:      process.Config.Databases.AWSMatchers,
+		AzureMatchers:    process.Config.Databases.AzureMatchers,
+		OnHeartbeat: func(err error) {
+			// TODO(gavin)(healthchecks): this for my debugging purposes only.
+			// revert this change.
+			logger.InfoContext(process.ExitContext(), "Called heartbeat",
+				"time", time.Now(),
+			)
+			process.OnHeartbeat(teleport.ComponentDatabase)(err)
+		},
 		ConnectionMonitor:    connMonitor,
 		ConnectedProxyGetter: proxyGetter,
 		InventoryHandle:      process.inventoryHandle,

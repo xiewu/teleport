@@ -23,7 +23,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"log/slog"
+	"math/rand"
 	"net"
+	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,6 +41,7 @@ import (
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
 	apievents "github.com/gravitational/teleport/api/types/events"
+	"github.com/gravitational/teleport/api/utils/retryutils"
 	"github.com/gravitational/teleport/lib/auth"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/authz"
@@ -70,6 +74,7 @@ import (
 	"github.com/gravitational/teleport/lib/srv/debug"
 	discoverycommon "github.com/gravitational/teleport/lib/srv/discovery/common"
 	"github.com/gravitational/teleport/lib/utils"
+	"github.com/gravitational/teleport/lib/utils/interval"
 )
 
 func init() {
@@ -162,6 +167,8 @@ type Config struct {
 	discoveryResourceChecker cloud.DiscoveryResourceChecker
 
 	UpdateProxiedDatabase func(string, func(types.Database, string) error) error
+
+	DatabaseHealth HealthChecker
 }
 
 // NewAuditFn defines a function that creates an audit logger.
@@ -304,6 +311,23 @@ func (c *Config) CheckAndSetDefaults(ctx context.Context) (err error) {
 		c.ShutdownPollPeriod = defaults.ShutdownPollPeriod
 	}
 
+	if c.DatabaseHealth == nil {
+		checker, err := newNetworkHealthChecker(ctx, networkHealthCheckerConfig{
+			OnHealthCheck: func(dbSvc string, check types.DatabaseHealthCheckV1) error {
+				err := c.UpdateProxiedDatabase(dbSvc, func(db types.Database, hostID string) error {
+					check.HostID = hostID
+					common.PrependHealthCheck(db, check)
+					return nil
+				})
+				return trace.Wrap(err)
+			},
+		})
+		if err != nil {
+			return trace.Wrap(err)
+		}
+		c.DatabaseHealth = checker
+	}
+
 	return nil
 }
 
@@ -346,6 +370,11 @@ type Server struct {
 	connContext context.Context
 	// closeConnFunc is the cancel function of the connContext context.
 	closeConnFunc context.CancelFunc
+}
+
+type HealthChecker interface {
+	StartHealthCheck(ctx context.Context, database types.Database) error
+	StopHealthCheck(dbSvc string) error
 }
 
 // monitoredDatabases is a collection of databases from different sources
@@ -517,6 +546,12 @@ func (s *Server) startDatabase(ctx context.Context, database types.Database) err
 			s.log.WarnContext(ctx, "Failed to start database object importer.", "database", database.GetName(), "error", err)
 		}
 	}
+	if err := s.cfg.DatabaseHealth.StartHealthCheck(ctx, database); err != nil {
+		s.log.WarnContext(ctx, "Failed to start database health checker",
+			"database", database.GetName(),
+			"error", err,
+		)
+	}
 
 	s.log.DebugContext(ctx, "Started database.", "db", database)
 	return nil
@@ -527,6 +562,12 @@ func (s *Server) stopDatabase(ctx context.Context, name string) error {
 	// Stop database object importer.
 	if err := s.cfg.DatabaseObjects.StopImporter(name); err != nil {
 		s.log.WarnContext(ctx, "Failed to stop database object importer.", "db", name, "error", err)
+	}
+	if err := s.cfg.DatabaseHealth.StopHealthCheck(name); err != nil {
+		s.log.WarnContext(ctx, "Failed to stop database health checker",
+			"database", name,
+			"error", err,
+		)
 	}
 	s.stopDynamicLabels(name)
 	if err := s.stopHeartbeat(name); err != nil {
@@ -953,6 +994,12 @@ func (s *Server) close(ctx context.Context) error {
 		if err := s.cfg.DatabaseObjects.StopImporter(name); err != nil {
 			s.log.WarnContext(ctx, "Failed to stop database object importer.", "db", name, "error", err)
 		}
+		if err := s.cfg.DatabaseHealth.StopHealthCheck(name); err != nil {
+			s.log.WarnContext(ctx, "Failed to stop database health checker",
+				"database", name,
+				"error", err,
+			)
+		}
 
 		if heartbeat != nil {
 			log := s.log.With("db", name)
@@ -1337,5 +1384,170 @@ func (s *Server) trackSession(ctx context.Context, sessionCtx *common.Session) e
 		}
 	}()
 
+	return nil
+}
+
+func newNetworkHealthChecker(ctx context.Context, cfg networkHealthCheckerConfig) (*networkHealthChecker, error) {
+	err := cfg.CheckAndSetDefaults(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return &networkHealthChecker{
+		cfg:           cfg,
+		dbCancelFuncs: make(map[string]context.CancelFunc),
+	}, nil
+}
+
+const (
+	healthCheckPollPeriodEnv = "TELEPORT_HEALTHCHECK_PERIOD"
+	healthCheckTimeoutEnv    = "TELEPORT_HEALTHCHECK_TIMEOUT"
+)
+
+type networkHealthCheckerConfig struct {
+	Log *slog.Logger
+	// healthcheckPollPeriod defaults to 30 seconds and can be set with
+	// TELEPORT_HEALTHCHECK_PERIOD env var.
+	HealthCheckPollPeriod time.Duration
+	// DialTimeout defaults to 5 seconds and can be set with
+	// TELEPORT_HEALTHCHECK_TIMEOUT env var.
+	DialTimeout time.Duration
+	// OnHealthCheck is called after every health check.
+	OnHealthCheck func(dbSvc string, check types.DatabaseHealthCheckV1) error
+}
+
+func (c *networkHealthCheckerConfig) CheckAndSetDefaults(ctx context.Context) error {
+	if c.Log == nil {
+		c.Log = slog.With(teleport.ComponentKey, teleport.ComponentDatabase)
+	}
+
+	if val, ok := c.loadTimeEnvVar(ctx, healthCheckPollPeriodEnv); ok {
+		c.HealthCheckPollPeriod = val
+	}
+	if val, ok := c.loadTimeEnvVar(ctx, healthCheckTimeoutEnv); ok {
+		c.DialTimeout = val
+	}
+
+	if c.HealthCheckPollPeriod == 0 {
+		c.HealthCheckPollPeriod = 30 * time.Second
+	}
+	if c.DialTimeout == 0 {
+		c.DialTimeout = 5 * time.Second
+	}
+
+	c.Log = c.Log.With(
+		"poll_period", c.HealthCheckPollPeriod,
+		"dial_timeout", c.DialTimeout,
+	)
+
+	return nil
+}
+
+func (c *networkHealthCheckerConfig) loadTimeEnvVar(ctx context.Context, name string) (time.Duration, bool) {
+	if val := os.Getenv(name); val != "" {
+		period, err := time.ParseDuration(val)
+		if err != nil {
+			c.Log.DebugContext(ctx, "Failed to parse env var, override not applied.",
+				"name", name,
+				"value", val,
+			)
+			return 0, false
+		}
+		return period, true
+	}
+	return 0, false
+}
+
+type networkHealthChecker struct {
+	cfg           networkHealthCheckerConfig
+	dbCancelFuncs map[string]context.CancelFunc
+	mu            sync.Mutex
+}
+
+func (c *networkHealthChecker) StartHealthCheck(ctx context.Context, db types.Database) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if cancel, ok := c.dbCancelFuncs[db.GetName()]; ok {
+		cancel()
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	go c.startDatabase(ctx, db)
+	c.dbCancelFuncs[db.GetName()] = cancel
+	return nil
+}
+
+func (c *networkHealthChecker) startDatabase(ctx context.Context, db types.Database) {
+	log := c.cfg.Log.With(
+		"database", db.GetName(),
+		"protocol", db.GetProtocol(),
+		"uri", db.GetURI(),
+	)
+	log.InfoContext(ctx, "Started network health checker")
+
+	ticker := interval.New(interval.Config{
+		Jitter:        retryutils.NewSeventhJitter(),
+		Duration:      c.cfg.HealthCheckPollPeriod * 7 / 6,
+		FirstDuration: retryutils.NewFullJitter()(c.cfg.HealthCheckPollPeriod),
+	})
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.Next():
+			log.DebugContext(ctx, "Checking network health")
+			err := c.check(ctx, db)
+			err = c.cfg.OnHealthCheck(db.GetName(), common.NewConnectivityHealthcheck(err))
+			if err != nil {
+				log.DebugContext(ctx, "Failed to update database health",
+					"error", err,
+				)
+			}
+		case <-ctx.Done():
+			log.DebugContext(ctx, "Shutting down network health checker")
+			return
+		}
+	}
+}
+
+func (c *networkHealthChecker) check(ctx context.Context, db types.Database) error {
+	if err := injectSyntheticError(db); err != nil {
+		return trace.Wrap(err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.cfg.DialTimeout)
+	defer cancel()
+	d := &net.Dialer{}
+	conn, dialErr := d.DialContext(ctx, "tcp", db.GetURI())
+	if dialErr == nil {
+		defer conn.Close()
+	}
+	return trace.Wrap(dialErr)
+}
+
+func (c *networkHealthChecker) StopHealthCheck(dbSvc string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if cancel, ok := c.dbCancelFuncs[dbSvc]; ok {
+		cancel()
+		delete(c.dbCancelFuncs, dbSvc)
+	}
+	return nil
+}
+
+func injectSyntheticError(db types.Database) error {
+	str, found := db.GetAllLabels()["teleport.dev/synthetic-err-prob"]
+	if !found {
+		return nil
+	}
+	chance, err := strconv.ParseFloat(str, 64)
+	if err != nil {
+		return nil
+	}
+	roll := rand.Float64()
+	if chance > roll {
+		slog.Debug("Injecting synthetic err", "probability", chance, "roll", roll)
+		return trace.BadParameter("Synthetic err probability: %.2f, roll %.2f", chance, roll)
+	}
 	return nil
 }
