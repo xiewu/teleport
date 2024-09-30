@@ -49,7 +49,7 @@ class Indicator extends React.Component<
 
   constructor(props: IndicatorProps = { delay: 'short' }) {
     super(props);
-    this._timer = null;
+    this._timer = undefined;
     this._delay = props.delay;
     this.state = {
       canDisplay: false,

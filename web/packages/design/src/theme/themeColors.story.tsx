@@ -23,6 +23,10 @@ import { H2 } from 'design';
 
 import { Flex, Box, Text, Link, H1 } from '..';
 
+import { BoxProps } from 'design/Box';
+import { ThemeColors } from 'design/theme/themes/types';
+import { FlexProps } from 'design/Flex';
+
 export default {
   title: 'Design/Theme/Colors',
 };
@@ -303,8 +307,15 @@ const ColorsComponent = () => {
   );
 };
 
-function ColorsBox({ colors, themeType = null, ...styles }) {
-  const list = Object.keys(colors).map(key => {
+function ColorsBox({
+  colors,
+  themeType = undefined,
+  ...styles
+}: {
+  colors: ThemeColors['levels'];
+  themeType?: string;
+} & FlexProps) {
+  const list = Object.entries(colors).map(([key, colorsForKey]) => {
     const fullPath = themeType
       ? `theme.colors.${themeType}.${key}`
       : `theme.colors.${key}`;
@@ -324,7 +335,7 @@ function ColorsBox({ colors, themeType = null, ...styles }) {
           p={3}
           mr={3}
           css={`
-            background: ${colors[key]};
+            background: ${colorsForKey};
             border: 1px solid ${props => props.theme.colors.primaryInverse};
           `}
         />
@@ -339,7 +350,16 @@ function ColorsBox({ colors, themeType = null, ...styles }) {
   );
 }
 
-function SingleColorBox({ bg, color, path, ...styles }) {
+function SingleColorBox({
+  bg,
+  color,
+  path,
+  ...styles
+}: {
+  bg: string;
+  color: string;
+  path: string;
+} & BoxProps) {
   return (
     <Box width="150px" height="150px" p={3} mr={3} bg={bg} {...styles}>
       <Text color={color}>

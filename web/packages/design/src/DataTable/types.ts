@@ -16,9 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { MatchCallback } from 'design/utils/match';
+import { CSSProperties } from 'react';
 
-import { State } from './useTable';
+import { MatchCallback } from 'design/utils/match';
 
 export type TableProps<T> = {
   data: T[];
@@ -62,7 +62,7 @@ export type TableProps<T> = {
   fetching?: FetchingConfig;
   showFirst?: (data: T[]) => T;
   className?: string;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
   // customSort contains fields that describe the current sort direction,
   // the field to sort by, and a custom sort function.
   customSort?: CustomSort;
@@ -78,7 +78,7 @@ export type TableProps<T> = {
     /**
      * conditionally style a row (eg: cursor: pointer, disabled)
      */
-    getStyle?(row: T): React.CSSProperties;
+    getStyle?(row: T): CSSProperties;
   };
 };
 
@@ -86,7 +86,7 @@ type TableColumnBase<T> = {
   headerText?: string;
   render?: (row: T) => JSX.Element;
   isSortable?: boolean;
-  onSort?: (a, b) => number;
+  onSort?: (a: T, b: T) => number;
   // isNonRender is a flag that when true,
   // does not render the column or cell in table.
   // Use case: when a column combines two
@@ -140,19 +140,23 @@ export type ServersideProps = {
 };
 
 // Makes it so either key or altKey is required
-type TableColumnWithKey<T> = TableColumnBase<T> & {
-  key: keyof T & string;
-  // altSortKey is the alternative field to sort column by,
-  // if provided. Otherwise it falls back to sorting by field
-  // "key".
+export type TableColumnWithKey<T> = TableColumnBase<T> & {
+  key: Extract<keyof T, string>;
+  /**
+   * The alternative field to sort column by.
+   * If empty, it falls back to sorting by the field `key`.
+   */
   altSortKey?: Extract<keyof T, string>;
-  altKey?: never;
 };
+
+export function isTableColumnWithKey<T>(
+  column: TableColumn<T>
+): column is TableColumnWithKey<T> {
+  return 'key' in column;
+}
 
 type TableColumnWithAltKey<T> = TableColumnBase<T> & {
   altKey: string;
-  key?: never;
-  altSortKey?: never;
 };
 
 // InitialSort defines the field (table column) that should be initiallly
@@ -165,12 +169,12 @@ type TableColumnWithAltKey<T> = TableColumnBase<T> & {
 type InitialSort<T> = {
   dir: SortDir;
 } & (
-  | { key: Extract<keyof T, string>; altSortKey?: never }
-  | { altSortKey: Extract<keyof T, string>; key?: never }
+  | { key: Extract<keyof T, string>; altSortKey?: undefined }
+  | { altSortKey: Extract<keyof T, string>; key?: undefined }
 );
 
 export type SortType = {
-  fieldName: string;
+  fieldName?: string;
   dir: SortDir;
 };
 
@@ -194,7 +198,7 @@ export type BasicTableProps<T> = {
   renderHeaders: () => JSX.Element;
   renderBody: (data: T[]) => JSX.Element;
   className?: string;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
 };
 
 export type SearchableBasicTableProps<T> = BasicTableProps<T> & {
@@ -205,14 +209,28 @@ export type SearchableBasicTableProps<T> = BasicTableProps<T> & {
 export type PagedTableProps<T> = SearchableBasicTableProps<T> & {
   nextPage: () => void;
   prevPage: () => void;
-  pagination: State<T>['state']['pagination'];
-  fetching?: State<T>['fetching'];
+  pagination: ConfiguredPagination<T>;
+  fetching?: FetchingConfig;
 };
 
 export type ServersideTableProps<T> = BasicTableProps<T> & {
-  nextPage: () => void;
-  prevPage: () => void;
-  pagination: State<T>['state']['pagination'];
-  serversideProps: State<T>['serversideProps'];
+  nextPage?: () => void;
+  prevPage?: () => void;
+  pagination?: ConfiguredPagination<T>;
+  serversideProps: ServersideProps;
   fetchStatus?: FetchStatus;
+};
+
+export type ConfiguredPagination<T> = {
+  paginatedData: T[][];
+  currentPage: number;
+  pagerPosition: PagerPosition;
+  pageSize: number;
+  CustomTable?: (p: PagedTableProps<T>) => JSX.Element;
+};
+
+export type ConfiguredSort<T> = {
+  key: keyof T;
+  onSort?: (a: T, b: T) => number;
+  dir: 'ASC' | 'DESC';
 };

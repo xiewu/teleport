@@ -65,7 +65,7 @@ export default function InputSearch({
 
 type Props = {
   searchValue: string;
-  setSearchValue: React.Dispatch<SetStateAction<string>>;
+  setSearchValue: (searchValue: string) => void;
   children?: JSX.Element;
   bigInputSize?: boolean;
 };

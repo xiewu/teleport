@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
+import React, { ReactNode } from 'react';
 
 import styled from 'styled-components';
 
@@ -25,7 +25,7 @@ import cloudCity from 'design/assets/images/backgrounds/cloud-city.png';
 
 import { OnboardFooter } from './OnboardFooter';
 
-export const WelcomeWrapper = ({ children }) => {
+export const WelcomeWrapper = ({ children }: { children: ReactNode }) => {
   return (
     <OnboardWrapper>
       <Flex flexDirection="column" justifyContent="space-between" height="100%">

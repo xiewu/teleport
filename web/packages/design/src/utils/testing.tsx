@@ -35,13 +35,16 @@ import { darkTheme } from 'design/theme';
 import '@testing-library/jest-dom';
 import 'jest-styled-components';
 
-function Providers({ children }: { children: React.ReactElement }) {
+function Providers({ children }: { children: React.ReactNode }) {
   return (
     <StaticThemeProvider theme={darkTheme}>{children}</StaticThemeProvider>
   );
 }
 
-function render(ui: React.ReactElement<any>, options?: RenderOptions) {
+function render(
+  ui: React.ReactNode,
+  options?: RenderOptions
+): ReturnType<typeof testingRender> {
   return testingRender(ui, { wrapper: Providers, ...options });
 }
 

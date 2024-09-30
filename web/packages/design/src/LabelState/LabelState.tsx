@@ -115,7 +115,15 @@ LabelState.defaultProps = {
 };
 
 export default LabelState;
-export const StateDanger = props => <LabelState kind="danger" {...props} />;
-export const StateInfo = props => <LabelState kind="secondary" {...props} />;
-export const StateWarning = props => <LabelState kind="warning" {...props} />;
-export const StateSuccess = props => <LabelState kind="success" {...props} />;
+export const StateDanger = (props: LabelStateProps) => (
+  <LabelState kind="danger" {...props} />
+);
+export const StateInfo = (props: LabelStateProps) => (
+  <LabelState kind="secondary" {...props} />
+);
+export const StateWarning = (props: LabelStateProps) => (
+  <LabelState kind="warning" {...props} />
+);
+export const StateSuccess = (props: LabelStateProps) => (
+  <LabelState kind="success" {...props} />
+);

@@ -16,13 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
+import React, { ComponentType } from 'react';
 
 import { Text } from '..';
 
 import Flex from './../Flex';
 
 import * as Icon from '.';
+import { IconProps } from 'design/Icon/Icon';
 
 export default {
   title: 'Design/Icon',
@@ -224,7 +225,13 @@ export const Icons = () => (
   </Flex>
 );
 
-const IconBox = ({ IconCmpt, text }) => (
+const IconBox = ({
+  IconCmpt,
+  text,
+}: {
+  IconCmpt: ComponentType<IconProps>;
+  text: string;
+}) => (
   <Flex m="10px" width="300px">
     <IconCmpt />
     <Text ml={2}>{text}</Text>

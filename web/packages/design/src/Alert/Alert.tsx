@@ -44,7 +44,9 @@ type AlertKind =
   | 'outline-info'
   | 'outline-warn';
 
-const alertBorder = (props: ThemedAlertProps) => {
+const alertBorder = (
+  props: ThemedAlertProps
+): { borderColor: string; border?: string | number } => {
   const { kind, theme } = props;
   switch (kind) {
     case 'success':
@@ -71,8 +73,6 @@ const alertBorder = (props: ThemedAlertProps) => {
         border: theme.borders[1],
         borderColor: theme.colors.text.disabled,
       };
-    default:
-      kind satisfies never;
   }
 };
 
@@ -144,9 +144,13 @@ export interface AlertProps
   linkColor?: string;
 }
 
-interface ThemedAlertProps extends AlertProps {
+interface ThemedAlertProps extends AlertPropsWithRequiredKind {
   theme: Theme;
 }
+
+type WithRequired<T, K extends keyof T> = T & { [P in K]-?: T[P] };
+
+type AlertPropsWithRequiredKind = WithRequired<AlertProps, 'kind'>;
 
 /**
  * Displays an in-page alert. Component's children are displayed as the alert
@@ -208,7 +212,7 @@ export const Alert = ({
 };
 
 /** Renders a round border and allows background color customization. */
-const OuterContainer = styled.div<AlertProps>`
+const OuterContainer = styled.div<AlertPropsWithRequiredKind>`
   box-sizing: border-box;
   margin: 0 0 24px 0;
 
@@ -227,7 +231,7 @@ const OuterContainer = styled.div<AlertProps>`
 `;
 
 /** Renders a transparent color overlay. */
-const InnerContainer = styled.div<AlertProps>`
+const InnerContainer = styled.div<AlertPropsWithRequiredKind>`
   padding: 12px 16px;
   overflow: auto;
   word-break: break-word;
@@ -243,7 +247,7 @@ const AlertIcon = ({
   ...otherProps
 }: {
   kind: AlertKind | BannerKind;
-  customIcon: React.ComponentType<IconProps>;
+  customIcon?: React.ComponentType<IconProps>;
 } & IconProps) => {
   const commonProps = { role: 'graphics-symbol', ...otherProps };
   if (CustomIcon) {
@@ -264,8 +268,6 @@ const AlertIcon = ({
     case 'neutral':
     case 'primary':
       return <Icon.Notification aria-label="Note" {...commonProps} />;
-    default:
-      kind satisfies never;
   }
 };
 
@@ -309,8 +311,6 @@ const iconContainerStyles = ({
         color: theme.colors.text.main,
         background: 'none',
       };
-    default:
-      kind satisfies never;
   }
 };
 
@@ -521,7 +521,5 @@ const bannerColors = (theme: Theme, kind: BannerKind) => {
           theme.colors.interactive.solid.success.default.background,
         iconColor: theme.colors.interactive.solid.success.default.background,
       };
-    default:
-      kind satisfies never;
   }
 };

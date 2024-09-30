@@ -16,8 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import styled from 'styled-components';
-import PropTypes from 'prop-types';
+import styled, { DefaultTheme } from 'styled-components';
 import {
   space,
   width,
@@ -29,7 +28,13 @@ import {
   HeightProps,
 } from 'styled-system';
 
-function error({ hasError, theme }) {
+function error({
+  hasError,
+  theme,
+}: {
+  hasError?: boolean;
+  theme: DefaultTheme;
+}) {
   if (!hasError) {
     return;
   }
@@ -92,12 +97,5 @@ const Input = styled.input<InputProps>`
   ${height}
   ${error}
 `;
-
-Input.displayName = 'Input';
-
-Input.propTypes = {
-  placeholder: PropTypes.string,
-  hasError: PropTypes.bool,
-};
 
 export default Input;

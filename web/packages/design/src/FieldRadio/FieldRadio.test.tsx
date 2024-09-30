@@ -17,7 +17,7 @@
  */
 
 import { render, screen, userEvent } from 'design/utils/testing';
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, MutableRefObject, RefObject } from 'react';
 
 import { FieldRadio } from './FieldRadio';
 
@@ -26,11 +26,13 @@ test('controlled flow', async () => {
 
   function TestField() {
     const [val, setVal] = useState('');
+
     function onRbChange(e: React.ChangeEvent<HTMLInputElement>) {
       const v = e.currentTarget.value;
       setVal(v);
       onChange(v);
     }
+
     return (
       <>
         <FieldRadio
@@ -66,10 +68,11 @@ test('controlled flow', async () => {
 });
 
 test('uncontrolled flow', async () => {
-  let fooRef, barRef;
+  let fooRef: RefObject<HTMLInputElement>, barRef: RefObject<HTMLInputElement>;
+
   function TestForm() {
-    const fooRefInternal = useRef();
-    const barRefInternal = useRef();
+    const fooRefInternal = useRef<HTMLInputElement>(null);
+    const barRefInternal = useRef<HTMLInputElement>(null);
     fooRef = fooRefInternal;
     barRef = barRefInternal;
     return (
@@ -86,11 +89,15 @@ test('uncontrolled flow', async () => {
 
   await user.click(screen.getByLabelText('Foo'));
   expect(screen.getByTestId('form')).toHaveFormValues({ val: 'foo' });
-  expect(fooRef.current.checked).toBe(true);
-  expect(barRef.current.checked).toBe(false);
+  // @ts-expect-error fooRef is used before being assigned
+  expect(fooRef.current?.checked).toBe(true);
+  // @ts-expect-error barRef is used before being assigned
+  expect(barRef.current?.checked).toBe(false);
 
   await user.click(screen.getByLabelText('Bar'));
   expect(screen.getByTestId('form')).toHaveFormValues({ val: 'bar' });
-  expect(fooRef.current.checked).toBe(false);
-  expect(barRef.current.checked).toBe(true);
+  // @ts-expect-error fooRef is used before being assigned
+  expect(fooRef.current?.checked).toBe(false);
+  // @ts-expect-error barRef is used before being assigned
+  expect(barRef.current?.checked).toBe(true);
 });

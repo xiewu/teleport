@@ -31,7 +31,7 @@ function Pill({ label, onDismiss }: Props) {
         dismissable={dismissable}
         onClick={(e: React.MouseEvent) => {
           e.stopPropagation();
-          onDismiss(label);
+          onDismiss?.(label);
         }}
       >
         <Cross size="small" />

@@ -17,11 +17,11 @@
  */
 
 import React from 'react';
-import styled from 'styled-components';
+import styled, { DefaultTheme } from 'styled-components';
 
 import { space, SpaceProps } from 'design/system';
 
-const kind = ({ kind, theme }) => {
+const kind = ({ kind, theme }: { kind?: LabelKind; theme: DefaultTheme }) => {
   if (kind === 'secondary') {
     return {
       backgroundColor: theme.colors.spotBackground[0],
@@ -79,7 +79,18 @@ const Label = styled.div<LabelProps>`
 `;
 
 export default Label;
-export const Primary = props => <Label kind="primary" {...props} />;
-export const Secondary = props => <Label kind="secondary" {...props} />;
-export const Warning = props => <Label kind="warning" {...props} />;
-export const Danger = props => <Label kind="danger" {...props} />;
+
+type LabelPropsKindless = Omit<LabelProps, 'kind'>;
+
+export const Primary = (props: LabelPropsKindless) => (
+  <Label kind="primary" {...props} />
+);
+export const Secondary = (props: LabelPropsKindless) => (
+  <Label kind="secondary" {...props} />
+);
+export const Warning = (props: LabelPropsKindless) => (
+  <Label kind="warning" {...props} />
+);
+export const Danger = (props: LabelPropsKindless) => (
+  <Label kind="danger" {...props} />
+);

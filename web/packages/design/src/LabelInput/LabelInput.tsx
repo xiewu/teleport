@@ -17,7 +17,6 @@
  */
 
 import styled from 'styled-components';
-import PropTypes from 'prop-types';
 
 import { space, SpaceProps } from 'design/system';
 
@@ -37,15 +36,5 @@ const LabelInput = styled.label<LabelInputProps>`
   ${props => props.theme.typography.body3}
   ${space}
 `;
-
-LabelInput.propTypes = {
-  hasError: PropTypes.bool,
-};
-
-LabelInput.defaultProps = {
-  hasError: false,
-};
-
-LabelInput.displayName = 'LabelInput';
 
 export default LabelInput;

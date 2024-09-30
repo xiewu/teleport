@@ -1,0 +1,71 @@
+{
+  "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
+    "allowJs": true,
+    "baseUrl": ".",
+    "useDefineForClassFields": true,
+    "esModuleInterop": true,
+    "importHelpers": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "jsx": "react-jsx",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strictBindCallApply": true,
+    "noEmit": true,
+    "noEmitHelpers": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": false,
+    "target": "esnext",
+    "types": [
+      "node",
+      "@types/wicg-file-system-access"
+    ],
+    "paths": {
+      "shared/*": [
+        "web/packages/shared/*"
+      ],
+      "design/*": [
+        "web/packages/design/src/*"
+      ],
+      "design": [
+        "web/packages/design/src/"
+      ],
+      "teleport/*": [
+        "web/packages/teleport/src/*"
+      ],
+      "teleport": [
+        "web/packages/teleport/src/"
+      ],
+      "teleterm/*": [
+        "web/packages/teleterm/src/*"
+      ],
+      "e-teleport/*": [
+        "e/web/teleport/src/*"
+      ],
+      "gen-proto-js/*": [
+        "gen/proto/js/*"
+      ],
+      "gen-proto-ts/*": [
+        "gen/proto/ts/*"
+      ]
+    }
+  },
+  "include": [
+    "web/@types"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/node_modules/*",
+    "dist",
+    "**/dist/*",
+    "**/build/app/**",
+    "**/build/release/**"
+  ]
+}

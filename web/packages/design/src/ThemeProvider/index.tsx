@@ -16,11 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { WebTarget, StyleSheetManager } from 'styled-components';
+import React, { ReactNode } from 'react';
+import {
+  WebTarget,
+  StyleSheetManager,
+  DefaultTheme,
+  ThemeProvider as StyledThemeProvider,
+} from 'styled-components';
 
 import isPropValid from '@emotion/is-prop-valid';
-import { ThemeProvider as StyledThemeProvider } from 'styled-components/dist/base';
-import React from 'react';
 import { GlobalStyle } from 'design/ThemeProvider/globals';
 
 /**
@@ -42,7 +46,10 @@ export function shouldForwardProp(propName: string, target: WebTarget) {
   return true;
 }
 
-export function StaticThemeProvider(props) {
+export function StaticThemeProvider(props: {
+  children?: ReactNode;
+  theme: DefaultTheme;
+}) {
   return (
     <StyledThemeProvider theme={props.theme}>
       <StyleSheetManager shouldForwardProp={shouldForwardProp}>

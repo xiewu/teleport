@@ -39,7 +39,7 @@ export const SingleFlowInPlaceSlider = (props: {
       <Text typography="h1" pt={5} textAlign="center" color="text.main">
         Static Title
       </Text>
-      <StepSlider<typeof singleFlow>
+      <StepSlider
         flows={singleFlow}
         currFlow={'default'}
         testProp="I'm that test prop"

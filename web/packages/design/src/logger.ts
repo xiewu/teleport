@@ -19,31 +19,34 @@
 export class Logger {
   constructor(private name = 'default') {}
 
-  log(level = 'log', ...args) {
+  log(
+    level: 'trace' | 'warn' | 'info' | 'log' | 'debug' | 'error' = 'log',
+    ...args: any[]
+  ) {
     window.console[level](`%c[${this.name}]`, `color: blue;`, ...args);
   }
 
-  trace(...args) {
+  trace(...args: any[]) {
     this.log('trace', ...args);
   }
 
-  warn(...args) {
+  warn(...args: any[]) {
     this.log('warn', ...args);
   }
 
-  info(...args) {
+  info(...args: any[]) {
     this.log('info', ...args);
   }
 
-  debug(...args) {
+  debug(...args: any[]) {
     this.log('debug', ...args);
   }
 
-  error(...args) {
+  error(...args: any[]) {
     this.log('error', ...args);
   }
 }
 
 export default {
-  create: (...args) => new Logger(...args),
+  create: (...args: any[]) => new Logger(...args),
 };

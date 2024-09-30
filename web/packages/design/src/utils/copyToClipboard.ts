@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import { Logger } from 'design/logger';
+
 /**
  * Copies text to clipboard.
  *
@@ -26,7 +28,11 @@ export async function copyToClipboard(textToCopy: string): Promise<void> {
     await navigator.clipboard.writeText(textToCopy);
   } catch (error) {
     // This can happen if the user denies clipboard permissions.
-    handleError(error, textToCopy);
+    if (error instanceof Error) {
+      handleError(error, textToCopy);
+    } else {
+      new Logger().error(error);
+    }
   }
 }
 

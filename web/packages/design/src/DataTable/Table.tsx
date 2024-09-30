@@ -29,35 +29,33 @@ import {
   SearchableBasicTableProps,
   ServersideTableProps,
   TableProps,
+  isTableColumnWithKey,
 } from './types';
 import { SortHeaderCell, TextCell } from './Cells';
 import { ClientSidePager, ServerSidePager } from './Pager';
 import InputSearch from './InputSearch';
-import useTable, { State } from './useTable';
+import useTable from './useTable';
 
-export default function Container<T>(props: TableProps<T>) {
-  const tableProps = useTable(props);
-  return <Table<T> {...tableProps} />;
-}
+export default function Table<T>(props: TableProps<T>) {
+  const {
+    columns,
+    state,
+    onSort,
+    emptyText,
+    emptyHint,
+    emptyButton,
+    nextPage,
+    prevPage,
+    setSearchValue,
+    isSearchable,
+    fetching,
+    className,
+    style,
+    serversideProps,
+    customSort,
+    row,
+  } = useTable(props);
 
-export function Table<T>({
-  columns,
-  state,
-  onSort,
-  emptyText,
-  emptyHint,
-  emptyButton,
-  nextPage,
-  prevPage,
-  setSearchValue,
-  isSearchable,
-  fetching,
-  className,
-  style,
-  serversideProps,
-  customSort,
-  row,
-}: State<T>) {
   const renderHeaders = () => {
     const headers = columns.flatMap(column => {
       if (column.isNonRender) {
@@ -66,15 +64,15 @@ export function Table<T>({
 
       const headerText = column.headerText || '';
 
+      const columnKey = isTableColumnWithKey(column)
+        ? column.key
+        : column.altKey;
+
       let dir;
       if (customSort) {
-        dir = customSort.fieldName == column.key ? customSort.dir : null;
+        dir = customSort.fieldName == columnKey ? customSort.dir : undefined;
       } else {
-        dir =
-          state.sort?.key === column.key ||
-          state.sort?.key === column.altSortKey
-            ? state.sort?.dir
-            : null;
+        dir = state.sort?.key === columnKey ? state.sort?.dir : undefined;
       }
 
       const $cell = column.isSortable ? (
@@ -90,7 +88,9 @@ export function Table<T>({
       );
 
       return (
-        <React.Fragment key={column.key || column.altKey}>
+        <React.Fragment
+          key={isTableColumnWithKey(column) ? column.key : column.altKey}
+        >
           {$cell}
         </React.Fragment>
       );
@@ -104,7 +104,7 @@ export function Table<T>({
   };
 
   const renderBody = (data: T[]) => {
-    const rows = [];
+    const rows: React.ReactElement[] = [];
 
     if (fetching?.fetchStatus === 'loading') {
       return <LoadingIndicator colSpan={columns.length} />;
@@ -118,7 +118,9 @@ export function Table<T>({
         const $cell = column.render ? (
           column.render(item)
         ) : (
-          <TextCell data={item[column.key]} />
+          <TextCell
+            data={isTableColumnWithKey(column) ? item[column.key] : ''}
+          />
         );
 
         return (
@@ -160,11 +162,11 @@ export function Table<T>({
         data={state.data}
         renderHeaders={renderHeaders}
         renderBody={renderBody}
-        nextPage={fetching.onFetchNext}
-        prevPage={fetching.onFetchPrev}
+        nextPage={fetching?.onFetchNext}
+        prevPage={fetching?.onFetchPrev}
         pagination={state.pagination}
         serversideProps={serversideProps}
-        fetchStatus={fetching.fetchStatus}
+        fetchStatus={fetching?.fetchStatus}
       />
     );
   }
@@ -183,7 +185,7 @@ export function Table<T>({
     fetching,
   };
 
-  if (state.pagination && state.pagination.CustomTable) {
+  if (state.pagination?.CustomTable) {
     return <state.pagination.CustomTable {...paginationProps} />;
   }
 
@@ -334,7 +336,7 @@ function ServersideTable<T>({
   return (
     <>
       <StyledPanel>
-        {serversideProps.serversideSearchPanel}
+        {serversideProps?.serversideSearchPanel}
         {(showTopPager || showBothPager) && (
           <ServerSidePager
             nextPage={nextPage}
@@ -430,7 +432,7 @@ const LoadingIndicator = ({ colSpan }: { colSpan: number }) => (
  *   - both top and bottom pager if dataLen > 5
  */
 export function getPagerPosition(
-  pagerPosition: PagerPosition,
+  pagerPosition: PagerPosition | undefined,
   dataLen: number
 ) {
   const hasSufficientData = dataLen > 5;

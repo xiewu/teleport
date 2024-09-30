@@ -166,10 +166,6 @@ export function DefaultAndClickableLabels() {
   );
 }
 
-function sortTagsByLength(a: DummyDataType['tags'], b: DummyDataType['tags']) {
-  return a.length - b.length;
-}
-
 const getDefaultProps = (): TableProps<DummyDataType> => ({
   data: data,
   emptyText: 'No Dummy Data Found',
@@ -194,7 +190,9 @@ const getDefaultProps = (): TableProps<DummyDataType> => ({
       headerText: 'Labels',
       render: row => <LabelCell data={row.tags} />,
       isSortable: true,
-      onSort: sortTagsByLength,
+      onSort: function sortTagsByLength(a, b) {
+        return a.tags.length - b.tags.length;
+      },
     },
     { key: 'bool', headerText: 'Boolean', isSortable: true },
   ],
@@ -222,7 +220,9 @@ const getDefaultIsoProps = (): TableProps<DummyDataISOStringType> => ({
       headerText: 'Labels',
       render: row => <LabelCell data={row.tags} />,
       isSortable: true,
-      onSort: sortTagsByLength,
+      onSort: function sortTagsByLength(a, b) {
+        return a.tags.length - b.tags.length;
+      },
     },
     { key: 'bool', headerText: 'Boolean', isSortable: true },
   ],

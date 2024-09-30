@@ -50,7 +50,7 @@ export function SlideTabs({
               onClick={onClick}
               itemCount={tabs.length}
               key={`${tabName}-${tabIndex}`}
-              className={tabIndex === activeIndex && 'selected'}
+              className={tabIndex === activeIndex ? 'selected' : undefined}
               processing={isProcessing}
               disabled={disabled}
             >

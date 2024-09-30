@@ -19,15 +19,11 @@
 import React from 'react';
 import styled from 'styled-components';
 
-import { Button } from 'design/Button';
+import { Button, ButtonProps } from 'design/Button';
 
-function ButtonLink({ ...props }) {
+function ButtonLink({ ...props }: ButtonProps<'a'>) {
   return <Button as={StyledButtonLink} {...props} />;
 }
-
-ButtonLink.propTypes = {
-  ...Button.propTypes,
-};
 
 ButtonLink.displayName = 'ButtonLink';
 

@@ -85,7 +85,7 @@ export function StepSlider<Flows>(props: Props<Flows>) {
 
   // rootRef is used to set the height on initial render.
   // Needed to animate the height on initial transition.
-  const rootRef = useRef<HTMLDivElement>();
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // preMountState is used to hold the latest pre mount data.
   // useState's could not be used b/c they became stale for
@@ -104,7 +104,9 @@ export function StepSlider<Flows>(props: Props<Flows>) {
 
     preMountState.current.step = 0; // reset step to 0 to start at beginning
     preMountState.current.flow = newFlow.flow;
-    rootRef.current.style.height = `${height}px`;
+    if (rootRef.current) {
+      rootRef.current.style.height = `${height}px`;
+    }
 
     setPreMount(true);
     if (newFlow.applyNextAnimation) {
@@ -123,7 +125,7 @@ export function StepSlider<Flows>(props: Props<Flows>) {
       setStep(preMountState.current.step);
       setPreMount(false);
 
-      if (preMountState.current.flow) {
+      if (preMountState.current.flow && onSwitchFlow) {
         onSwitchFlow(preMountState.current.flow);
       }
     }
@@ -147,7 +149,10 @@ export function StepSlider<Flows>(props: Props<Flows>) {
       refCallbackFn = setHeightOnPreMount;
     } else if (!rootRef?.current) {
       refCallbackFn = setHeightOnInitialMount;
+    } else {
+      refCallbackFn = () => {};
     }
+
     return (
       <View
         key={step}
@@ -156,13 +161,17 @@ export function StepSlider<Flows>(props: Props<Flows>) {
           preMountState.current.step = step + 1;
           setPreMount(true);
           startTransitionInDirection('next');
-          rootRef.current.style.height = `${height}px`;
+          if (rootRef.current) {
+            rootRef.current.style.height = `${height}px`;
+          }
         }}
         prev={() => {
           preMountState.current.step = step - 1;
           setPreMount(true);
           startTransitionInDirection('prev');
-          rootRef.current.style.height = `${height}px`;
+          if (rootRef.current) {
+            rootRef.current.style.height = `${height}px`;
+          }
         }}
         hasTransitionEnded={hasTransitionEnded}
         stepIndex={step}
@@ -218,18 +227,22 @@ export function StepSlider<Flows>(props: Props<Flows>) {
             key={`${step}${String(currFlow)}`}
             classNames={`${animationDirectionPrefix}-slide`}
             onEnter={() => {
-              // When steps are translating (sliding), hides overflow content
-              rootRef.current.style.overflow = 'hidden';
-              // The next height to transition into.
-              rootRef.current.style.height = `${height}px`;
+              if (rootRef.current) {
+                // When steps are translating (sliding), hides overflow content
+                rootRef.current.style.overflow = 'hidden';
+                // The next height to transition into.
+                rootRef.current.style.height = `${height}px`;
+              }
             }}
             onExited={() => {
-              // Set it back to auto because the parent component might contain elements
-              // that may want it to be overflowed e.g. long drop down menu in a small card.
-              rootRef.current.style.overflow = 'auto';
-              // Set height back to auto to allow the parent component to grow as needed
-              // e.g. rendering of an error banner
-              rootRef.current.style.height = 'auto';
+              if (rootRef.current) {
+                // Set it back to auto because the parent component might contain elements
+                // that may want it to be overflowed e.g. long drop down menu in a small card.
+                rootRef.current.style.overflow = 'auto';
+                // Set height back to auto to allow the parent component to grow as needed
+                // e.g. rendering of an error banner
+                rootRef.current.style.height = 'auto';
+              }
               setHasTransitionEnded(true);
             }}
           >
@@ -345,7 +358,7 @@ export type StepComponentProps = {
    * refCallback is a func that is called after component mounts.
    * Required to calculate dimensions of the component for height animations.
    */
-  refCallback(node: HTMLElement): void;
+  refCallback(node: HTMLElement | null): void;
   /**
    * next goes to the next step in the flow.
    */
