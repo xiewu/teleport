@@ -20,8 +20,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import styled, { useTheme } from 'styled-components';
 import { Box, Flex } from 'design';
 import { debounce } from 'shared/utils/highbar';
-import { TerminalSearch } from 'shared/components/TerminalSearch/TerminalSearch';
-import { useTerminalSearch } from 'shared/components/TerminalSearch/useTerminalSearch';
 import {
   Attempt,
   makeEmptyAttempt,
@@ -39,6 +37,7 @@ import { ConfigService } from 'teleterm/services/config';
 import { Reconnect } from '../Reconnect';
 
 import XTermCtrl from './ctrl';
+import type TtyTerminal from './ctrl';
 
 type TerminalProps = {
   docKind: DocumentTerminal['kind'];
@@ -58,12 +57,14 @@ type TerminalProps = {
   openContextMenu(): void;
   configService: ConfigService;
   keyboardShortcutsService: KeyboardShortcutsService;
+  terminalAddons: (
+    terminalRef: React.MutableRefObject<TtyTerminal>
+  ) => React.JSX.Element;
 };
 
 export function Terminal(props: TerminalProps) {
   const refElement = useRef<HTMLDivElement>();
   const refCtrl = useRef<XTermCtrl>();
-  const searchState = useTerminalSearch(refCtrl.current);
   const [startPtyProcessAttempt, setStartPtyProcessAttempt] =
     useState<Attempt<void>>(makeEmptyAttempt());
   const theme = useTheme();
@@ -136,7 +137,6 @@ export function Terminal(props: TerminalProps) {
       height="100%"
       width="100%"
       style={{ overflow: 'hidden' }}
-      className={searchState.showSearch ? 'search-is-open' : ''}
     >
       {startPtyProcessAttempt.status === 'error' && (
         <Reconnect
@@ -145,7 +145,7 @@ export function Terminal(props: TerminalProps) {
           reconnect={props.reconnect}
         />
       )}
-      <TerminalSearch {...searchState} />
+      {props.terminalAddons(refCtrl)}
       <StyledXterm
         ref={refElement}
         style={{

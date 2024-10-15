@@ -81,15 +81,9 @@ export const TerminalSearch = ({
 };
 
 const SearchInputBox = styled(Flex)`
-  position: absolute;
   padding: ${p => p.theme.space[2]}px;
   background-color: ${p => p.theme.colors.levels.surface};
-  position: absolute;
-  right: 8px;
   border-radius: ${props => props.theme.radii[2]}px;
-  // width: 100%;
-  top: 8px;
-  z-index: 11;
 `;
 
 const SearchTransitionStyles = styled.div`

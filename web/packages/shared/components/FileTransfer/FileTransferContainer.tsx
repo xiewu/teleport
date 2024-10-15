@@ -18,19 +18,4 @@
 
 import styled from 'styled-components';
 
-export const FileTransferContainer = styled.div`
-  position: absolute;
-  right: 8px;
-  width: 500px;
-  top: 8px;
-  z-index: 10;
-
-  .search-is-open + & {
-    top: 64px;
-  }
-
-  & ~ .search-is-open {
-    top: 64px;
-  }
-  transition: top 0.15s ease-out;
-`;
+export const FileTransferContainer = styled.div``;

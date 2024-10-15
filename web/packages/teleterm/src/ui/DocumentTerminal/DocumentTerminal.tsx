@@ -33,6 +33,10 @@ import { useDocumentTerminal } from './useDocumentTerminal';
 import { useTshFileTransferHandlers } from './useTshFileTransferHandlers';
 
 import type * as types from 'teleterm/ui/services/workspacesService';
+import TtyTerminal from 'teleterm/ui/DocumentTerminal/Terminal/ctrl';
+import { useTerminalSearch } from 'shared/components/TerminalSearch/useTerminalSearch';
+import { TerminalSearch } from 'shared/components/TerminalSearch/TerminalSearch';
+import styled from 'styled-components';
 
 export function DocumentTerminal(props: {
   doc: types.DocumentTerminal;
@@ -134,10 +138,39 @@ export function DocumentTerminal(props: {
             openContextMenu={attempt.data.openContextMenu}
             configService={configService}
             keyboardShortcutsService={ctx.keyboardShortcutsService}
+            terminalAddons={terminalRef => (
+              <TerminalAddons
+                terminalRef={terminalRef}
+                fileTransfer={$fileTransfer}
+              />
+            )}
           />
         )}
-        {$fileTransfer}
       </FileTransferContextProvider>
     </Document>
   );
 }
+
+export function TerminalAddons(props: {
+  terminalRef: React.MutableRefObject<TtyTerminal>;
+  fileTransfer: React.JSX.Element;
+}) {
+  const searchState = useTerminalSearch(props.terminalRef.current);
+  return (
+    <TerminalAddonsContainer>
+      <TerminalSearch {...searchState} />
+      {props.fileTransfer}
+    </TerminalAddonsContainer>
+  );
+}
+
+// This container can animate its children, etc.
+const TerminalAddonsContainer = styled.div`
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
