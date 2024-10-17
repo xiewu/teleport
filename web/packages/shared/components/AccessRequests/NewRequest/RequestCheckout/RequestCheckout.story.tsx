@@ -170,7 +170,6 @@ const baseProps: RequestCheckoutWithSliderProps = {
     { value: 'namespace3', label: 'namespace3' },
     { value: 'namespace4', label: 'namespace4' },
   ],
-  allowedKubeSubresourceKinds: ['*'],
   bulkToggleKubeResources: () => null,
   createAttempt: { status: '' },
   fetchResourceRequestRolesAttempt: { status: '' },

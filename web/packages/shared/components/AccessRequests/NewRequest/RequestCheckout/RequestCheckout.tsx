@@ -38,7 +38,6 @@ import {
 import { ArrowBack, ChevronDown, ChevronRight, Warning } from 'design/Icon';
 import Table, { Cell } from 'design/DataTable';
 import { Danger } from 'design/Alert';
-import { KubeResourceKind } from 'teleport/services/kube';
 
 import Validation, { useRule, Validator } from 'shared/components/Validation';
 import { Attempt } from 'shared/hooks/useAttemptNext';
@@ -52,8 +51,8 @@ import { CreateRequest } from '../../Shared/types';
 import { AssumeStartTime } from '../../AssumeStartTime/AssumeStartTime';
 import { AccessDurationRequest } from '../../AccessDuration';
 import {
+  checkForUnsupportedKubeRequestModes,
   excludeKubeClusterWithNamespaces,
-  getKubeResourceRequestMode,
   type KubeNamespaceRequest,
 } from '../kube';
 
@@ -169,7 +168,6 @@ export function RequestCheckout<T extends PendingListItem>({
   onStartTimeChange,
   fetchKubeNamespaces,
   bulkToggleKubeResources,
-  allowedKubeSubresourceKinds,
 }: RequestCheckoutProps<T>) {
   const [reason, setReason] = useState('');
 
@@ -192,14 +190,14 @@ export function RequestCheckout<T extends PendingListItem>({
   }
 
   const {
-    canRequestKubeCluster,
-    canRequestKubeResource,
-    canRequestKubeNamespace,
-    disableCheckoutFromKubeRestrictions,
-  } = getKubeResourceRequestMode(
-    allowedKubeSubresourceKinds,
-    !!data.find(d => d.kind === 'kube_cluster')
-  );
+    affectedKubeClusterName,
+    unsupportedKubeRequestModes,
+    requiresNamespaceSelect,
+  } = checkForUnsupportedKubeRequestModes(fetchResourceRequestRolesAttempt);
+
+  const hasUnsupportedKubeRequestModes = !!unsupportedKubeRequestModes;
+  const showRequestRoleErrBanner =
+    !hasUnsupportedKubeRequestModes && !requiresNamespaceSelect;
 
   const isInvalidRoleSelection =
     resourceRequestRoles.length > 0 &&
@@ -210,9 +208,14 @@ export function RequestCheckout<T extends PendingListItem>({
     data.length === 0 ||
     createAttempt.status === 'processing' ||
     isInvalidRoleSelection ||
-    fetchResourceRequestRolesAttempt.status === 'failed' ||
-    fetchResourceRequestRolesAttempt.status === 'processing' ||
-    disableCheckoutFromKubeRestrictions;
+    (fetchResourceRequestRolesAttempt.status === 'failed' &&
+      hasUnsupportedKubeRequestModes) ||
+    requiresNamespaceSelect ||
+    fetchResourceRequestRolesAttempt.status === 'processing';
+
+  const cancelBtnDisabled =
+    createAttempt.status === 'processing' ||
+    fetchResourceRequestRolesAttempt.status === 'processing';
 
   const numResourcesSelected = data.filter(item =>
     excludeKubeClusterWithNamespaces(item, data)
@@ -239,10 +242,7 @@ export function RequestCheckout<T extends PendingListItem>({
   };
 
   function customRow(item: T) {
-    if (
-      item.kind === 'kube_cluster' &&
-      (canRequestKubeResource || canRequestKubeNamespace)
-    ) {
+    if (item.kind === 'kube_cluster') {
       return (
         <td colSpan={3}>
           <Flex>
@@ -270,7 +270,10 @@ export function RequestCheckout<T extends PendingListItem>({
                 toggleResource={toggleResource}
                 fetchKubeNamespaces={fetchKubeNamespaces}
                 bulkToggleKubeResources={bulkToggleKubeResources}
-                namespaceRequired={!canRequestKubeCluster}
+                namespaceRequired={
+                  requiresNamespaceSelect &&
+                  affectedKubeClusterName.includes(item.id)
+                }
               />
             </Flex>
           </Flex>
@@ -283,17 +286,19 @@ export function RequestCheckout<T extends PendingListItem>({
     <Validation>
       {({ validator }) => (
         <>
-          {fetchResourceRequestRolesAttempt.status === 'failed' && (
-            <Alert
-              kind="danger"
-              children={fetchResourceRequestRolesAttempt.statusText}
-            />
-          )}
-          {disableCheckoutFromKubeRestrictions && (
+          {showRequestRoleErrBanner &&
+            fetchResourceRequestRolesAttempt.status === 'failed' && (
+              <Alert
+                kind="danger"
+                children={fetchResourceRequestRolesAttempt.statusText}
+              />
+            )}
+          {hasUnsupportedKubeRequestModes && (
             <Alert kind="danger">
-              You can only request Kubernetes resource kind [
-              {allowedKubeSubresourceKinds.join(', ')}], but the web UI does not
-              support this kind yet. Use the{' '}
+              You can only request Kubernetes resource kind{' '}
+              {unsupportedKubeRequestModes} for cluster{' '}
+              {affectedKubeClusterName}, but the web UI does not support these
+              kinds yet. Use the{' '}
               <ExternalLink
                 target="_blank"
                 href="https://goteleport.com/docs/admin-guides/access-controls/access-requests/resource-requests/#step-26-search-for-resources"
@@ -458,7 +463,7 @@ export function RequestCheckout<T extends PendingListItem>({
                           reset();
                           onClose();
                         }}
-                        disabled={submitBtnDisabled}
+                        disabled={cancelBtnDisabled}
                       >
                         Cancel
                       </ButtonSecondary>
@@ -904,7 +909,6 @@ export type RequestCheckoutProps<T extends PendingListItem = PendingListItem> =
       kubeResources: PendingKubeResourceItem[],
       kubeCluster: T
     ): void;
-    allowedKubeSubresourceKinds: KubeResourceKind[];
   };
 
 type SuccessComponentParams = {

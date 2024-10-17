@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { KubeResourceKind } from 'teleport/services/kube';
+import { Attempt } from 'shared/hooks/useAttemptNext';
 
 import { PendingListItem } from './RequestCheckout';
 
@@ -48,33 +48,47 @@ export function excludeKubeClusterWithNamespaces(
 }
 
 /**
- * Returns flags on what kind of kubernetes requests a user
- * is allowed to make.
+ * Checks each data for kube_cluster or namespace
  */
-export function getKubeResourceRequestMode(
-  allowedKubeSubresourceKinds: KubeResourceKind[],
-  hasSelectedKube
+export function checkForUnsupportedKubeRequestModes(
+  requestRoleAttempt: Attempt
 ) {
-  const canRequestKubeCluster = allowedKubeSubresourceKinds.length === 0;
+  let unsupportedKubeRequestModes = '';
+  let affectedKubeClusterName = '';
+  let requiresNamespaceSelect = false;
 
-  const canRequestKubeResource =
-    allowedKubeSubresourceKinds.includes('*') || canRequestKubeCluster;
+  if (requestRoleAttempt.status === 'failed') {
+    const errMsg = requestRoleAttempt.statusText.toLowerCase();
 
-  const canRequestKubeNamespace =
-    canRequestKubeResource || allowedKubeSubresourceKinds.includes('namespace');
+    if (errMsg.includes('request_mode') && errMsg.includes('allowed kinds: ')) {
+      const allowedKinds = errMsg.split('allowed kinds: ')[1];
 
-  // This can happen if an admin restricts requests to a subresource
-  // kind that the web UI does not support yet.
-  const disableCheckoutFromKubeRestrictions =
-    hasSelectedKube &&
-    !canRequestKubeCluster &&
-    !canRequestKubeResource &&
-    !canRequestKubeNamespace;
+      // Web UI supports selecting namespace and wildcard
+      // which basically means requiring namespace.
+      if (allowedKinds.includes('*') || allowedKinds.includes('namespace')) {
+        requiresNamespaceSelect = true;
+      } else {
+        unsupportedKubeRequestModes = allowedKinds;
+      }
+
+      const initialSplit = errMsg.split('for kubernetes cluster');
+      if (initialSplit.length > 1) {
+        affectedKubeClusterName = initialSplit[1]
+          .split('. allowed kinds')[0]
+          .trim();
+      }
+
+      return {
+        affectedKubeClusterName,
+        requiresNamespaceSelect,
+        unsupportedKubeRequestModes,
+      };
+    }
+  }
 
   return {
-    canRequestKubeCluster,
-    canRequestKubeResource,
-    canRequestKubeNamespace,
-    disableCheckoutFromKubeRestrictions,
+    affectedKubeClusterName,
+    unsupportedKubeRequestModes,
+    requiresNamespaceSelect,
   };
 }

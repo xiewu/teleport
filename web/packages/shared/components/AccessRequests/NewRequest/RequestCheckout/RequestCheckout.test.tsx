@@ -176,5 +176,4 @@ const props: RequestCheckoutWithSliderProps = {
   onStartTimeChange: () => null,
   fetchKubeNamespaces: () => null,
   bulkToggleKubeResources: () => null,
-  allowedKubeSubresourceKinds: [],
 };
