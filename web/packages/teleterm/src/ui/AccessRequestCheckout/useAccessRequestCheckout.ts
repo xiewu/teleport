@@ -39,7 +39,8 @@ import {
   PendingAccessRequest,
   extractResourceRequestProperties,
   ResourceRequest,
-  toResourceRequest,
+  mapRequestToKubeNamespaceUri,
+  mapKubeNamespaceUriToRequest,
 } from 'teleterm/ui/services/workspacesService/accessRequestsService';
 import { retryWithRelogin } from 'teleterm/ui/utils';
 import {
@@ -197,19 +198,19 @@ export default function useAccessRequestCheckout() {
             resourceRequest.resource.namespaces?.size > 0
           ) {
             // Process each namespace.
-            resourceRequest.resource.namespaces.forEach(namespaceRequest => {
+            resourceRequest.resource.namespaces.forEach(namespaceRequestUri => {
               const { kind, id, name } =
-                extractResourceRequestProperties(namespaceRequest);
+                mapKubeNamespaceUriToRequest(namespaceRequestUri);
 
               const item = {
                 kind,
                 id,
                 name,
                 subResourceName: name,
-                originalItem: namespaceRequest,
-                clusterName: ctx.clustersService.findClusterByResource(
-                  namespaceRequest.resource.uri
-                )?.name,
+                originalItem: resourceRequest,
+                clusterName:
+                  ctx.clustersService.findClusterByResource(namespaceRequestUri)
+                    ?.name,
               };
               data.push(item);
             });
@@ -260,15 +261,14 @@ export default function useAccessRequestCheckout() {
     items: PendingKubeResourceItem[],
     kubeCluster: PendingListKubeClusterWithOriginalItem
   ) {
-    await workspaceAccessRequest.addOrRemoveResources(
-      items.map(item => {
-        return toResourceRequest({
-          kind: item.kind,
-          resourceId: item.id,
-          resourceName: item.subResourceName,
+    await workspaceAccessRequest.addOrRemoveKubeNamespaces(
+      items.map(item =>
+        mapRequestToKubeNamespaceUri({
+          id: item.id,
+          name: item.subResourceName,
           clusterUri: kubeCluster.originalItem.resource.uri,
-        });
-      })
+        })
+      )
     );
   }
 
@@ -495,5 +495,5 @@ type PendingListItemWithOriginalItem = Omit<PendingListItem, 'kind'> &
 
 type PendingListKubeClusterWithOriginalItem = Omit<PendingListItem, 'kind'> & {
   kind: Extract<ResourceKind, 'kube_cluster'>;
-  originalItem: ResourceRequest;
+  originalItem: Extract<ResourceRequest, { kind: 'kube' }>;
 };
