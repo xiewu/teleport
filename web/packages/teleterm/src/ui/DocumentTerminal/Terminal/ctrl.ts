@@ -19,6 +19,7 @@
 import '@xterm/xterm/css/xterm.css';
 import { IDisposable, ITheme, Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon, ISearchOptions } from '@xterm/addon-search';
 import { debounce } from 'shared/utils/highbar';
 
 import { WindowsPty } from 'teleterm/services/pty';
@@ -41,6 +42,7 @@ export default class TtyTerminal {
   public term: Terminal;
   private el: HTMLElement;
   private fitAddon = new FitAddon();
+  private searchAddon = new SearchAddon();
   private resizeHandler: IDisposable;
   private debouncedResize: () => void;
   private logger = new Logger('lib/term/terminal');
@@ -91,6 +93,7 @@ export default class TtyTerminal {
       windowOptions: {
         setWinSizeChars: true,
       },
+      allowProposedApi: true, // required for customizing SearchAddon properties
     });
 
     this.term.onSelectionChange(() => {
@@ -192,6 +195,48 @@ export default class TtyTerminal {
 
   focus() {
     this.term.focus();
+  }
+
+  loadSearchAddon({
+    onDidChangeResults,
+  }: {
+    onDidChangeResults: (resultIndex: number, resultCount: number) => void;
+  }) {
+    this.searchAddon.onDidChangeResults(ev =>
+      onDidChangeResults(ev.resultIndex, ev.resultCount)
+    );
+    this.term.loadAddon(this.searchAddon);
+  }
+
+  search(
+    searchString: string,
+    searchPrevious: boolean,
+    searchOpts?: ISearchOptions
+  ) {
+    if (!this.searchAddon) {
+      throw new Error(
+        '_searchAddon has not been loaded. Use `loadSearchAddon` before searching.'
+      );
+    }
+
+    const opts: ISearchOptions = {
+      // TODO (avatus): we are setting these defaults (regex/caseSensitive) to
+      // what we think would be best UX, but the search UI could be expanded upon
+      // to allow these values to be updated.
+      regex: true,
+      caseSensitive: false,
+      ...searchOpts,
+    };
+
+    if (searchPrevious) {
+      this.searchAddon.findPrevious(searchString, opts);
+    } else {
+      this.searchAddon.findNext(searchString, opts);
+    }
+  }
+
+  clearSearch() {
+    this.searchAddon.clearDecorations();
   }
 
   requestResize(): void {

@@ -24,4 +24,13 @@ export const FileTransferContainer = styled.div`
   width: 500px;
   top: 8px;
   z-index: 10;
+
+  .search-is-open + & {
+    top: 64px;
+  }
+
+  & ~ .search-is-open {
+    top: 64px;
+  }
+  transition: top 0.15s ease-out;
 `;

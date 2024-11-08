@@ -20,6 +20,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import styled, { useTheme } from 'styled-components';
 import { Box, Flex } from 'design';
 import { debounce } from 'shared/utils/highbar';
+import { TerminalSearch } from 'shared/components/TerminalSearch/TerminalSearch';
+import { useTerminalSearch } from 'shared/components/TerminalSearch/useTerminalSearch';
 import {
   Attempt,
   makeEmptyAttempt,
@@ -61,6 +63,7 @@ type TerminalProps = {
 export function Terminal(props: TerminalProps) {
   const refElement = useRef<HTMLDivElement>();
   const refCtrl = useRef<XTermCtrl>();
+  const searchState = useTerminalSearch(refCtrl.current);
   const [startPtyProcessAttempt, setStartPtyProcessAttempt] =
     useState<Attempt<void>>(makeEmptyAttempt());
   const theme = useTheme();
@@ -133,6 +136,7 @@ export function Terminal(props: TerminalProps) {
       height="100%"
       width="100%"
       style={{ overflow: 'hidden' }}
+      className={searchState.showSearch ? 'search-is-open' : ''}
     >
       {startPtyProcessAttempt.status === 'error' && (
         <Reconnect
@@ -141,6 +145,7 @@ export function Terminal(props: TerminalProps) {
           reconnect={props.reconnect}
         />
       )}
+      <TerminalSearch {...searchState} />
       <StyledXterm
         ref={refElement}
         style={{

@@ -65,47 +65,45 @@ export function DocumentTerminal(props: {
     );
   }
 
-  const $fileTransfer = doc.kind === 'doc.terminal_tsh_node' && (
-    <FileTransferContextProvider>
-      <FileTransferActionBar isConnected={doc.status === 'connected'} />
-      {isDocumentTshNodeWithServerId(doc) && (
-        <FileTransfer
-          beforeClose={() =>
-            // TODO (gzdunek): replace with a native dialog
-            window.confirm('Are you sure you want to cancel file transfers?')
-          }
-          transferHandlers={{
-            getDownloader: async (sourcePath, abortController) => {
-              const fileDialog =
-                await ctx.mainProcessClient.showFileSaveDialog(sourcePath);
-              if (fileDialog.canceled) {
-                return;
-              }
-              return download(
-                {
-                  serverUri: doc.serverUri,
-                  login: doc.login,
-                  source: sourcePath,
-                  destination: fileDialog.filePath,
-                },
-                abortController
-              );
-            },
-            getUploader: async (destinationPath, file, abortController) =>
-              upload(
-                {
-                  serverUri: doc.serverUri,
-                  login: doc.login,
-                  source: ctx.getPathForFile(file),
-                  destination: destinationPath,
-                },
-                abortController
-              ),
-          }}
-        />
-      )}
-    </FileTransferContextProvider>
-  );
+  const docConnected =
+    doc.kind === 'doc.terminal_tsh_node' && doc.status === 'connected';
+  const $fileTransfer = doc.kind === 'doc.terminal_tsh_node' &&
+    isDocumentTshNodeWithServerId(doc) && (
+      <FileTransfer
+        beforeClose={() =>
+          // TODO (gzdunek): replace with a native dialog
+          window.confirm('Are you sure you want to cancel file transfers?')
+        }
+        transferHandlers={{
+          getDownloader: async (sourcePath, abortController) => {
+            const fileDialog =
+              await ctx.mainProcessClient.showFileSaveDialog(sourcePath);
+            if (fileDialog.canceled) {
+              return;
+            }
+            return download(
+              {
+                serverUri: doc.serverUri,
+                login: doc.login,
+                source: sourcePath,
+                destination: fileDialog.filePath,
+              },
+              abortController
+            );
+          },
+          getUploader: async (destinationPath, file, abortController) =>
+            upload(
+              {
+                serverUri: doc.serverUri,
+                login: doc.login,
+                source: ctx.getPathForFile(file),
+                destination: destinationPath,
+              },
+              abortController
+            ),
+        }}
+      />
+    );
 
   return (
     <Document
@@ -116,27 +114,30 @@ export function DocumentTerminal(props: {
       pt={1}
       autoFocusDisabled={true}
     >
-      {$fileTransfer}
-      {attempt.status === 'success' && (
-        <Terminal
-          // The key prop makes sure that we render Terminal only once for each PTY process.
-          //
-          // When startError occurs and the user initializes a new PTY process, we want to reset all
-          // state in <Terminal> and re-run all hooks for the new PTY process.
-          key={attempt.data.ptyProcess.getPtyId()}
-          docKind={doc.kind}
-          ptyProcess={attempt.data.ptyProcess}
-          reconnect={initializePtyProcess}
-          visible={props.visible}
-          unsanitizedFontFamily={unsanitizedTerminalFontFamily}
-          fontSize={terminalFontSize}
-          onEnterKey={attempt.data.refreshTitle}
-          windowsPty={attempt.data.windowsPty}
-          openContextMenu={attempt.data.openContextMenu}
-          configService={configService}
-          keyboardShortcutsService={ctx.keyboardShortcutsService}
-        />
-      )}
+      <FileTransferContextProvider>
+        <FileTransferActionBar isConnected={docConnected} />
+        {attempt.status === 'success' && (
+          <Terminal
+            // The key prop makes sure that we render Terminal only once for each PTY process.
+            //
+            // When startError occurs and the user initializes a new PTY process, we want to reset all
+            // state in <Terminal> and re-run all hooks for the new PTY process.
+            key={attempt.data.ptyProcess.getPtyId()}
+            docKind={doc.kind}
+            ptyProcess={attempt.data.ptyProcess}
+            reconnect={initializePtyProcess}
+            visible={props.visible}
+            unsanitizedFontFamily={unsanitizedTerminalFontFamily}
+            fontSize={terminalFontSize}
+            onEnterKey={attempt.data.refreshTitle}
+            windowsPty={attempt.data.windowsPty}
+            openContextMenu={attempt.data.openContextMenu}
+            configService={configService}
+            keyboardShortcutsService={ctx.keyboardShortcutsService}
+          />
+        )}
+        {$fileTransfer}
+      </FileTransferContextProvider>
     </Document>
   );
 }

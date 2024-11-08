@@ -23,9 +23,12 @@ import React, {
   useRef,
 } from 'react';
 import { Flex } from 'design';
+import { TerminalSearch } from 'shared/components/TerminalSearch/TerminalSearch';
 import { ITheme } from '@xterm/xterm';
 
 import { getPlatformType } from 'design/platform';
+
+import { useTerminalSearch } from 'shared/components/TerminalSearch/useTerminalSearch';
 
 import Tty from 'teleport/lib/term/tty';
 import XTermCtrl from 'teleport/lib/term/terminal';
@@ -49,6 +52,7 @@ export interface TerminalProps {
 export const Terminal = forwardRef<TerminalRef, TerminalProps>((props, ref) => {
   const termCtrlRef = useRef<XTermCtrl>();
   const elementRef = useRef<HTMLDivElement>();
+  const searchState = useTerminalSearch(termCtrlRef.current);
 
   useImperativeHandle(
     ref,
@@ -80,7 +84,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>((props, ref) => {
       }
     });
 
-    return () => termCtrl.destroy();
+    return () => {
+      termCtrl.destroy();
+    };
     // do not re-initialize xterm when theme changes, use specialized handlers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -97,7 +103,9 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>((props, ref) => {
       px="2"
       style={{ overflow: 'auto' }}
       data-testid="terminal"
+      className={searchState.showSearch ? 'search-is-open' : ''}
     >
+      <TerminalSearch {...searchState} />
       <StyledXterm ref={elementRef} />
     </Flex>
   );

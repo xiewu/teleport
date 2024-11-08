@@ -19,6 +19,7 @@
 import '@xterm/xterm/css/xterm.css';
 import { ITheme, Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon, ISearchOptions } from '@xterm/addon-search';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { CanvasAddon } from '@xterm/addon-canvas';
@@ -50,6 +51,7 @@ export default class TtyTerminal {
   _convertEol: boolean;
   _debouncedResize: DebouncedFunc<() => void>;
   _fitAddon = new FitAddon();
+  _searchAddon = new SearchAddon();
   _webLinksAddon = new WebLinksAddon();
   _webglAddon: WebglAddon;
   _canvasAddon = new CanvasAddon();
@@ -84,6 +86,7 @@ export default class TtyTerminal {
       cursorBlink: false,
       minimumContrastRatio: 4.5, // minimum for WCAG AA compliance
       theme: this.options.theme,
+      allowProposedApi: true, // required for customizing SearchAddon properties
     });
 
     this.term.loadAddon(this._fitAddon);
@@ -155,12 +158,55 @@ export default class TtyTerminal {
     this._disconnect();
     this._debouncedResize.cancel();
     this._fitAddon.dispose();
+    this._searchAddon?.dispose();
     this._webglAddon?.dispose();
     this._canvasAddon?.dispose();
     this._el.innerHTML = null;
     this.term?.dispose();
 
     window.removeEventListener('resize', this._debouncedResize);
+  }
+
+  loadSearchAddon({
+    onDidChangeResults,
+  }: {
+    onDidChangeResults: (resultIndex: number, resultCount: number) => void;
+  }) {
+    this._searchAddon.onDidChangeResults(ev =>
+      onDidChangeResults(ev.resultIndex, ev.resultCount)
+    );
+    this.term.loadAddon(this._searchAddon);
+  }
+
+  clearSearch() {
+    this._searchAddon.clearDecorations();
+  }
+
+  search(
+    searchString: string,
+    searchPrevious: boolean,
+    searchOpts?: ISearchOptions
+  ) {
+    if (!this._searchAddon) {
+      throw new Error(
+        '_searchAddon has not been loaded. Use `loadSearchAddon` before searching.'
+      );
+    }
+
+    const opts: ISearchOptions = {
+      // TODO (avatus): we are setting these defaults (regex/caseSensitive) to
+      // what we think would be best UX, but the search UI could be expanded upon
+      // to allow these values to be updated.
+      regex: true,
+      caseSensitive: false,
+      ...searchOpts,
+    };
+
+    if (searchPrevious) {
+      this._searchAddon.findPrevious(searchString, opts);
+    } else {
+      this._searchAddon.findNext(searchString, opts);
+    }
   }
 
   reset() {
