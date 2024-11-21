@@ -2990,6 +2990,12 @@ func (process *TeleportProcess) initSSH() error {
 			regular.SetTracerProvider(process.TracingProvider),
 			regular.SetSessionController(sessionController),
 			regular.SetPublicAddrs(cfg.SSH.PublicAddrs),
+			regular.SetLoggingConfig(srv.LoggingConfig{
+				LoggerLevel: cfg.LoggerLevel,
+				LogOutput:   cfg.LogOutput,
+				LogFormat:   cfg.LogFormat,
+				LogFields:   cfg.LogFields,
+			}),
 		)
 		if err != nil {
 			return trace.Wrap(err)

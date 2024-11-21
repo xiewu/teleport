@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -417,6 +418,12 @@ func (s *Server) TargetMetadata() apievents.ServerMetadata {
 		ServerHostname:  s.targetHostname,
 		ForwardedBy:     s.hostUUID,
 		ServerSubKind:   subKind,
+	}
+}
+
+func (s *Server) LoggingConfig() srv.LoggingConfig {
+	return srv.LoggingConfig{
+		LoggerLevel: &slog.LevelVar{},
 	}
 }
 

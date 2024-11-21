@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -184,6 +185,15 @@ type Server interface {
 
 	// TargetMetadata returns metadata about the session target node.
 	TargetMetadata() apievents.ServerMetadata
+
+	LoggingConfig() LoggingConfig
+}
+
+type LoggingConfig struct {
+	LoggerLevel slog.Leveler
+	LogOutput   string
+	LogFormat   string
+	LogFields   []string
 }
 
 // IdentityContext holds all identity information associated with the user
@@ -1042,6 +1052,8 @@ func (c *ServerContext) ExecCommand() (*ExecCommand, error) {
 		return nil, trace.Wrap(err)
 	}
 
+	loggingConfig := c.srv.LoggingConfig()
+
 	// Create the execCommand that will be sent to the child process.
 	return &ExecCommand{
 		Command:               command,
@@ -1059,6 +1071,9 @@ func (c *ServerContext) ExecCommand() (*ExecCommand, error) {
 		PAMConfig:             pamConfig,
 		IsTestStub:            c.IsTestStub,
 		UaccMetadata:          *uaccMetadata,
+		LogFormat:             loggingConfig.LogFormat,
+		LogLevel:              int(loggingConfig.LoggerLevel.Level()),
+		LogFields:             loggingConfig.LogFields,
 	}, nil
 }
 

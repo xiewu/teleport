@@ -789,6 +789,10 @@ func applyAuthOrProxyAddress(fc *FileConfig, cfg *servicecfg.Config) error {
 }
 
 func applyLogConfig(loggerConfig Log, cfg *servicecfg.Config) error {
+	cfg.LogFormat = loggerConfig.Format.Output
+	cfg.LogFields = loggerConfig.Format.ExtraFields
+	cfg.LogOutput = loggerConfig.Output
+
 	// TODO: this code is copied in the access plugin logging setup `logger.Config.NewSLogLogger`
 	// We'll want to deduplicate the logic next time we refactor the logging setup
 	logger := log.StandardLogger()

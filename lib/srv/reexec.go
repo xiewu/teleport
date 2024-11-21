@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -38,7 +39,7 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
 	"github.com/gravitational/teleport"
@@ -53,6 +54,7 @@ import (
 	"github.com/gravitational/teleport/lib/sshutils/x11"
 	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/lib/utils/envutils"
+	logutils "github.com/gravitational/teleport/lib/utils/log"
 	"github.com/gravitational/teleport/lib/utils/uds"
 )
 
@@ -64,6 +66,8 @@ const (
 	// CommandFile is used to pass the command and arguments that the
 	// child process should execute from the parent process.
 	CommandFile FileFD = 3 + iota
+	// LoggingFile is used to emit logs from the child process.
+	LoggingFile
 	// ContinueFile is used to communicate to the child process that
 	// it can continue after the parent process assigns a cgroup to the
 	// child process.
@@ -158,6 +162,12 @@ type ExecCommand struct {
 	// the parent process. These files start at file descriptor 3 of the
 	// child process, and are only valid for processes without a terminal.
 	ExtraFilesLen int `json:"extra_files_len"`
+
+	LogFormat string `json:"log_format"`
+
+	LogLevel int `json:"log_level"`
+
+	LogFields []string `json:"log_fields"`
 }
 
 // PAMConfig represents all the configuration data that needs to be passed to the child.
@@ -194,6 +204,7 @@ type UaccMetadata struct {
 // RunCommand reads in the command to run from the parent process (over a
 // pipe) then constructs and runs the command.
 func RunCommand() (errw io.Writer, code int, err error) {
+
 	// SIGQUIT is used by teleport to initiate graceful shutdown, waiting for
 	// existing exec sessions to close before ending the process. For this to
 	// work when closing the entire teleport process group, exec sessions must
@@ -240,6 +251,8 @@ func RunCommand() (errw io.Writer, code int, err error) {
 		return io.Discard, teleport.RemoteCommandFailure, trace.Wrap(err)
 	}
 
+	initializeLogging(c, "exec")
+
 	auditdMsg := auditd.Message{
 		SystemUser:   c.Login,
 		TeleportUser: c.Username,
@@ -249,21 +262,21 @@ func RunCommand() (errw io.Writer, code int, err error) {
 
 	if err := auditd.SendEvent(auditd.AuditUserLogin, auditd.Success, auditdMsg); err != nil {
 		// Currently, this logs nothing. Related issue https://github.com/gravitational/teleport/issues/17318
-		log.WithError(err).Debugf("failed to send user start event to auditd: %v", err)
+		logrus.WithError(err).Debugf("failed to send user start event to auditd: %v", err)
 	}
 
 	defer func() {
 		if err != nil {
 			if errors.Is(err, user.UnknownUserError(c.Login)) {
 				if err := auditd.SendEvent(auditd.AuditUserErr, auditd.Failed, auditdMsg); err != nil {
-					log.WithError(err).Debugf("failed to send UserErr event to auditd: %v", err)
+					logrus.WithError(err).Debugf("failed to send UserErr event to auditd: %v", err)
 				}
 				return
 			}
 		}
 
 		if err := auditd.SendEvent(auditd.AuditUserEnd, auditd.Success, auditdMsg); err != nil {
-			log.WithError(err).Debugf("failed to send UserEnd event to auditd: %v", err)
+			logrus.WithError(err).Debugf("failed to send UserEnd event to auditd: %v", err)
 		}
 	}()
 
@@ -335,7 +348,7 @@ func RunCommand() (errw io.Writer, code int, err error) {
 	localUser, err := user.Lookup(c.Login)
 	if err != nil {
 		if uaccErr := uacc.LogFailedLogin(c.UaccMetadata.BtmpPath, c.Login, c.UaccMetadata.Hostname, c.UaccMetadata.RemoteAddr); uaccErr != nil {
-			log.WithError(uaccErr).Debug("uacc unsupported.")
+			logrus.WithError(uaccErr).Debug("uacc unsupported.")
 		}
 		return errorWriter, teleport.RemoteCommandFailure, trace.Wrap(err)
 	}
@@ -348,7 +361,7 @@ func RunCommand() (errw io.Writer, code int, err error) {
 		if err == nil {
 			uaccEnabled = true
 		} else {
-			log.WithError(err).Debug("uacc unsupported.")
+			logrus.WithError(err).Debug("uacc unsupported.")
 		}
 	}
 
@@ -384,7 +397,7 @@ func RunCommand() (errw io.Writer, code int, err error) {
 	}
 
 	if err := setNeutralOOMScore(); err != nil {
-		log.WithError(err).Warnf("failed to adjust OOM score")
+		logrus.WithError(err).Warnf("failed to adjust OOM score")
 	}
 
 	// Start the command.
@@ -563,6 +576,8 @@ func RunNetworking() (errw io.Writer, code int, err error) {
 	if err := json.NewDecoder(cmdfd).Decode(&c); err != nil {
 		return errorWriter, teleport.RemoteCommandFailure, trace.Wrap(err)
 	}
+
+	initializeLogging(c, "networking")
 
 	// If PAM is enabled, open a PAM context. This has to be done before anything
 	// else because PAM is sometimes used to create the local user used for
@@ -903,6 +918,92 @@ func runPark() (errw io.Writer, code int, err error) {
 	}
 }
 
+func initializeLogging(cmd ExecCommand, command string) {
+	loggingWriter := os.NewFile(LoggingFile, fdName(LoggingFile))
+	if loggingWriter == nil {
+		return
+	}
+
+	w := logutils.NewSharedWriter(loggingWriter)
+	logger := logrus.StandardLogger()
+
+	configuredFields, err := logutils.ValidateFields(cmd.LogFields)
+	if err != nil {
+		return
+	}
+
+	switch slog.Level(cmd.LogLevel) {
+	case slog.LevelDebug:
+		logger.SetLevel(logrus.DebugLevel)
+	case slog.LevelInfo:
+		logger.SetLevel(logrus.InfoLevel)
+	case slog.LevelWarn:
+		logger.SetLevel(logrus.WarnLevel)
+	case slog.LevelError:
+		logger.SetLevel(logrus.ErrorLevel)
+	default:
+		logger.SetLevel(logrus.TraceLevel)
+	}
+
+	var slogLogger *slog.Logger
+	switch strings.ToLower(cmd.LogFormat) {
+	case "":
+		fallthrough // not set. defaults to 'text'
+	case "text":
+		formatter := &logutils.TextFormatter{
+			ExtraFields:  configuredFields,
+			EnableColors: false,
+		}
+
+		if err := formatter.CheckAndSetDefaults(); err != nil {
+			return
+		}
+
+		logger.SetFormatter(formatter)
+		// Disable writing output to stderr/stdout and syslog. The logging
+		// hook will take care of writing the output to the correct location.
+		if len(logger.Hooks) > 0 {
+			logger.SetOutput(io.Discard)
+		} else {
+			logger.SetOutput(w)
+		}
+
+		slogLogger = slog.New(logutils.NewSlogTextHandler(w, logutils.SlogTextHandlerConfig{
+			Level:            slog.Level(cmd.LogLevel),
+			EnableColors:     false,
+			ConfiguredFields: configuredFields,
+		}))
+		slog.SetDefault(slogLogger.With(teleport.ComponentKey, "child", "command", command))
+	case "json":
+		formatter := &logutils.JSONFormatter{
+			ExtraFields: configuredFields,
+		}
+
+		if err := formatter.CheckAndSetDefaults(); err != nil {
+			return
+		}
+
+		logger.SetFormatter(formatter)
+		// Disable writing output to stderr/stdout and syslog. The logging
+		// hook will take care of writing the output to the correct location.
+		if len(logger.Hooks) > 0 {
+			logger.SetOutput(io.Discard)
+		} else {
+			logger.SetOutput(w)
+		}
+
+		slogLogger = slog.New(logutils.NewSlogJSONHandler(w, logutils.SlogJSONHandlerConfig{
+			Level:            slog.Level(cmd.LogLevel),
+			ConfiguredFields: configuredFields,
+		}))
+		slog.SetDefault(slogLogger.With(teleport.ComponentKey, command))
+	default:
+		return
+	}
+
+	return
+}
+
 // RunAndExit will run the requested command and then exit. This wrapper
 // allows Run{Command,Forward} to use defers and makes sure error messages
 // are consistent across both.
@@ -953,7 +1054,7 @@ func buildCommand(c *ExecCommand, localUser *user.User, tty *os.File, pamEnviron
 	// Get the login shell for the user (or fallback to the default).
 	shellPath, err := shell.GetLoginShell(c.Login)
 	if err != nil {
-		log.Debugf("Failed to get login shell for %v: %v.", c.Login, err)
+		logrus.Debugf("Failed to get login shell for %v: %v.", c.Login, err)
 	}
 	if c.IsTestStub {
 		shellPath = "/bin/sh"
@@ -1099,10 +1200,10 @@ func buildCommand(c *ExecCommand, localUser *user.User, tty *os.File, pamEnviron
 
 	if os.Getuid() != int(credential.Uid) || os.Getgid() != int(credential.Gid) {
 		cmd.SysProcAttr.Credential = credential
-		log.Debugf("Creating process with UID %v, GID: %v, and Groups: %v.",
+		logrus.Debugf("Creating process with UID %v, GID: %v, and Groups: %v.",
 			credential.Uid, credential.Gid, credential.Groups)
 	} else {
-		log.Debugf("Creating process with ambient credentials UID %v, GID: %v, Groups: %v.",
+		logrus.Debugf("Creating process with ambient credentials UID %v, GID: %v, Groups: %v.",
 			credential.Uid, credential.Gid, credential.Groups)
 	}
 
@@ -1167,6 +1268,14 @@ func ConfigureCommand(ctx *ServerContext, extraFiles ...*os.File) (*exec.Cmd, er
 	env := &envutils.SafeEnv{}
 	env.AddExecEnvironment()
 
+	var loggingFile *os.File
+	switch ctx.GetServer().LoggingConfig().LogOutput {
+	case "", "stderr", "error", "2":
+		loggingFile = os.Stderr
+	case "stdout", "out", "1":
+		loggingFile = os.Stdout
+	}
+
 	// Build the "teleport exec" command.
 	cmd := &exec.Cmd{
 		Path: executable,
@@ -1175,6 +1284,7 @@ func ConfigureCommand(ctx *ServerContext, extraFiles ...*os.File) (*exec.Cmd, er
 		Env:  *env,
 		ExtraFiles: []*os.File{
 			ctx.cmdr,
+			loggingFile,
 			ctx.contr,
 			ctx.readyw,
 			ctx.killShellr,
@@ -1197,7 +1307,7 @@ func copyCommand(ctx *ServerContext, cmdmsg *ExecCommand) {
 	defer func() {
 		err := ctx.cmdw.Close()
 		if err != nil {
-			log.Errorf("Failed to close command pipe: %v.", err)
+			logrus.Errorf("Failed to close command pipe: %v.", err)
 		}
 
 		// Set to nil so the close in the context doesn't attempt to re-close.
@@ -1207,7 +1317,7 @@ func copyCommand(ctx *ServerContext, cmdmsg *ExecCommand) {
 	// Write command bytes to pipe. The child process will read the command
 	// to execute from this pipe.
 	if err := json.NewEncoder(ctx.cmdw).Encode(cmdmsg); err != nil {
-		log.Errorf("Failed to copy command over pipe: %v.", err)
+		logrus.Errorf("Failed to copy command over pipe: %v.", err)
 		return
 	}
 }
@@ -1373,7 +1483,7 @@ func getCmdCredential(localUser *user.User) (*syscall.Credential, error) {
 	for _, sgid := range userGroups {
 		igid, err := strconv.ParseUint(sgid, 10, 32)
 		if err != nil {
-			log.Warnf("Cannot interpret user group: '%v'", sgid)
+			logrus.Warnf("Cannot interpret user group: '%v'", sgid)
 		} else {
 			groups = append(groups, uint32(igid))
 		}
