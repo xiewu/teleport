@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"time"
 
+	devicepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/devicetrust/v1"
+
 	"github.com/gravitational/trace"
 )
 
@@ -110,11 +112,11 @@ type WebSession interface {
 	GetHasDeviceExtensions() bool
 	// SetTrustedDeviceRequirement sets the session's trusted device requirement.
 	// See [TrustedDeviceRequirement].
-	SetTrustedDeviceRequirement(r TrustedDeviceRequirement)
+	SetTrustedDeviceRequirement(r devicepb.TrustedDeviceRequirement)
 	// GetTrustedDeviceRequirement returns the session's trusted device
 	// requirement.
 	// See [TrustedDeviceRequirement].
-	GetTrustedDeviceRequirement() TrustedDeviceRequirement
+	GetTrustedDeviceRequirement() devicepb.TrustedDeviceRequirement
 }
 
 // NewWebSession returns new instance of the web session based on the V2 spec
@@ -243,13 +245,13 @@ func (ws *WebSessionV2) GetHasDeviceExtensions() bool {
 }
 
 // SetTrustedDeviceRequirement sets the session's trusted device requirement.
-func (ws *WebSessionV2) SetTrustedDeviceRequirement(r TrustedDeviceRequirement) {
+func (ws *WebSessionV2) SetTrustedDeviceRequirement(r devicepb.TrustedDeviceRequirement) {
 	ws.Spec.TrustedDeviceRequirement = r
 }
 
 // GetTrustedDeviceRequirement returns the session's trusted device
 // requirement.
-func (ws *WebSessionV2) GetTrustedDeviceRequirement() TrustedDeviceRequirement {
+func (ws *WebSessionV2) GetTrustedDeviceRequirement() devicepb.TrustedDeviceRequirement {
 	return ws.Spec.TrustedDeviceRequirement
 }
 
