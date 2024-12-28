@@ -1237,7 +1237,6 @@ func (s *Server) filterExistingAzureNodes(instances *server.AzureInstances) erro
 		_, vmOK := labels[types.VMIDLabel]
 		return subscriptionOK && vmOK
 	})
-
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -1330,7 +1329,6 @@ func (s *Server) filterExistingGCPNodes(instances *server.GCPInstances) error {
 		_, nameOK := labels[types.NameLabelDiscovery]
 		return projectIDOK && zoneOK && nameOK
 	})
-
 	if err != nil {
 		return trace.Wrap(err)
 	}
