@@ -111,10 +111,16 @@ type gcpInstaller interface {
 	Run(ctx context.Context, req server.GCPRunRequest) error
 }
 
+type eksClientGetter func(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (eksClient, error)
+
+type eksClient interface{}
+
 // Config provides configuration for the discovery server.
 type Config struct {
 	// CloudClients is an interface for retrieving cloud clients.
 	CloudClients cloud.Clients
+	// GetEKSClient gets an AWS EKS client for the given region.
+	GetEKSClient eksClientGetter
 	// GetEC2Client gets an AWS EC2 client for the given region.
 	GetEC2Client server.EC2ClientGetter
 	// GetSSMClient gets an AWS SSM client for the given region.
