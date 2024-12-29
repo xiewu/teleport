@@ -129,11 +129,11 @@ func TestEKSFetcher(t *testing.T) {
 
 type mockEKSClientGetter struct{}
 
-func (e *mockEKSClientGetter) GetAWSEKSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (eksClient, error) {
+func (e *mockEKSClientGetter) GetAWSEKSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (EKSClient, error) {
 	return newPopulatedEKSMock(), nil
 }
 
-func (e *mockEKSClientGetter) GetAWSSTSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (stsClient, error) {
+func (e *mockEKSClientGetter) GetAWSSTSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (STSClient, error) {
 	return &mockSTSAPI{}, nil
 }
 
@@ -158,7 +158,7 @@ func (a *mockSTSAPI) GetCallerIdentity(context.Context, *sts.GetCallerIdentityIn
 }
 
 type mockEKSAPI struct {
-	eksClient
+	EKSClient
 
 	clusters []*ekstypes.Cluster
 }

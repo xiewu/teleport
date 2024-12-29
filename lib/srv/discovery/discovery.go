@@ -32,8 +32,10 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
@@ -111,16 +113,17 @@ type gcpInstaller interface {
 	Run(ctx context.Context, req server.GCPRunRequest) error
 }
 
-type eksClientGetter func(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (eksClient, error)
-
-type eksClient interface{}
-
 // Config provides configuration for the discovery server.
 type Config struct {
 	// CloudClients is an interface for retrieving cloud clients.
 	CloudClients cloud.Clients
-	// GetEKSClient gets an AWS EKS client for the given region.
-	GetEKSClient eksClientGetter
+
+	// FetchersClients gets the AWS clients for the given region for the fetchers.
+	FetchersClients fetchers.ClientGetter
+
+	// GetAWSSyncEKSClient gets an AWS EKS client for the given region for aws-sync.
+	GetAWSSyncEKSClient aws_sync.EKSClientGetter
+
 	// GetEC2Client gets an AWS EC2 client for the given region.
 	GetEC2Client server.EC2ClientGetter
 	// GetSSMClient gets an AWS SSM client for the given region.
@@ -198,6 +201,35 @@ type AccessGraphConfig struct {
 	Insecure bool
 }
 
+type fetchersClientsGetter struct {
+	c *Config
+}
+
+func (f *fetchersClientsGetter) GetAWSEKSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (fetchers.EKSClient, error) {
+	cfg, err := f.c.getAWSConfig(ctx, region, opts...)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return eks.NewFromConfig(cfg), nil
+}
+
+func (f *fetchersClientsGetter) GetAWSSTSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (fetchers.STSClient, error) {
+	cfg, err := f.c.getAWSConfig(ctx, region, opts...)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return sts.NewFromConfig(cfg), nil
+}
+
+func (f *fetchersClientsGetter) GetAWSSTSPresignClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (fetchers.STSPresignClient, error) {
+	cfg, err := f.c.getAWSConfig(ctx, region, opts...)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	stsClient := sts.NewFromConfig(cfg)
+	return sts.NewPresignClient(stsClient), nil
+}
+
 func (c *Config) CheckAndSetDefaults() error {
 	if c.Matchers.IsEmpty() && c.DiscoveryGroup == "" {
 		return trace.BadParameter("no matchers or discovery group configured for discovery")
@@ -232,6 +264,18 @@ kubernetes matchers are present.`)
 				return nil, trace.Wrap(err)
 			}
 			return ec2.NewFromConfig(cfg), nil
+		}
+	}
+	if c.FetchersClients == nil {
+		c.FetchersClients = &fetchersClientsGetter{c: c}
+	}
+	if c.GetAWSSyncEKSClient == nil {
+		c.GetAWSSyncEKSClient = func(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (aws_sync.EKSClient, error) {
+			cfg, err := c.getAWSConfig(ctx, region, opts...)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			return eks.NewFromConfig(cfg), nil
 		}
 	}
 	if c.GetSSMClient == nil {
@@ -572,7 +616,7 @@ func (s *Server) initAWSWatchers(matchers []types.AWSMatcher) error {
 	_, otherMatchers = splitMatchers(otherMatchers, db.IsAWSMatcherType)
 
 	// Add non-integration kube fetchers.
-	kubeFetchers, err := fetchers.MakeEKSFetchersFromAWSMatchers(s.Log, s.CloudClients, otherMatchers, noDiscoveryConfig)
+	kubeFetchers, err := fetchers.MakeEKSFetchersFromAWSMatchers(s.Log, s.FetchersClients, otherMatchers, noDiscoveryConfig)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -693,12 +737,12 @@ func (s *Server) databaseFetchersFromMatchers(matchers Matchers, discoveryConfig
 func (s *Server) kubeFetchersFromMatchers(matchers Matchers, discoveryConfigName string) ([]common.Fetcher, error) {
 	var result []common.Fetcher
 
-	// AWS
+	// AWS.
 	awsKubeMatchers, _ := splitMatchers(matchers.AWS, func(matcherType string) bool {
 		return matcherType == types.AWSMatcherEKS
 	})
 	if len(awsKubeMatchers) > 0 {
-		eksFetchers, err := fetchers.MakeEKSFetchersFromAWSMatchers(s.Log, s.CloudClients, awsKubeMatchers, discoveryConfigName)
+		eksFetchers, err := fetchers.MakeEKSFetchersFromAWSMatchers(s.Log, s.FetchersClients, awsKubeMatchers, discoveryConfigName)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
