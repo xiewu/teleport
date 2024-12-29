@@ -49,7 +49,6 @@ import (
 	awslib "github.com/gravitational/teleport/lib/cloud/aws"
 	"github.com/gravitational/teleport/lib/cloud/awsconfig"
 	"github.com/gravitational/teleport/lib/fixtures"
-	"github.com/gravitational/teleport/lib/kube/utils"
 	kubeutils "github.com/gravitational/teleport/lib/kube/utils"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/srv/discovery/common"
@@ -63,13 +62,14 @@ type eksFetcher struct {
 	EKSFetcherConfig
 
 	mu               sync.Mutex
-	client           eksClient
-	stsClient        stsClient
-	stsPresignClient utils.STSPresignClient
+	client           EKSClient
+	stsClient        STSClient
+	stsPresignClient STSPresignClient
 	callerIdentity   string
 }
 
-type eksClient interface {
+// EKSClient is the subset of the EKS interface we use in fetchers.
+type EKSClient interface {
 	eks.ListClustersAPIClient
 	eks.DescribeClusterAPIClient
 
@@ -81,18 +81,23 @@ type eksClient interface {
 	AssociateAccessPolicy(ctx context.Context, params *eks.AssociateAccessPolicyInput, optFns ...func(*eks.Options)) (*eks.AssociateAccessPolicyOutput, error)
 }
 
-type stsClient interface {
+// STSClient is the subset of the STS interface we use in fetchers.
+type STSClient interface {
 	GetCallerIdentity(ctx context.Context, params *sts.GetCallerIdentityInput, optFns ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error)
+	AssumeRole(ctx context.Context, params *sts.AssumeRoleInput, optFns ...func(*sts.Options)) (*sts.AssumeRoleOutput, error)
 }
+
+// STSPresignClient is the subset of the STS presign interface we use in fetchers.
+type STSPresignClient = kubeutils.STSPresignClient
 
 // ClientGetter is an interface for getting an EKS client and an STS client.
 type ClientGetter interface {
 	// GetAWSEKSClient returns AWS EKS client for the specified region.
-	GetAWSEKSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (eksClient, error)
+	GetAWSEKSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (EKSClient, error)
 	// GetAWSSTSClient returns AWS STS client for the specified region.
-	GetAWSSTSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (stsClient, error)
+	GetAWSSTSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (STSClient, error)
 	// GetAWSSTSPresignClient returns AWS STS presign client for the specified region.
-	GetAWSSTSPresignClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (utils.STSPresignClient, error)
+	GetAWSSTSPresignClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (STSPresignClient, error)
 }
 
 // EKSFetcherConfig configures the EKS fetcher.
@@ -216,7 +221,7 @@ func NewEKSFetcher(cfg EKSFetcherConfig) (common.Fetcher, error) {
 	return fetcher, nil
 }
 
-func (a *eksFetcher) getClient(ctx context.Context) (eksClient, error) {
+func (a *eksFetcher) getClient(ctx context.Context) (EKSClient, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -224,10 +229,12 @@ func (a *eksFetcher) getClient(ctx context.Context) (eksClient, error) {
 		return a.client, nil
 	}
 
+	opts := append(a.getAWSOpts(), awsconfig.WithSTSClient(a.stsClient))
+
 	client, err := a.ClientGetter.GetAWSEKSClient(
 		ctx,
 		a.Region,
-		a.getAWSOpts()...,
+		opts...,
 	)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -445,7 +452,7 @@ var eksDiscoveryPermissions = []string{
 // The check involves checking if the access entry exists and if the "teleport:kube-agent:eks" is part of the Kubernetes group.
 // If the access entry doesn't exist or is misconfigured, the fetcher will temporarily gain admin access and create the role and binding.
 // The fetcher will then upsert the access entry with the correct Kubernetes group.
-func (a *eksFetcher) checkOrSetupAccessForARN(ctx context.Context, client eksClient, cluster *ekstypes.Cluster) error {
+func (a *eksFetcher) checkOrSetupAccessForARN(ctx context.Context, client EKSClient, cluster *ekstypes.Cluster) error {
 	entry, err := convertAWSError(
 		client.DescribeAccessEntry(ctx,
 			&eks.DescribeAccessEntryInput{
@@ -504,7 +511,7 @@ func (a *eksFetcher) checkOrSetupAccessForARN(ctx context.Context, client eksCli
 
 // temporarilyGainAdminAccessAndCreateRole temporarily gains admin access to the EKS cluster by associating the EKS Cluster Admin Policy
 // to the callerIdentity. The fetcher will then create the role and binding for the teleportKubernetesGroup in the EKS cluster.
-func (a *eksFetcher) temporarilyGainAdminAccessAndCreateRole(ctx context.Context, client eksClient, cluster *ekstypes.Cluster) error {
+func (a *eksFetcher) temporarilyGainAdminAccessAndCreateRole(ctx context.Context, client EKSClient, cluster *ekstypes.Cluster) error {
 	const (
 		// https://docs.aws.amazon.com/eks/latest/userguide/access-policies.html
 		// We use cluster admin policy to create namespace and cluster role.
@@ -684,7 +691,7 @@ func (a *eksFetcher) upsertClusterRoleBindingWithAdminCredentials(ctx context.Co
 }
 
 // upsertAccessEntry upserts the access entry for the specified ARN with the teleportKubernetesGroup.
-func (a *eksFetcher) upsertAccessEntry(ctx context.Context, client eksClient, cluster *ekstypes.Cluster) error {
+func (a *eksFetcher) upsertAccessEntry(ctx context.Context, client EKSClient, cluster *ekstypes.Cluster) error {
 	_, err := convertAWSError(
 		client.CreateAccessEntry(ctx,
 			&eks.CreateAccessEntryInput{

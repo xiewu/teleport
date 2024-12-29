@@ -178,7 +178,7 @@ func TestPollAWSEKSClusters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			getEKSClient := func(_ context.Context, _ string, _ ...awsconfig.OptionsFn) (eksClient, error) {
+			getEKSClient := func(_ context.Context, _ string, _ ...awsconfig.OptionsFn) (EKSClient, error) {
 				return &mockedEKSClient{
 					clusters:                 eksClusters(),
 					accessEntries:            accessEntries(),

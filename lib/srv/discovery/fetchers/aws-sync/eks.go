@@ -34,9 +34,11 @@ import (
 	"github.com/gravitational/teleport/lib/cloud/awsconfig"
 )
 
-type eksClientGetter func(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (eksClient, error)
+// EKSClientGetter returns an EKS client for aws-sync.
+type EKSClientGetter func(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (EKSClient, error)
 
-type eksClient interface {
+// EKSClient is the subset of the EKS interface we use in aws-sync.
+type EKSClient interface {
 	eks.ListClustersAPIClient
 	eks.DescribeClusterAPIClient
 
@@ -211,7 +213,7 @@ func awsEKSClusterToProtoCluster(cluster *ekstypes.Cluster, region, accountID st
 }
 
 // fetchAccessEntries fetches the access entries for the given cluster.
-func (a *awsFetcher) fetchAccessEntries(ctx context.Context, eksClient eksClient, cluster *accessgraphv1alpha.AWSEKSClusterV1) ([]*accessgraphv1alpha.AWSEKSClusterAccessEntryV1, error) {
+func (a *awsFetcher) fetchAccessEntries(ctx context.Context, eksClient EKSClient, cluster *accessgraphv1alpha.AWSEKSClusterV1) ([]*accessgraphv1alpha.AWSEKSClusterAccessEntryV1, error) {
 	var accessEntries []string
 
 	for p := eks.NewListAccessEntriesPaginator(eksClient,
@@ -275,7 +277,7 @@ func awsAccessEntryToProtoAccessEntry(accessEntry *ekstypes.AccessEntry, cluster
 }
 
 // fetchAccessEntries fetches the access entries for the given cluster.
-func (a *awsFetcher) fetchAssociatedPolicies(ctx context.Context, eksClient eksClient, cluster *accessgraphv1alpha.AWSEKSClusterV1, arns []string) ([]*accessgraphv1alpha.AWSEKSAssociatedAccessPolicyV1, error) {
+func (a *awsFetcher) fetchAssociatedPolicies(ctx context.Context, eksClient EKSClient, cluster *accessgraphv1alpha.AWSEKSClusterV1, arns []string) ([]*accessgraphv1alpha.AWSEKSAssociatedAccessPolicyV1, error) {
 	var associatedPolicies []*accessgraphv1alpha.AWSEKSAssociatedAccessPolicyV1
 	var errs []error
 
