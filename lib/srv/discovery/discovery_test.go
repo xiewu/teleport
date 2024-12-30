@@ -1538,14 +1538,14 @@ func TestDiscoveryServer_New(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
 		desc                string
-		cloudClients        cloud.Clients
+		cloudClients        fetchers.ClientGetter
 		matchers            Matchers
 		errAssertion        require.ErrorAssertionFunc
 		discServerAssertion require.ValueAssertionFunc
 	}{
 		{
 			desc:         "no matchers error",
-			cloudClients: &cloud.TestCloudClients{STS: &mocks.STSClientV1{}},
+			cloudClients: &mockFetchersClients{},
 			matchers:     Matchers{},
 			errAssertion: func(t require.TestingT, err error, i ...interface{}) {
 				require.ErrorIs(t, err, &trace.BadParameterError{Message: "no matchers or discovery group configured for discovery"})
@@ -1554,7 +1554,7 @@ func TestDiscoveryServer_New(t *testing.T) {
 		},
 		{
 			desc:         "success with EKS matcher",
-			cloudClients: &cloud.TestCloudClients{STS: &mocks.STSClientV1{}, EKS: &mocks.EKSMock{}},
+			cloudClients: &mockFetchersClients{},
 			matchers: Matchers{
 				AWS: []types.AWSMatcher{
 					{
@@ -1577,11 +1577,8 @@ func TestDiscoveryServer_New(t *testing.T) {
 			},
 		},
 		{
-			desc: "EKS fetcher is skipped on initialization error (missing region)",
-			cloudClients: &cloud.TestCloudClients{
-				STS: &mocks.STSClientV1{},
-				EKS: &mocks.EKSMock{},
-			},
+			desc:         "EKS fetcher is skipped on initialization error (missing region)",
+			cloudClients: &mockFetchersClients{},
 			matchers: Matchers{
 				AWS: []types.AWSMatcher{
 					{
@@ -1622,7 +1619,7 @@ func TestDiscoveryServer_New(t *testing.T) {
 			discServer, err := New(
 				ctx,
 				&Config{
-					CloudClients:    tt.cloudClients,
+					FetchersClients: tt.cloudClients,
 					ClusterFeatures: func() proto.Features { return proto.Features{} },
 					AccessPoint:     newFakeAccessPoint(),
 					Matchers:        tt.matchers,
