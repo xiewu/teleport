@@ -46,7 +46,7 @@ func GenAWSEKSToken(ctx context.Context, stsClient STSPresignClient, clusterID s
 		clusterIDHeader        = "x-k8s-aws-id"
 	)
 
-	presignedReq, err := sts.NewPresignClient(nil).PresignGetCallerIdentity(ctx, nil, func(po *sts.PresignOptions) {
+	presignedReq, err := stsClient.PresignGetCallerIdentity(ctx, nil, func(po *sts.PresignOptions) {
 		po.ClientOptions = append(po.ClientOptions, func(o *sts.Options) {
 			o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
 				return stack.Finalize.Add(middleware.FinalizeMiddlewareFunc("ClusterIDHeaderMW", func(

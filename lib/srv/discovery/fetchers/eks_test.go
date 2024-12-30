@@ -157,6 +157,10 @@ func (a *mockSTSAPI) GetCallerIdentity(context.Context, *sts.GetCallerIdentityIn
 	}, nil
 }
 
+func (a *mockSTSAPI) AssumeRole(ctx context.Context, params *sts.AssumeRoleInput, optFns ...func(*sts.Options)) (*sts.AssumeRoleOutput, error) {
+	panic("not implemented")
+}
+
 type mockEKSAPI struct {
 	EKSClient
 
