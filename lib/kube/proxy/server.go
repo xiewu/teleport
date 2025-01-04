@@ -28,6 +28,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/eks"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/gravitational/trace"
 	"golang.org/x/net/http2"
 
@@ -38,6 +41,7 @@ import (
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/authz"
 	"github.com/gravitational/teleport/lib/cloud"
+	"github.com/gravitational/teleport/lib/cloud/awsconfig"
 	"github.com/gravitational/teleport/lib/httplib"
 	"github.com/gravitational/teleport/lib/inventory"
 	"github.com/gravitational/teleport/lib/labels"
@@ -74,6 +78,7 @@ type TLSServerConfig struct {
 	OnReconcile func(types.KubeClusters)
 	// CloudClients is a set of cloud clients that Teleport supports.
 	CloudClients cloud.Clients
+	AWSClients   *awsClientsGetter
 	// StaticLabels is a map of static labels associated with this service.
 	// Each cluster advertised by this kubernetes_service will include these static labels.
 	// If the service and a cluster define labels with the same key,
@@ -104,6 +109,38 @@ type TLSServerConfig struct {
 	PROXYProtocolMode multiplexer.PROXYProtocolMode
 	// InventoryHandle is used to send kube server heartbeats via the inventory control stream.
 	InventoryHandle inventory.DownstreamHandle
+}
+
+type awsClientsGetter struct{}
+
+func (*awsClientsGetter) getAWSConfig(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (aws.Config, error) {
+	cfg, err := awsconfig.GetConfig(ctx, region, opts...)
+	return cfg, trace.Wrap(err)
+}
+
+func (f *awsClientsGetter) GetAWSEKSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (EKSClient, error) {
+	cfg, err := f.getAWSConfig(ctx, region, opts...)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return eks.NewFromConfig(cfg), nil
+}
+
+func (f *awsClientsGetter) GetAWSSTSClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (STSClient, error) {
+	cfg, err := f.getAWSConfig(ctx, region, opts...)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return sts.NewFromConfig(cfg), nil
+}
+
+func (f *awsClientsGetter) GetAWSSTSPresignClient(ctx context.Context, region string, opts ...awsconfig.OptionsFn) (STSPresignClient, error) {
+	cfg, err := f.getAWSConfig(ctx, region, opts...)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	stsClient := sts.NewFromConfig(cfg)
+	return sts.NewPresignClient(stsClient), nil
 }
 
 // CheckAndSetDefaults checks and sets default values
@@ -141,6 +178,9 @@ func (c *TLSServerConfig) CheckAndSetDefaults() error {
 			return trace.Wrap(err)
 		}
 		c.CloudClients = cloudClients
+	}
+	if c.AWSClients == nil {
+		c.AWSClients = &awsClientsGetter{}
 	}
 	if c.ConnectedProxyGetter == nil {
 		c.ConnectedProxyGetter = reversetunnel.NewConnectedProxyGetter()
