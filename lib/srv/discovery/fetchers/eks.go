@@ -721,7 +721,7 @@ func (a *eksFetcher) setCallerIdentity(ctx context.Context) error {
 	a.stsClient, err = a.ClientGetter.GetAWSSTSClient(
 		ctx,
 		a.Region,
-		a.getAWSOpts()...,
+		awsconfig.WithAmbientCredentials(),
 	)
 	if err != nil {
 		return trace.Wrap(err)
