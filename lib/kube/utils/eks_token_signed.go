@@ -41,25 +41,35 @@ type STSPresignClient interface {
 func GenAWSEKSToken(ctx context.Context, stsClient STSPresignClient, clusterID string, clock clockwork.Clock) (string, time.Time, error) {
 	const (
 		// The actual token expiration (presigned STS urls are valid for 15 minutes after timestamp in x-amz-date).
+		expireHeader           = "X-Amz-Expires"
+		expireValue            = "60"
 		presignedURLExpiration = 15 * time.Minute
 		v1Prefix               = "k8s-aws-v1."
 		clusterIDHeader        = "x-k8s-aws-id"
 	)
 
-	presignedReq, err := stsClient.PresignGetCallerIdentity(ctx, nil, func(po *sts.PresignOptions) {
-		po.ClientOptions = append(po.ClientOptions, func(o *sts.Options) {
-			o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
-				return stack.Finalize.Add(middleware.FinalizeMiddlewareFunc("ClusterIDHeaderMW", func(
-					ctx context.Context, input middleware.FinalizeInput, next middleware.FinalizeHandler,
-				) (middleware.FinalizeOutput, middleware.Metadata, error) {
-					req, ok := input.Request.(*smithyhttp.Request)
-					if ok {
-						req.Header.Add(clusterIDHeader, clusterID)
-					}
-					return next.HandleFinalize(ctx, input)
-				}), middleware.After)
-			})
-		})
+	// Sign the request.  The expires parameter (sets the x-amz-expires header) is
+	// currently ignored by STS, and the token expires 15 minutes after the x-amz-date
+	// timestamp regardless.  We set it to 60 seconds for backwards compatibility (the
+	// parameter is a required argument to Presign(), and authenticators 0.3.0 and older are expecting a value between
+	// 0 and 60 on the server side).
+	// https://github.com/aws/aws-sdk-go/issues/2167
+	presignedReq, err := stsClient.PresignGetCallerIdentity(ctx, &sts.GetCallerIdentityInput{}, func(po *sts.PresignOptions) {
+		po.ClientOptions = append(po.ClientOptions, sts.WithAPIOptions(func(stack *middleware.Stack) error {
+			return stack.Build.Add(middleware.BuildMiddlewareFunc("AddEKSId", func(
+				ctx context.Context, in middleware.BuildInput, next middleware.BuildHandler,
+			) (middleware.BuildOutput, middleware.Metadata, error) {
+				switch req := in.Request.(type) {
+				case *smithyhttp.Request:
+					query := req.URL.Query()
+					query.Add(expireHeader, expireValue)
+					req.URL.RawQuery = query.Encode()
+
+					req.Header.Add(clusterIDHeader, clusterID)
+				}
+				return next.HandleBuild(ctx, in)
+			}), middleware.Before)
+		}))
 	})
 	if err != nil {
 		return "", time.Time{}, trace.Wrap(err)
