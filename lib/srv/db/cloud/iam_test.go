@@ -65,7 +65,7 @@ func TestAWSIAM(t *testing.T) {
 	}
 
 	// Configure mocks.
-	stsClient := &mocks.STSClientV1{
+	stsClient := &mocks.STSMock{
 		ARN: "arn:aws:iam::123456789012:role/test-role",
 	}
 
@@ -294,7 +294,7 @@ func TestAWSIAMNoPermissions(t *testing.T) {
 	t.Cleanup(cancel)
 
 	// Create unauthorized mocks for AWS services.
-	stsClient := &mocks.STSClientV1{
+	stsClient := &mocks.STSMock{
 		ARN: "arn:aws:iam::123456789012:role/test-role",
 	}
 	// Make configurator.

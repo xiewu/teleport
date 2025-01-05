@@ -142,7 +142,7 @@ func TestURLChecker_AWS(t *testing.T) {
 		OpenSearch: &mocks.OpenSearchMock{
 			Domains: []*opensearchservice.DomainStatus{openSearchDomain, openSearchVPCDomain},
 		},
-		STS: &mocks.STSClientV1{},
+		STS: &mocks.STSMock{},
 	}
 	mockClientsUnauth := &cloud.TestCloudClients{
 		RDS:                &mocks.RDSMockUnauth{},
@@ -151,7 +151,7 @@ func TestURLChecker_AWS(t *testing.T) {
 		ElastiCache:        &mocks.ElastiCacheMock{Unauth: true},
 		MemoryDB:           &mocks.MemoryDBMock{Unauth: true},
 		OpenSearch:         &mocks.OpenSearchMock{Unauth: true},
-		STS:                &mocks.STSClientV1{},
+		STS:                &mocks.STSMock{},
 	}
 
 	// Test both check methods.

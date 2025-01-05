@@ -2046,7 +2046,7 @@ func TestDiscoveryDatabase(t *testing.T) {
 	}
 
 	testCloudClients := &cloud.TestCloudClients{
-		STS: &mocks.STSClientV1{},
+		STS: &mocks.STSMock{},
 		RDS: &mocks.RDSMock{
 			DBInstances: []*rds.DBInstance{awsRDSInstance},
 			DBEngineVersions: []*rds.DBEngineVersion{
@@ -2457,7 +2457,7 @@ func TestDiscoveryDatabaseRemovingDiscoveryConfigs(t *testing.T) {
 	awsRDSInstance, awsRDSDB := makeRDSInstance(t, "aws-rds", "us-west-1", rewriteDiscoveryLabelsParams{discoveryConfigName: dc2Name, discoveryGroup: mainDiscoveryGroup})
 
 	testCloudClients := &cloud.TestCloudClients{
-		STS: &mocks.STSClientV1{},
+		STS: &mocks.STSMock{},
 		RDS: &mocks.RDSMock{
 			DBInstances: []*rds.DBInstance{awsRDSInstance},
 			DBEngineVersions: []*rds.DBEngineVersion{

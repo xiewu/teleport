@@ -52,6 +52,7 @@ import (
 // kubeDetails contain the cluster-related details including authentication.
 type kubeDetails struct {
 	kubeCreds
+
 	// dynamicLabels is the dynamic labels executor for this cluster.
 	dynamicLabels *labels.Dynamic
 	// kubeCluster is the dynamic kube_cluster or a static generated from kubeconfig and that only has the name populated.
@@ -268,8 +269,14 @@ func (k *kubeDetails) getObjectGVK(resource apiResource) *schema.GroupVersionKin
 
 // getKubeClusterCredentials generates kube credentials for dynamic clusters.
 func getKubeClusterCredentials(ctx context.Context, cfg clusterDetailsConfig) (kubeCreds, error) {
-	dynCredsCfg := dynamicCredsConfig{kubeCluster: cfg.cluster, log: cfg.log, checker: cfg.checker, resourceMatchers: cfg.resourceMatchers, clock: cfg.clock, component: cfg.component}
-	switch {
+	switch dynCredsCfg := (dynamicCredsConfig{
+		kubeCluster:      cfg.cluster,
+		log:              cfg.log,
+		checker:          cfg.checker,
+		resourceMatchers: cfg.resourceMatchers,
+		clock:            cfg.clock,
+		component:        cfg.component,
+	}); {
 	case cfg.cluster.IsKubeconfig():
 		return getStaticCredentialsFromKubeconfig(ctx, cfg.component, cfg.cluster, cfg.log, cfg.checker)
 	case cfg.cluster.IsAzure():
@@ -333,8 +340,7 @@ func getAWSResourceMatcherToCluster(kubeCluster types.KubeCluster, resourceMatch
 		if match, _, _ := services.MatchLabels(matcher.Labels, kubeCluster.GetAllLabels()); !match {
 			continue
 		}
-
-		return &(matcher.AWS)
+		return &matcher.AWS
 	}
 	return nil
 }
@@ -342,10 +348,12 @@ func getAWSResourceMatcherToCluster(kubeCluster types.KubeCluster, resourceMatch
 // STSPresignClient is the subset of the STS presign interface we use in fetchers.
 type STSPresignClient = kubeutils.STSPresignClient
 
+// EKSClient is the subset of the EKS Client interface we use.
 type EKSClient interface {
 	eks.DescribeClusterAPIClient
 }
 
+// STSClient is the subset of the STS Client interface we use.
 type STSClient interface {
 	stscreds.AssumeRoleAPIClient
 }
@@ -366,7 +374,7 @@ func getAWSClientRestConfig(cloudClients ClientGetter, clock clockwork.Clock, re
 		region := cluster.GetAWSConfig().Region
 		opts := []awsconfig.OptionsFn{
 			awsconfig.WithAmbientCredentials(),
-			// TODO(@creack): Re-enable this when session cache v2 gets merged (#50561).
+			// TODO(@GavinFrazar): Re-enable this when session cache v2 gets merged (#50561).
 			// awsconfig.WithoutSessionCache(),
 		}
 		stsClient, err := cloudClients.GetAWSSTSClient(ctx, region, opts...)

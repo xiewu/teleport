@@ -594,15 +594,6 @@ func (c *cloudClients) GetAWSSTSClient(ctx context.Context, region string, opts 
 	return sts.New(session), nil
 }
 
-// // GetAWSEKSClient returns AWS EKS client for the specified region.
-// func (c *cloudClients) GetAWSEKSClient(ctx context.Context, region string, opts ...AWSOptionsFn) (eksiface.EKSAPI, error) {
-// 	session, err := c.GetAWSSession(ctx, region, opts...)
-// 	if err != nil {
-// 		return nil, trace.Wrap(err)
-// 	}
-// 	return eks.New(session), nil
-// }
-
 // GetAWSKMSClient returns AWS KMS client for the specified region.
 func (c *cloudClients) GetAWSKMSClient(ctx context.Context, region string, opts ...AWSOptionsFn) (kmsiface.KMSAPI, error) {
 	session, err := c.GetAWSSession(ctx, region, opts...)
@@ -1027,22 +1018,21 @@ var _ Clients = (*TestCloudClients)(nil)
 
 // TestCloudClients are used in tests.
 type TestCloudClients struct {
-	RDS                rdsiface.RDSAPI
-	RDSPerRegion       map[string]rdsiface.RDSAPI
-	Redshift           redshiftiface.RedshiftAPI
-	RedshiftServerless redshiftserverlessiface.RedshiftServerlessAPI
-	ElastiCache        elasticacheiface.ElastiCacheAPI
-	OpenSearch         opensearchserviceiface.OpenSearchServiceAPI
-	MemoryDB           memorydbiface.MemoryDBAPI
-	SecretsManager     secretsmanageriface.SecretsManagerAPI
-	IAM                iamiface.IAMAPI
-	STS                stsiface.STSAPI
-	GCPSQL             gcp.SQLAdminClient
-	GCPGKE             gcp.GKEClient
-	GCPProjects        gcp.ProjectsClient
-	GCPInstances       gcp.InstancesClient
-	InstanceMetadata   imds.Client
-	// EKS                     eksiface.EKSAPI
+	RDS                     rdsiface.RDSAPI
+	RDSPerRegion            map[string]rdsiface.RDSAPI
+	Redshift                redshiftiface.RedshiftAPI
+	RedshiftServerless      redshiftserverlessiface.RedshiftServerlessAPI
+	ElastiCache             elasticacheiface.ElastiCacheAPI
+	OpenSearch              opensearchserviceiface.OpenSearchServiceAPI
+	MemoryDB                memorydbiface.MemoryDBAPI
+	SecretsManager          secretsmanageriface.SecretsManagerAPI
+	IAM                     iamiface.IAMAPI
+	STS                     stsiface.STSAPI
+	GCPSQL                  gcp.SQLAdminClient
+	GCPGKE                  gcp.GKEClient
+	GCPProjects             gcp.ProjectsClient
+	GCPInstances            gcp.InstancesClient
+	InstanceMetadata        imds.Client
 	KMS                     kmsiface.KMSAPI
 	S3                      s3iface.S3API
 	AzureMySQL              azure.DBServersClient
@@ -1191,15 +1181,6 @@ func (c *TestCloudClients) GetAWSSTSClient(ctx context.Context, region string, o
 	}
 	return c.STS, nil
 }
-
-// // GetAWSEKSClient returns AWS EKS client for the specified region.
-// func (c *TestCloudClients) GetAWSEKSClient(ctx context.Context, region string, opts ...AWSOptionsFn) (eksiface.EKSAPI, error) {
-// 	_, err := c.GetAWSSession(ctx, region, opts...)
-// 	if err != nil {
-// 		return nil, trace.Wrap(err)
-// 	}
-// 	return c.EKS, nil
-// }
 
 // GetAWSKMSClient returns AWS KMS client for the specified region.
 func (c *TestCloudClients) GetAWSKMSClient(ctx context.Context, region string, opts ...AWSOptionsFn) (kmsiface.KMSAPI, error) {
