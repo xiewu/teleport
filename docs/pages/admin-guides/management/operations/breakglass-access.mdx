@@ -8,14 +8,6 @@ This guide will walk you through the steps required to configure emergency "brea
 1. The Teleport Agent on a server has crashed, gone offline, or become unusable.
 2. The Teleport control plane is down and cannot be used to access systems, and this procedure is necessary to fix it.
 
-## Prerequisites
-
-- OpenSSH client version 7.4 or above on your local machine.
-- A Linux host with OpenSSH server (`sshd`) version 7.4 or above.
-
-(!docs/pages/includes/commercial-prereqs-tabs.mdx!)
-- A Teleport user with ability to add new `impersonate` role permissions.
-
 ## How it works
 
 Teleport's CA can issue short-lived, signed certificates that can be used to grant access to OpenSSH servers in emergency disaster recovery scenarios. By configuring the OpenSSH server on the Teleport Agent to trust Teleport’s CA, users with valid Teleport-issued certificates can authenticate to the server without requiring static SSH keys or passwords even if Teleport itself is down.
@@ -28,6 +20,14 @@ Below, we’ll detail the steps to accomplish the following objectives:
 4. Create a `breakglass` Role & User in Teleport
 5. Generate `breakglass` SSH Key and Cert using Teleport's CA
 6. Access the remote server using a Teleport issued cert even if Teleport is down or unresponsive
+
+## Prerequisites
+
+- OpenSSH client version 7.4 or above on your local machine.
+- A Linux host with OpenSSH server (`sshd`) version 7.4 or above.
+
+(!docs/pages/includes/commercial-prereqs-tabs.mdx!)
+- A Teleport user with ability to add new `impersonate` role permissions.
 
 ## Step 1/6. Configure sshd to trust the Teleport CA
 
