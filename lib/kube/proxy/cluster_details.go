@@ -377,11 +377,14 @@ func getAWSClientRestConfig(cloudClients ClientGetter, clock clockwork.Clock, re
 			// TODO(@GavinFrazar): Re-enable this when session cache v2 gets merged (#50561).
 			// awsconfig.WithoutSessionCache(),
 		}
-		stsClient, err := cloudClients.GetAWSSTSClient(ctx, region, opts...)
-		if err != nil {
-			return nil, time.Time{}, trace.Wrap(err)
-		}
-		opts = append(opts, awsconfig.WithSTSClient(stsClient))
+		// stsClient, err := cloudClients.GetAWSSTSClient(ctx, region, opts...)
+		// if err != nil {
+		// 	return nil, time.Time{}, trace.Wrap(err)
+		// }
+		// opts = append(opts, awsconfig.WithAssumeRoleClientProviderFunc(func(c aws.Config) stscreds.AssumeRoleAPIClient {
+		// 	return stsClient
+		// }))
+		//_ = stsClient
 		if awsAssume := getAWSResourceMatcherToCluster(cluster, resourceMatchers); awsAssume != nil {
 			opts = append(opts, awsconfig.WithAssumeRole(awsAssume.AssumeRoleARN, awsAssume.ExternalID))
 		}

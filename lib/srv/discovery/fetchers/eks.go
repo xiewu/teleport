@@ -31,6 +31,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
 	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -84,7 +85,8 @@ type EKSClient interface {
 // STSClient is the subset of the STS interface we use in fetchers.
 type STSClient interface {
 	GetCallerIdentity(ctx context.Context, params *sts.GetCallerIdentityInput, optFns ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error)
-	AssumeRole(ctx context.Context, params *sts.AssumeRoleInput, optFns ...func(*sts.Options)) (*sts.AssumeRoleOutput, error)
+	stscreds.AssumeRoleAPIClient
+	stscreds.AssumeRoleWithWebIdentityAPIClient // NOTE: Not used, but needed to comply with awsconfig.WithSTSClientProvider.
 }
 
 // STSPresignClient is the subset of the STS presign interface we use in fetchers.
@@ -229,7 +231,9 @@ func (a *eksFetcher) getClient(ctx context.Context) (EKSClient, error) {
 		return a.client, nil
 	}
 
-	opts := append(a.getAWSOpts(), awsconfig.WithSTSClient(a.stsClient))
+	opts := append(a.getAWSOpts(), awsconfig.WithSTSClientProvider(func(c aws.Config) awsconfig.STSClient {
+		return a.stsClient
+	}))
 
 	client, err := a.ClientGetter.GetAWSEKSClient(
 		ctx,

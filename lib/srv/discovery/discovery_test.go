@@ -37,7 +37,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
@@ -670,7 +670,7 @@ func TestDiscoveryServer(t *testing.T) {
 			staticMatchers:         Matchers{},
 			discoveryConfig:        discoveryConfigForUserTaskEC2Test,
 			wantInstalledInstances: []string{},
-			userTasksDiscoverCheck: func(tt require.TestingT, i1 interface{}, i2 ...interface{}) {
+			userTasksDiscoverCheck: func(t require.TestingT, i1 interface{}, i2 ...interface{}) {
 				existingTasks, ok := i1.([]*usertasksv1.UserTask)
 				require.True(t, ok, "failed to get existing tasks: %T", i1)
 				require.Len(t, existingTasks, 1)
@@ -1811,6 +1811,9 @@ type mockSTSClient struct {
 
 	assumedRoleARNs        []string
 	assumedRoleExternalIDs []string
+
+	// NOTE: Not used, but needed to comply with awsconfig.WithSTSClientProvider.
+	stscreds.AssumeRoleWithWebIdentityAPIClient
 }
 
 func (m *mockSTSClient) GetAssumedRoleARNs() []string {
@@ -2113,18 +2116,6 @@ func TestDiscoveryDatabase(t *testing.T) {
 			&azure.ARMRedisEnterpriseDatabaseMock{},
 		),
 	}
-	fakeConfigProvider := &mocks.AWSConfigProvider{}
-	dbFetcherFactory, err := db.NewAWSFetcherFactory(db.AWSFetcherFactoryConfig{
-		AWSConfigProvider: fakeConfigProvider,
-		CloudClients:      testCloudClients,
-		IntegrationCredentialProviderFn: func(_ context.Context, _, _ string) (aws.CredentialsProvider, error) {
-			return credentials.NewStaticCredentialsProvider("key", "secret", "session"), nil
-		},
-		RedshiftClientProviderFn: newFakeRedshiftClientProvider(&mocks.RedshiftClient{
-			Clusters: []redshifttypes.Cluster{*awsRedshiftResource},
-		}),
-	})
-	require.NoError(t, err)
 
 	tcs := []struct {
 		name                        string
@@ -2414,6 +2405,23 @@ func TestDiscoveryDatabase(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, tlsServer.Close()) })
 
+			awsOIDCIntegration, err := types.NewIntegrationAWSOIDC(types.Metadata{
+				Name: integrationName,
+			}, &types.AWSOIDCIntegrationSpecV1{
+				RoleARN: "arn:aws:iam::123456789012:role/teleport",
+			})
+			require.NoError(t, err)
+
+			testAuthServer.AuthServer.IntegrationsTokenGenerator = &mockIntegrationsTokenGenerator{
+				proxies: nil,
+				integrations: map[string]types.Integration{
+					awsOIDCIntegration.GetName(): awsOIDCIntegration,
+				},
+			}
+
+			_, err = tlsServer.Auth().CreateIntegration(ctx, awsOIDCIntegration)
+			require.NoError(t, err)
+
 			// Auth client for discovery service.
 			identity := auth.TestServerID(types.RoleDiscovery, "hostID")
 			authClient, err := tlsServer.NewClient(identity)
@@ -2429,6 +2437,19 @@ func TestDiscoveryDatabase(t *testing.T) {
 			waitForReconcile := make(chan struct{})
 			reporter := &mockUsageReporter{}
 			tlsServer.Auth().SetUsageReporter(reporter)
+			accessPoint := getDiscoveryAccessPoint(tlsServer.Auth(), authClient)
+			fakeConfigProvider := &mocks.AWSConfigProvider{
+				OIDCIntegrationClient: accessPoint,
+			}
+			dbFetcherFactory, err := db.NewAWSFetcherFactory(db.AWSFetcherFactoryConfig{
+				AWSConfigProvider: fakeConfigProvider,
+				CloudClients:      testCloudClients,
+				RedshiftClientProviderFn: newFakeRedshiftClientProvider(&mocks.RedshiftClient{
+					Clusters: []redshifttypes.Cluster{*awsRedshiftResource},
+				}),
+			})
+			require.NoError(t, err)
+
 			srv, err := New(
 				authz.ContextWithUser(ctx, identity.I),
 				&Config{
