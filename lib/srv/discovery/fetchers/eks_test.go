@@ -25,6 +25,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
 	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -148,7 +149,8 @@ func (a *mockSTSPresignAPI) PresignGetCallerIdentity(ctx context.Context, params
 }
 
 type mockSTSAPI struct {
-	arn string
+	arn                                         string
+	stscreds.AssumeRoleWithWebIdentityAPIClient // NOTE: Not used, but needed to comply with awsconfig.WithSTSClientProvider.
 }
 
 func (a *mockSTSAPI) GetCallerIdentity(context.Context, *sts.GetCallerIdentityInput, ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error) {
