@@ -37,16 +37,18 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
 	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
+	"github.com/aws/aws-sdk-go-v2/service/redshift"
+	redshifttypes "github.com/aws/aws-sdk-go-v2/service/redshift/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/aws/aws-sdk-go/service/rds"
-	"github.com/aws/aws-sdk-go/service/redshift"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
@@ -86,6 +88,7 @@ import (
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/srv/discovery/common"
 	"github.com/gravitational/teleport/lib/srv/discovery/fetchers"
+	"github.com/gravitational/teleport/lib/srv/discovery/fetchers/db"
 	"github.com/gravitational/teleport/lib/srv/server"
 	usagereporter "github.com/gravitational/teleport/lib/usagereporter/teleport"
 	libutils "github.com/gravitational/teleport/lib/utils"
@@ -275,6 +278,26 @@ func TestDiscoveryServer(t *testing.T) {
 				Types:   []string{"ec2"},
 				Regions: []string{"eu-west-2"},
 				Tags:    map[string]utils.Strings{"RunDiscover": {"please"}},
+				SSM:     &types.AWSSSM{DocumentName: "document"},
+				Params: &types.InstallerParams{
+					InstallTeleport: true,
+					EnrollMode:      types.InstallParamEnrollMode_INSTALL_PARAM_ENROLL_MODE_SCRIPT,
+				},
+				Integration: "my-integration",
+			}},
+		},
+	)
+	require.NoError(t, err)
+
+	dcForEC2StatusWithoutMatchName := uuid.NewString()
+	dcForEC2StatusWithoutMatch, err := discoveryconfig.NewDiscoveryConfig(
+		header.Metadata{Name: dcForEC2StatusWithoutMatchName},
+		discoveryconfig.Spec{
+			DiscoveryGroup: defaultDiscoveryGroup,
+			AWS: []types.AWSMatcher{{
+				Types:   []string{"ec2"},
+				Regions: []string{"eu-central-1"},
+				Tags:    map[string]utils.Strings{"teleport": {"yes"}},
 				SSM:     &types.AWSSSM{DocumentName: "document"},
 				Params: &types.InstallerParams{
 					InstallTeleport: true,
@@ -574,6 +597,31 @@ func TestDiscoveryServer(t *testing.T) {
 				},
 			},
 			wantInstalledInstances: []string{"instance-id-1"},
+		},
+		{
+			name:              "no nodes found using DiscoveryConfig and Integration, but DiscoveryConfig Status is still updated",
+			presentInstances:  []types.Server{},
+			foundEC2Instances: []ec2types.Instance{},
+			ssm:               &mockSSMClient{},
+			emitter:           &mockEmitter{},
+			staticMatchers:    Matchers{},
+			discoveryConfig:   dcForEC2StatusWithoutMatch,
+			wantDiscoveryConfigStatus: &discoveryconfig.Status{
+				State:               "DISCOVERY_CONFIG_STATE_SYNCING",
+				ErrorMessage:        nil,
+				DiscoveredResources: 0,
+				LastSyncTime:        fakeClock.Now().UTC(),
+				IntegrationDiscoveredResources: map[string]*discoveryconfigv1.IntegrationDiscoveredSummary{
+					"my-integration": {
+						AwsEc2: &discoveryconfigv1.ResourcesDiscoveredSummary{
+							Found:    0,
+							Enrolled: 0,
+							Failed:   0,
+						},
+					},
+				},
+			},
+			wantInstalledInstances: []string{},
 		},
 		{
 			name:             "one node found but SSM Run fails and DiscoverEC2 User Task is created",
@@ -1544,7 +1592,8 @@ func TestDiscoveryServer_New(t *testing.T) {
 		discServerAssertion require.ValueAssertionFunc
 	}{
 		{
-			desc:         "no matchers error",
+			desc: "no matchers error",
+
 			cloudClients: &mockFetchersClients{},
 			matchers:     Matchers{},
 			errAssertion: func(t require.TestingT, err error, i ...interface{}) {
@@ -1553,8 +1602,10 @@ func TestDiscoveryServer_New(t *testing.T) {
 			discServerAssertion: require.Nil,
 		},
 		{
-			desc:         "success with EKS matcher",
+			desc: "success with EKS matcher",
+
 			cloudClients: &mockFetchersClients{},
+
 			matchers: Matchers{
 				AWS: []types.AWSMatcher{
 					{
@@ -2046,7 +2097,7 @@ func TestDiscoveryDatabase(t *testing.T) {
 	}
 
 	testCloudClients := &cloud.TestCloudClients{
-		STS: &mocks.STSMock{},
+		STS: &mocks.STSClientV1{},
 		RDS: &mocks.RDSMock{
 			DBInstances: []*rds.DBInstance{awsRDSInstance},
 			DBEngineVersions: []*rds.DBEngineVersion{
@@ -2054,9 +2105,6 @@ func TestDiscoveryDatabase(t *testing.T) {
 			},
 		},
 		MemoryDB: &mocks.MemoryDBMock{},
-		Redshift: &mocks.RedshiftMock{
-			Clusters: []*redshift.Cluster{awsRedshiftResource},
-		},
 		AzureRedis: azure.NewRedisClientByAPI(&azure.ARMRedisMock{
 			Servers: []*armredis.ResourceInfo{azRedisResource},
 		}),
@@ -2065,6 +2113,18 @@ func TestDiscoveryDatabase(t *testing.T) {
 			&azure.ARMRedisEnterpriseDatabaseMock{},
 		),
 	}
+	fakeConfigProvider := &mocks.AWSConfigProvider{}
+	dbFetcherFactory, err := db.NewAWSFetcherFactory(db.AWSFetcherFactoryConfig{
+		AWSConfigProvider: fakeConfigProvider,
+		CloudClients:      testCloudClients,
+		IntegrationCredentialProviderFn: func(_ context.Context, _, _ string) (aws.CredentialsProvider, error) {
+			return credentials.NewStaticCredentialsProvider("key", "secret", "session"), nil
+		},
+		RedshiftClientProviderFn: newFakeRedshiftClientProvider(&mocks.RedshiftClient{
+			Clusters: []redshifttypes.Cluster{*awsRedshiftResource},
+		}),
+	})
+	require.NoError(t, err)
 
 	tcs := []struct {
 		name                        string
@@ -2376,10 +2436,12 @@ func TestDiscoveryDatabase(t *testing.T) {
 					FetchersClients: &mockFetchersClients{
 						eksClusters: []*ekstypes.Cluster{eksAWSResource},
 					},
-					CloudClients:     testCloudClients,
-					ClusterFeatures:  func() proto.Features { return proto.Features{} },
-					KubernetesClient: fake.NewSimpleClientset(),
-					AccessPoint:      getDiscoveryAccessPoint(tlsServer.Auth(), authClient),
+					CloudClients:              testCloudClients,
+					ClusterFeatures:           func() proto.Features { return proto.Features{} },
+					KubernetesClient:          fake.NewSimpleClientset(),
+					AccessPoint:               getDiscoveryAccessPoint(tlsServer.Auth(), authClient),
+					AWSDatabaseFetcherFactory: dbFetcherFactory,
+					AWSConfigProvider:         fakeConfigProvider,
 					Matchers: Matchers{
 						AWS:   tc.awsMatchers,
 						Azure: tc.azureMatchers,
@@ -2457,7 +2519,7 @@ func TestDiscoveryDatabaseRemovingDiscoveryConfigs(t *testing.T) {
 	awsRDSInstance, awsRDSDB := makeRDSInstance(t, "aws-rds", "us-west-1", rewriteDiscoveryLabelsParams{discoveryConfigName: dc2Name, discoveryGroup: mainDiscoveryGroup})
 
 	testCloudClients := &cloud.TestCloudClients{
-		STS: &mocks.STSMock{},
+		STS: &mocks.STSClientV1{},
 		RDS: &mocks.RDSMock{
 			DBInstances: []*rds.DBInstance{awsRDSInstance},
 			DBEngineVersions: []*rds.DBEngineVersion{
@@ -2641,15 +2703,15 @@ func makeRDSInstance(t *testing.T, name, region string, discoveryParams rewriteD
 	return instance, database
 }
 
-func makeRedshiftCluster(t *testing.T, name, region string, discoveryParams rewriteDiscoveryLabelsParams) (*redshift.Cluster, types.Database) {
+func makeRedshiftCluster(t *testing.T, name, region string, discoveryParams rewriteDiscoveryLabelsParams) (*redshifttypes.Cluster, types.Database) {
 	t.Helper()
-	cluster := &redshift.Cluster{
+	cluster := &redshifttypes.Cluster{
 		ClusterIdentifier:   aws.String(name),
 		ClusterNamespaceArn: aws.String(fmt.Sprintf("arn:aws:redshift:%s:123456789012:namespace:%s", region, name)),
 		ClusterStatus:       aws.String("available"),
-		Endpoint: &redshift.Endpoint{
+		Endpoint: &redshifttypes.Endpoint{
 			Address: aws.String("localhost"),
-			Port:    aws.Int64(5439),
+			Port:    aws.Int32(5439),
 		},
 	}
 
@@ -3698,5 +3760,11 @@ func newPopulatedGCPProjectsMock() *mockProjectsAPI {
 				Name: "project2",
 			},
 		},
+	}
+}
+
+func newFakeRedshiftClientProvider(c redshift.DescribeClustersAPIClient) db.RedshiftClientProviderFunc {
+	return func(cfg aws.Config, optFns ...func(*redshift.Options)) db.RedshiftClient {
+		return c
 	}
 }

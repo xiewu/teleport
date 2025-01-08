@@ -51,8 +51,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/opensearchservice/opensearchserviceiface"
 	"github.com/aws/aws-sdk-go/service/rds"
 	"github.com/aws/aws-sdk-go/service/rds/rdsiface"
-	"github.com/aws/aws-sdk-go/service/redshift"
-	"github.com/aws/aws-sdk-go/service/redshift/redshiftiface"
 	"github.com/aws/aws-sdk-go/service/redshiftserverless"
 	"github.com/aws/aws-sdk-go/service/redshiftserverless/redshiftserverlessiface"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -113,8 +111,6 @@ type AWSClients interface {
 	GetAWSSession(ctx context.Context, region string, opts ...AWSOptionsFn) (*awssession.Session, error)
 	// GetAWSRDSClient returns AWS RDS client for the specified region.
 	GetAWSRDSClient(ctx context.Context, region string, opts ...AWSOptionsFn) (rdsiface.RDSAPI, error)
-	// GetAWSRedshiftClient returns AWS Redshift client for the specified region.
-	GetAWSRedshiftClient(ctx context.Context, region string, opts ...AWSOptionsFn) (redshiftiface.RedshiftAPI, error)
 	// GetAWSRedshiftServerlessClient returns AWS Redshift Serverless client for the specified region.
 	GetAWSRedshiftServerlessClient(ctx context.Context, region string, opts ...AWSOptionsFn) (redshiftserverlessiface.RedshiftServerlessAPI, error)
 	// GetAWSElastiCacheClient returns AWS ElastiCache client for the specified region.
@@ -511,15 +507,6 @@ func (c *cloudClients) GetAWSRDSClient(ctx context.Context, region string, opts 
 		return nil, trace.Wrap(err)
 	}
 	return rds.New(session), nil
-}
-
-// GetAWSRedshiftClient returns AWS Redshift client for the specified region.
-func (c *cloudClients) GetAWSRedshiftClient(ctx context.Context, region string, opts ...AWSOptionsFn) (redshiftiface.RedshiftAPI, error) {
-	session, err := c.GetAWSSession(ctx, region, opts...)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	return redshift.New(session), nil
 }
 
 // GetAWSRedshiftServerlessClient returns AWS Redshift Serverless client for the specified region.
@@ -1020,7 +1007,6 @@ var _ Clients = (*TestCloudClients)(nil)
 type TestCloudClients struct {
 	RDS                     rdsiface.RDSAPI
 	RDSPerRegion            map[string]rdsiface.RDSAPI
-	Redshift                redshiftiface.RedshiftAPI
 	RedshiftServerless      redshiftserverlessiface.RedshiftServerlessAPI
 	ElastiCache             elasticacheiface.ElastiCacheAPI
 	OpenSearch              opensearchserviceiface.OpenSearchServiceAPI
@@ -1099,15 +1085,6 @@ func (c *TestCloudClients) GetAWSRDSClient(ctx context.Context, region string, o
 		return c.RDSPerRegion[region], nil
 	}
 	return c.RDS, nil
-}
-
-// GetAWSRedshiftClient returns AWS Redshift client for the specified region.
-func (c *TestCloudClients) GetAWSRedshiftClient(ctx context.Context, region string, opts ...AWSOptionsFn) (redshiftiface.RedshiftAPI, error) {
-	_, err := c.GetAWSSession(ctx, region, opts...)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	return c.Redshift, nil
 }
 
 // GetAWSRedshiftServerlessClient returns AWS Redshift Serverless client for the specified region.
