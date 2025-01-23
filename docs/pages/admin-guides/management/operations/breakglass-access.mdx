@@ -17,7 +17,7 @@ Below, we’ll detail the steps to accomplish the following objectives:
 1. Configure the Teleport Agent's OpenSSH server to trust Teleport's CA
 2. Create a `breakglass` system user on the remote host
 3. Restrict cert-based SSH access to this `breakglass` user only
-4. Create a `breakglass` Role & User in Teleport
+4. Create a `breakglass` Role and User in Teleport
 5. Generate `breakglass` SSH Key and Cert using Teleport's CA
 6. Access the remote server using a Teleport issued cert even if Teleport is down or unresponsive
 
@@ -56,10 +56,8 @@ sudo systemctl restart sshd
 
 Now, `sshd` will trust users who present a Teleport-issued SSH certificate.
 
-<Admonition title="Critical Security Warning" type="warning">
- Adding the Teleport CA to the server's `TrustedUserCAKeys` will allow any user with a valid Teleport cert to authenticate to this node via OpenSSH unless further restrictions are implemented.  
- 
- You **MUST** complete Steps 4 and 5 below to ensure only the `brekaglass` user is allowed to log in with a valid Teleport certificate and is configured with proper access restrictions to prevent user switching once logged in. 
+<Admonition type="important">
+Complete Steps 4 and 5 below to ensure only the `breakglass` user is allowed to log in with a valid Teleport certificate and is configured with proper access restrictions in order to prevent user switching once logged in. 
 </Admonition>
 
 ## Step 2/6. Create a `breakglass` user on the Teleport Agent server
@@ -99,7 +97,7 @@ echo "breakglass" | sudo tee /etc/ssh/authorized_principals/breakglass
 sudo systemctl restart sshd
 ```
 
-## Step 4/6. Create `breakglass` Role & User in Teleport for impersonation
+## Step 4/6. Create `breakglass` Role and User in Teleport for impersonation
 
 1. Create `breakglass` Teleport role:
 
@@ -139,7 +137,7 @@ tctl users add --roles=breakglass breakglass
 
 We don't need to worry about setting a password for this user as it'll only ever be used in the context of OpenSSH break glass authentication via impersonation.
 
-3. Grant `impersonate` permissions for `breakglass` User & Role:
+3. Grant `impersonate` permissions for `breakglass` User and Role:
 
 To avoid having to directly log into Teleport as `breakglass`, grant `impersonation` permissions to an admin or automation user by adding the following to the impersonating user's matching role:
 
