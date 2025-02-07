@@ -21,8 +21,10 @@ package log
 import (
 	"context"
 	"fmt"
+	"iter"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -200,4 +202,19 @@ func (a typeAttr) LogValue() slog.Value {
 		return slog.StringValue(t.String())
 	}
 	return slog.StringValue("nil")
+}
+
+type iterCollectorAttr[V any] struct {
+	iter iter.Seq[V]
+}
+
+// TODO
+func IterCollectorAttr[V any](iter iter.Seq[V]) slog.LogValuer {
+	return iterCollectorAttr[V]{
+		iter: iter,
+	}
+}
+
+func (a iterCollectorAttr[V]) LogValue() slog.Value {
+	return slog.AnyValue(slices.Collect[V](a.iter))
 }

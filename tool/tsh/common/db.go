@@ -621,6 +621,33 @@ func maybeStartLocalProxy(ctx context.Context, cf *CLIConf,
 		logger.DebugContext(ctx, "Starting local proxy", "reasons", requires.localProxyReasons)
 	}
 
+	lp, err := startDatabaseLocalProxy(ctx, cf, tc, profile, dbInfo, requires)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	addr, err := utils.ParseAddr(lp.GetAddr())
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	// When connecting over TLS, psql only validates hostname against presented
+	// certificate's DNS names. As such, connecting to 127.0.0.1 will fail
+	// validation, so connect to localhost.
+	host := "localhost"
+	cmdOpts := []dbcmd.ConnectCommandFunc{
+		dbcmd.WithLocalProxy(host, addr.Port(0), profile.CACertPathForCluster(rootClusterName)),
+	}
+	if requires.tunnel {
+		cmdOpts = append(cmdOpts, dbcmd.WithNoTLS())
+	}
+	return cmdOpts, nil
+}
+
+func startDatabaseLocalProxy(ctx context.Context, cf *CLIConf,
+	tc *client.TeleportClient, profile *client.ProfileStatus,
+	dbInfo *databaseInfo, requires *dbLocalProxyRequirement,
+) (*alpnproxy.LocalProxy, error) {
 	listener, err := createLocalProxyListener("localhost:0", dbInfo.RouteToDatabase, profile)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -648,23 +675,7 @@ func maybeStartLocalProxy(ctx context.Context, cf *CLIConf,
 			logger.ErrorContext(cf.Context, "Failed to start local proxy", "error", err)
 		}
 	}()
-
-	addr, err := utils.ParseAddr(lp.GetAddr())
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	// When connecting over TLS, psql only validates hostname against presented
-	// certificate's DNS names. As such, connecting to 127.0.0.1 will fail
-	// validation, so connect to localhost.
-	host := "localhost"
-	cmdOpts := []dbcmd.ConnectCommandFunc{
-		dbcmd.WithLocalProxy(host, addr.Port(0), profile.CACertPathForCluster(rootClusterName)),
-	}
-	if requires.tunnel {
-		cmdOpts = append(cmdOpts, dbcmd.WithNoTLS())
-	}
-	return cmdOpts, nil
+	return lp, nil
 }
 
 // localProxyConfig is an argument pack used in prepareLocalProxyOptions().
