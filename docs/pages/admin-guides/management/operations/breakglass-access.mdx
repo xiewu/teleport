@@ -6,7 +6,7 @@ description: Guide to set up break glass emergency access for critical systems i
 This guide will walk you through the steps required to configure emergency "break glass" access for critical agents and servers via OpenSSH using Teleport-issued certificates, in the following scenarios:
 
 1. The Teleport Agent on a server has crashed, gone offline, or become unusable.
-2. The Teleport control plane is down and cannot be used to access systems, and this procedure is necessary to fix it.
+2. The Teleport control plane is down and cannot be used to access systems, and out-of-band access is necessary to fix it.
 
 ## How it works
 
@@ -57,7 +57,7 @@ sudo systemctl restart sshd
 Now, `sshd` will trust users who present a Teleport-issued SSH certificate.
 
 <Admonition type="important">
-Complete Steps 4 and 5 below to ensure only the `breakglass` user is allowed to log in with a valid Teleport certificate and is configured with proper access restrictions in order to prevent user switching once logged in. 
+Complete Steps 4 and 5 below to ensure only the `breakglass` user is allowed to log in with a valid Teleport certificate and is configured with proper access restrictions, in order to prevent user switching once logged in. 
 </Admonition>
 
 ## Step 2/6. Create a `breakglass` user on the Teleport Agent server
@@ -70,7 +70,7 @@ Log into the Teleport Agent server and run the following commands.
 sudo adduser breakglass
 ```
 
-Set a password for `breakglass` when prompted.
+Set a password for `breakglass` when prompted. We recommend the use of a long, random string as this password will never be used for access.
 
 **Note:** As a general security principle, it is highly recommended to limit `root` permissions through `sudo`. Because `breakglass` will need ability to gain elevated access to the system to troubleshoot and recover access, however, any use of break glass access should always be audited via sshd access logs. 
 
@@ -157,7 +157,7 @@ Run the following after logging into Teleport via `tsh login` as the impersonati
 tctl auth sign --ttl 24h --user=breakglass --out=/safe/path/breakglass --format openssh
 ```
 
-This command will create an ssh private key and a Teleport CA-signed certificate to be used by your OpenSSh client when authenticating with the OpenSSH server.
+This command will create an ssh private key and a Teleport CA-signed certificate to be used by your OpenSSH client when authenticating with the OpenSSH server.
 
 Store the private key securely in a vault or other secure location, and only access if needed to implement break glass procedures. 
 
