@@ -53,6 +53,7 @@ import (
 	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/lib"
 	"github.com/gravitational/teleport/lib/auth/dbobjectimportrule/dbobjectimportrulev1"
+	igcredentials "github.com/gravitational/teleport/lib/auth/integration/credentials"
 	"github.com/gravitational/teleport/lib/auth/keystore"
 	"github.com/gravitational/teleport/lib/auth/machineid/machineidv1"
 	"github.com/gravitational/teleport/lib/auth/migration"
@@ -69,6 +70,7 @@ import (
 	"github.com/gravitational/teleport/lib/tlsca"
 	usagereporter "github.com/gravitational/teleport/lib/usagereporter/teleport"
 	"github.com/gravitational/teleport/lib/utils"
+	"github.com/gravitational/teleport/lib/utils/clientutils"
 	logutils "github.com/gravitational/teleport/lib/utils/log"
 )
 
@@ -637,6 +639,23 @@ func initializeAuthorities(ctx context.Context, asrv *Server, cfg *InitConfig) e
 		return trace.Wrap(err)
 	}
 
+	// Collect CAs from integrations to avoid deleting them.
+	for ig, err := range clientutils.PaginatedResourceIterator(ctx, asrv.Services.ListIntegrations) {
+		if err != nil {
+			return trace.Wrap(err)
+		}
+		caKeySet, err := igcredentials.GetIntegrationCertAuthorities(ctx, ig, asrv.Services)
+		switch {
+		case trace.IsNotImplemented(err):
+		case err != nil:
+			// This should not happen by design. In case integration is in a
+			// bad state, log a warning instead of failing this initialization.
+			asrv.logger.WarnContext(ctx, "Failed to fetch integration CAs", "ig", ig.GetName(), "error", err)
+		default:
+			allKeysInUse = append(allKeysInUse, collectKeysInUse(*caKeySet)...)
+		}
+	}
+
 	// Delete any unused keys from the keyStore. This is to avoid exhausting
 	// (or wasting) HSM resources.
 	if err := asrv.keyStore.DeleteUnusedKeys(ctx, allKeysInUse); err != nil {
@@ -648,7 +667,7 @@ func initializeAuthorities(ctx context.Context, asrv *Server, cfg *InitConfig) e
 	return nil
 }
 
-func initializeAuthority(ctx context.Context, asrv *Server, caID types.CertAuthID) (usableKeysResult *keystore.UsableKeysResult, keysInUse [][]byte, err error) {
+func initializeAuthority(ctx context.Context, asrv *Server, caID types.CertAuthID) (*keystore.UsableKeysResult, [][]byte, error) {
 	ca, err := asrv.Services.GetCertAuthority(ctx, caID, true)
 	if err != nil {
 		if !trace.IsNotFound(err) {
@@ -668,7 +687,7 @@ func initializeAuthority(ctx context.Context, asrv *Server, caID types.CertAuthI
 	// Make sure the keystore has usable keys. This is a bit redundant if the CA
 	// was just generated above, but cheap relative to generating the CA, and
 	// it's nice to get the usableKeysResult.
-	usableKeysResult, err = asrv.keyStore.HasUsableActiveKeys(ctx, ca)
+	usableKeysResult, err := asrv.keyStore.HasUsableActiveKeys(ctx, ca)
 	if err != nil {
 		return nil, nil, trace.Wrap(err)
 	}
@@ -728,7 +747,12 @@ func initializeAuthority(ctx context.Context, asrv *Server, caID types.CertAuthI
 		)
 	}
 
-	for _, keySet := range []types.CAKeySet{ca.GetActiveKeys(), ca.GetAdditionalTrustedKeys()} {
+	keysInUse := collectKeysInUse(ca.GetActiveKeys(), ca.GetAdditionalTrustedKeys())
+	return usableKeysResult, keysInUse, nil
+}
+
+func collectKeysInUse(cas ...types.CAKeySet) (keysInUse [][]byte) {
+	for _, keySet := range cas {
 		for _, sshKeyPair := range keySet.SSH {
 			keysInUse = append(keysInUse, sshKeyPair.PrivateKey)
 		}
@@ -739,7 +763,7 @@ func initializeAuthority(ctx context.Context, asrv *Server, caID types.CertAuthI
 			keysInUse = append(keysInUse, jwtKeyPair.PrivateKey)
 		}
 	}
-	return usableKeysResult, keysInUse, nil
+	return keysInUse
 }
 
 // generateAuthority creates a new self-signed authority of the provided type
