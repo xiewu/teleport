@@ -3260,6 +3260,9 @@ message RoleOptions {
     (gogoproto.nullable) = true,
     (gogoproto.jsontag) = "ssh_port_forwarding,omitempty"
   ];
+
+  // allows reuse of the mfa response. TODO(greedy52)
+  bool mfa_session_response_reuse = 33;
 }
 
 message RecordSession {

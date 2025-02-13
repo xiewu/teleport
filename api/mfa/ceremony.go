@@ -147,3 +147,27 @@ func PerformAdminActionMFACeremony(ctx context.Context, mfaCeremony CeremonyFn, 
 	resp, err := mfaCeremony(ceremonyCtx, challengeRequest, WithPromptReasonAdminAction())
 	return resp, trace.Wrap(err)
 }
+
+// TODO
+func PerformDBExecMFACeremony(ctx context.Context, routeToDB *proto.RouteToDatabase, mfaCeremony CeremonyFn) (*proto.MFAAuthenticateResponse, error) {
+	challengeRequest := &proto.CreateAuthenticateChallengeRequest{
+		MFARequiredCheck: &proto.IsMFARequiredRequest{
+			// TODO(greedy52) what should we request.
+			Target: &proto.IsMFARequiredRequest_Database{
+				Database: routeToDB,
+			},
+		},
+		ChallengeExtensions: &mfav1.ChallengeExtensions{
+			Scope:      mfav1.ChallengeScope_CHALLENGE_SCOPE_DB_EXEC_SESSION,
+			AllowReuse: mfav1.ChallengeAllowReuse_CHALLENGE_ALLOW_REUSE_YES,
+		},
+	}
+
+	ceremonyCtx := ContextWithMFAResponse(ctx, nil)
+	resp, err := mfaCeremony(
+		ceremonyCtx,
+		challengeRequest,
+		WithPromptReason("MFA is required to execute database sessions"),
+	)
+	return resp, trace.Wrap(err)
+}

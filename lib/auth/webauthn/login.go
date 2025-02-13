@@ -73,8 +73,14 @@ func (f *loginFlow) begin(ctx context.Context, user string, challengeExtensions 
 		return nil, trace.BadParameter("requested challenge extensions must be supplied.")
 	}
 
-	if challengeExtensions.AllowReuse == mfav1.ChallengeAllowReuse_CHALLENGE_ALLOW_REUSE_YES && challengeExtensions.Scope != mfav1.ChallengeScope_CHALLENGE_SCOPE_ADMIN_ACTION {
-		return nil, trace.BadParameter("mfa challenges with scope %s cannot allow reuse", challengeExtensions.Scope)
+	if challengeExtensions.AllowReuse == mfav1.ChallengeAllowReuse_CHALLENGE_ALLOW_REUSE_YES {
+		scopesAllowReuse := []mfav1.ChallengeScope{
+			mfav1.ChallengeScope_CHALLENGE_SCOPE_ADMIN_ACTION,
+			mfav1.ChallengeScope_CHALLENGE_SCOPE_DB_EXEC_SESSION,
+		}
+		if !slices.Contains(scopesAllowReuse, challengeExtensions.Scope) {
+			return nil, trace.BadParameter("mfa challenges with scope %s cannot allow reuse", challengeExtensions.Scope)
+		}
 	}
 
 	// discoverableLogin identifies logins started with an unknown/empty user.

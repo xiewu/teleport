@@ -2597,6 +2597,7 @@ func (set RoleSet) checkAccess(r AccessCheckable, traits wrappers.Traits, state 
 
 	var errs []error
 	allowed := false
+	var mfaReuseError error
 	// Check allow rules.
 	for _, role := range set {
 		matchNamespace, namespaceMessage := MatchNamespace(role.GetNamespaces(types.Allow), namespace)
@@ -2658,10 +2659,13 @@ func (set RoleSet) checkAccess(r AccessCheckable, traits wrappers.Traits, state 
 
 		// MFA verification.
 		if !mfaAllowed && role.GetOptions().RequireMFAType.IsSessionMFARequired() {
-			logger.LogAttrs(ctx, logutils.TraceLevel, "Access to resource denied, role requires per-session MFA",
-				slog.String("role", role.GetName()),
-			)
-			return ErrSessionMFARequired
+			// TODO
+			if !(state.MFAVerifyedByReuse && role.GetOptions().MfaSessionResponseReuse) {
+				logger.LogAttrs(ctx, logutils.TraceLevel, "Access to resource denied, role requires per-session MFA",
+					slog.String("role", role.GetName()),
+				)
+				return ErrSessionMFARequired
+			}
 		}
 
 		// Device verification.
@@ -2678,6 +2682,10 @@ func (set RoleSet) checkAccess(r AccessCheckable, traits wrappers.Traits, state 
 		logger.LogAttrs(ctx, logutils.TraceLevel, "Access to resource granted, allow rule in role matched",
 			slog.String("role", role.GetName()),
 		)
+	}
+
+	if mfaReuseError != nil {
+		return mfaReuseError
 	}
 
 	if allowed {
@@ -3452,6 +3460,8 @@ type AccessState struct {
 	MFARequired MFARequired
 	// MFAVerified is set when MFA has been verified by the caller.
 	MFAVerified bool
+	// TODO
+	MFAVerifyedByReuse bool
 	// EnableDeviceVerification enables device verification in access checks.
 	// It's recommended to set this in tandem with DeviceVerified, so device
 	// checks are easier to reason about and have a proper chance of succeeding.

@@ -658,20 +658,24 @@ func PerformSessionMFACeremony(ctx context.Context, params PerformSessionMFACere
 		mfaRequiredReq = nil // Already checked, don't check again at root.
 	}
 
-	params.MFACeremony.CreateAuthenticateChallenge = rootClient.CreateAuthenticateChallenge
-	mfaResp, err := params.MFACeremony.Run(ctx, &proto.CreateAuthenticateChallengeRequest{
-		Request: &proto.CreateAuthenticateChallengeRequest_ContextUser{
-			ContextUser: &proto.ContextUser{},
-		},
-		MFARequiredCheck: mfaRequiredReq,
-		ChallengeExtensions: &mfav1.ChallengeExtensions{
-			Scope: mfav1.ChallengeScope_CHALLENGE_SCOPE_USER_SESSION,
-		},
-	}, promptOpts...)
-	if errors.Is(err, &mfa.ErrMFANotRequired) {
-		return nil, nil, trace.Wrap(services.ErrSessionMFANotRequired)
-	} else if err != nil {
-		return nil, nil, trace.Wrap(err)
+	mfaResp, _ := mfa.MFAResponseFromContext(ctx)
+	if mfaResp == nil {
+		var err error
+		params.MFACeremony.CreateAuthenticateChallenge = rootClient.CreateAuthenticateChallenge
+		mfaResp, err = params.MFACeremony.Run(ctx, &proto.CreateAuthenticateChallengeRequest{
+			Request: &proto.CreateAuthenticateChallengeRequest_ContextUser{
+				ContextUser: &proto.ContextUser{},
+			},
+			MFARequiredCheck: mfaRequiredReq,
+			ChallengeExtensions: &mfav1.ChallengeExtensions{
+				Scope: mfav1.ChallengeScope_CHALLENGE_SCOPE_USER_SESSION,
+			},
+		}, promptOpts...)
+		if errors.Is(err, &mfa.ErrMFANotRequired) {
+			return nil, nil, trace.Wrap(services.ErrSessionMFANotRequired)
+		} else if err != nil {
+			return nil, nil, trace.Wrap(err)
+		}
 	}
 
 	// If mfaResp is nil, the ceremony was a no-op (no devices registered).

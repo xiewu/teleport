@@ -20,25 +20,22 @@ package common
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
-	"io"
 	"iter"
 	"net"
-	"os"
 	"os/exec"
-	"strings"
 	"text/template"
-	"time"
 
 	"github.com/gravitational/trace"
 	"github.com/mattn/go-shellwords"
 
+	"github.com/gravitational/teleport/api/client/proto"
+	"github.com/gravitational/teleport/api/mfa"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/tlsca"
-	"github.com/gravitational/teleport/lib/utils"
 	logutils "github.com/gravitational/teleport/lib/utils/log"
-	"github.com/gravitational/teleport/tool/common"
 )
 
 func resourceNameIterator[T types.Resource](s []T) iter.Seq[string] {
@@ -75,10 +72,23 @@ func (c *databaseExecCommand) run(cf *CLIConf) error {
 		return trace.Wrap(err)
 	}
 
-	logger.DebugContext(cf.Context, "Fetched databases.", "database_services", logutils.IterCollectorAttr(resourceNameIterator(databases)))
+	logger.DebugContext(cf.Context, "Fetched databases.", "database_services", logutils.CollectorAttr(resourceNameIterator(databases)))
 	if len(databases) == 0 {
 		return trace.BadParameter("no databases found")
 	}
+
+	clusterClient, err := tc.ConnectToCluster(cf.Context)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	defer clusterClient.Close()
+	// TODO save this clusterClient in context
+
+	// TODO(greedy52) use access checker to guess if MFA is required for each
+	// database service.
+	ctx := cf.Context
+	printer := newDatabaseExecInfoPrinter(cf)
+	fmt.Fprintf(printer, "Found %d databases.\n", len(databases))
 
 	// TODO(greedy52) run parallel with errgroup
 	for _, db := range databases {
@@ -93,11 +103,27 @@ func (c *databaseExecCommand) run(cf *CLIConf) error {
 			database: db,
 		}
 
+		if _, err := mfa.MFAResponseFromContext(ctx); trace.IsNotFound(err) {
+			route := &proto.RouteToDatabase{
+				ServiceName: dbInfo.ServiceName,
+				Protocol:    dbInfo.Protocol,
+				Username:    dbInfo.Username,
+				Database:    dbInfo.Database,
+			}
+			mfaResponse, err := mfa.PerformDBExecMFACeremony(ctx, route, clusterClient.AuthClient.PerformMFACeremony)
+			if err == nil {
+				logger.DebugContext(cf.Context, "MFA response", "mfa_response", mfaResponse)
+				ctx = mfa.ContextWithMFAResponse(ctx, mfaResponse)
+			} else if !errors.Is(err, &mfa.ErrMFANotRequired) && !errors.Is(err, &mfa.ErrMFANotSupported) {
+				return trace.Wrap(err)
+			}
+		}
+
 		requires := &dbLocalProxyRequirement{
 			localProxy: true,
 			tunnel:     true,
 		}
-		lp, err := startDatabaseLocalProxy(cf.Context, cf, tc, profile, dbInfo, requires)
+		lp, err := startDatabaseLocalProxy(ctx, cf, tc, profile, dbInfo, requires)
 		if err != nil {
 			return trace.Wrap(err)
 		}
@@ -111,12 +137,10 @@ func (c *databaseExecCommand) run(cf *CLIConf) error {
 
 		// TODO(greedy52) add some line prefix to differentiate output from the
 		// targets.
-		switch cf.DryRun {
-		case true:
-			fmt.Fprintf(cf.Stdout(), "Execute command for database service %s: %s\n", db.GetName(), dbCmd)
-		default:
-			dbCmd.Stdout = newDatabaseExecOutputWriter(cf, db)
-			dbCmd.Stderr = newDatabaseExecErrorWriter(cf, db)
+		fmt.Fprintf(printer, "Execute command for database service %s: %s\n", db.GetName(), dbCmd)
+		if !cf.DryRun {
+			dbCmd.Stdout = newDatabaseExecOutputPrinter(cf, db)
+			dbCmd.Stderr = newDatabaseExecErrorPrinter(cf, db)
 			if err := cf.RunCommand(dbCmd); err != nil {
 				errMsg := fmt.Sprintf("Failed to execute database service %s: %v.", db.GetName(), err)
 				dbCmd.Stderr.Write([]byte(errMsg))
@@ -133,7 +157,7 @@ func (c *databaseExecCommand) checkInputs(cf *CLIConf) error {
 		return trace.BadParameter("At least one of --labels,--query must be specified")
 	}
 
-	// TODO(greedy52) support command template:
+	// TODO(greedy52) support command template
 	switch {
 	case cf.DatabaseQuery == "":
 		return trace.BadParameter("--exec-query must be specified")
@@ -199,65 +223,4 @@ func (c *databaseExecCommand) makeCommand(cf *CLIConf, tc *client.TeleportClient
 	}
 
 	return exec.CommandContext(cf.Context, words[0], words[1:]...), nil
-}
-
-type ioWriterFunc func([]byte) (n int, err error)
-
-func (f ioWriterFunc) Write(p []byte) (n int, err error) {
-	return f(p)
-}
-
-func nonEmptyLines(input string) []string {
-	var lines []string
-	for _, line := range strings.Split(input, "\n") {
-		trimmed := strings.TrimSpace(line) // Remove extra spaces
-		if trimmed != "" {
-			lines = append(lines, trimmed)
-		}
-	}
-	return lines
-}
-
-type databaseExecWriter struct {
-	io.Writer
-	infoType      string
-	dbServiceName string
-	enableColor   bool
-	color         string
-}
-
-func (w *databaseExecWriter) Write(p []byte) (n int, err error) {
-	for _, line := range strings.Split(string(p), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		msg := fmt.Sprintf("[%v][%s][%s]: ", time.Now().Format(time.RFC3339), w.dbServiceName, w.infoType)
-		if w.enableColor {
-			msg = w.color + msg + "\033[0m"
-		}
-		msg += trimmed
-		fmt.Fprintln(w.Writer, msg)
-	}
-	return len(p), nil
-}
-
-func newDatabaseExecOutputWriter(cf *CLIConf, db types.Database) io.Writer {
-	return &databaseExecWriter{
-		Writer:        cf.Stdout(),
-		infoType:      "output",
-		dbServiceName: common.FormatResourceName(db, false),
-		enableColor:   utils.IsTerminal(os.Stdout),
-		color:         "\033[32m", // Green
-	}
-}
-
-func newDatabaseExecErrorWriter(cf *CLIConf, db types.Database) io.Writer {
-	return &databaseExecWriter{
-		Writer:        cf.Stderr(),
-		infoType:      "error!",
-		dbServiceName: common.FormatResourceName(db, false),
-		enableColor:   utils.IsTerminal(os.Stderr),
-		color:         "\033[33m", // Yellow
-	}
 }

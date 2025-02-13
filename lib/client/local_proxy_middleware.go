@@ -219,6 +219,12 @@ func (c *DBCertIssuer) IssueCert(ctx context.Context) (tls.Certificate, error) {
 
 	var keyRing *KeyRing
 	if err := RetryWithRelogin(ctx, c.Client, func() error {
+		clusterClient, err := c.Client.ConnectToCluster(ctx)
+		if err != nil {
+			return trace.Wrap(err)
+		}
+		defer clusterClient.Close()
+
 		dbCertParams := ReissueParams{
 			RouteToCluster: c.Client.SiteName,
 			RouteToDatabase: proto.RouteToDatabase{
@@ -230,11 +236,7 @@ func (c *DBCertIssuer) IssueCert(ctx context.Context) (tls.Certificate, error) {
 			AccessRequests: accessRequests,
 			RequesterName:  proto.UserCertsRequest_TSH_DB_LOCAL_PROXY_TUNNEL,
 			TTL:            c.TTL,
-		}
-
-		clusterClient, err := c.Client.ConnectToCluster(ctx)
-		if err != nil {
-			return trace.Wrap(err)
+			AuthClient:     clusterClient.AuthClient,
 		}
 
 		newKey, mfaRequired, err := clusterClient.IssueUserCertsWithMFA(ctx, dbCertParams)

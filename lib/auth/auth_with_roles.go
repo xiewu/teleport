@@ -3128,6 +3128,32 @@ func getBotName(user types.User) string {
 	return ""
 }
 
+func (a *ServerWithRoles) validateUserCertMFAResponse(ctx context.Context, req proto.UserCertsRequest) (*authz.MFAAuthData, error) {
+	if req.MFAResponse == nil {
+		return nil, nil
+	}
+
+	requiredExt := &mfav1.ChallengeExtensions{Scope: mfav1.ChallengeScope_CHALLENGE_SCOPE_USER_SESSION}
+	mfaData, err := a.authServer.ValidateMFAAuthResponse(ctx, req.GetMFAResponse(), req.Username, requiredExt)
+	switch {
+	case err == nil:
+		return mfaData, nil
+	case req.RouteToDatabase.ServiceName != "":
+		requiredExt = &mfav1.ChallengeExtensions{
+			Scope:      mfav1.ChallengeScope_CHALLENGE_SCOPE_DB_EXEC_SESSION,
+			AllowReuse: mfav1.ChallengeAllowReuse_CHALLENGE_ALLOW_REUSE_YES,
+		}
+		mfaData, dbExecCheckError := a.authServer.ValidateMFAAuthResponse(ctx, req.GetMFAResponse(), req.Username, requiredExt)
+		if dbExecCheckError != nil {
+			return nil, trace.Wrap(err)
+		}
+		a.authServer.logger.DebugContext(ctx, "Reusing MFA response for database exec session")
+		return mfaData, nil
+	default:
+		return nil, trace.Wrap(err)
+	}
+}
+
 func (a *ServerWithRoles) generateUserCerts(ctx context.Context, req proto.UserCertsRequest, opts ...certRequestOption) (*proto.Certs, error) {
 	// Device trust: authorize device before issuing certificates.
 	readOnlyAuthPref, err := a.authServer.GetReadOnlyAuthPreference(ctx)
@@ -3139,12 +3165,10 @@ func (a *ServerWithRoles) generateUserCerts(ctx context.Context, req proto.UserC
 	}
 
 	var verifiedMFADeviceID string
-	if req.MFAResponse != nil {
-		requiredExt := &mfav1.ChallengeExtensions{Scope: mfav1.ChallengeScope_CHALLENGE_SCOPE_USER_SESSION}
-		mfaData, err := a.authServer.ValidateMFAAuthResponse(ctx, req.GetMFAResponse(), req.Username, requiredExt)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
+	mfaData, err := a.validateUserCertMFAResponse(ctx, req)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	} else if mfaData != nil {
 		verifiedMFADeviceID = mfaData.Device.Id
 	}
 
@@ -3291,6 +3315,34 @@ func (a *ServerWithRoles) generateUserCerts(ctx context.Context, req proto.UserC
 		return nil, trace.Wrap(err)
 	}
 	checker := services.NewAccessCheckerWithRoleSet(accessInfo, clusterName.GetClusterName(), roleSet)
+
+	if mfaData != nil && mfaData.AllowReuse == mfav1.ChallengeAllowReuse_CHALLENGE_ALLOW_REUSE_YES {
+		a.authServer.logger.DebugContext(ctx, "=== Checking reuse")
+		switch {
+		case req.RouteToDatabase.ServiceName != "":
+			var find types.Database
+			databaseServers, err := a.authServer.GetDatabaseServers(ctx, apidefaults.Namespace)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			for _, databaseServer := range databaseServers {
+				db := databaseServer.GetDatabase()
+				if db.GetName() == req.RouteToDatabase.ServiceName {
+					find = db
+				}
+			}
+			if find == nil {
+				return nil, trace.NotFound("database service %s not found", req.RouteToDatabase.ServiceName)
+			}
+			if err := checker.CheckAccess(find, services.AccessState{
+				MFAVerifyedByReuse: true,
+			}); err != nil {
+				return nil, trace.Wrap(err)
+			}
+		default:
+			return nil, trace.AccessDenied("reuse of MFA response is not allowed")
+		}
+	}
 
 	switch {
 	case a.hasBuiltinRole(types.RoleAdmin):

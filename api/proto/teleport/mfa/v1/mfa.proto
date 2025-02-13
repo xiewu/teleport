@@ -68,6 +68,9 @@ enum ChallengeScope {
   CHALLENGE_SCOPE_ADMIN_ACTION = 7;
   // Used for changing user's password.
   CHALLENGE_SCOPE_CHANGE_PASSWORD = 8;
+  // Used for database exec session that can establish multiple database
+  // connections.
+  CHALLENGE_SCOPE_DB_EXEC_SESSION = 9;
 }
 
 // ChallengeAllowReuse determines whether an MFA challenge response can be used
