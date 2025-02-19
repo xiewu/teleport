@@ -117,6 +117,8 @@ func (l *Handler) Upload(ctx context.Context, sessionID session.ID, reader io.Re
 	if err != nil {
 		return "", trace.ConvertSystemError(err)
 	}
+
+	// TODO(codingllama): Here? Dead code?
 	_, err = io.Copy(f, reader)
 	if err = trace.NewAggregate(err, f.Close()); err != nil {
 		return "", trace.Wrap(err)

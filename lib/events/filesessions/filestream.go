@@ -115,6 +115,7 @@ func (h *Handler) UploadPart(ctx context.Context, upload events.StreamUpload, pa
 		return nil, trace.ConvertSystemError(err)
 	}
 
+	// TODO(codingllama): Here?
 	size, err := io.Copy(file, partBody)
 	if err = trace.NewAggregate(err, file.Truncate(size), file.Close()); err != nil {
 		if rmErr := os.Remove(reservationPath); rmErr != nil {
@@ -215,6 +216,7 @@ Loop:
 			}
 		}()
 
+		// TODO(codingllama): Here. (Notice how the parts are read and collated into the session "tar".)
 		_, err = io.Copy(f, file)
 		return err
 	}
@@ -357,6 +359,8 @@ func (h *Handler) ReserveUploadPart(ctx context.Context, upload events.StreamUpl
 	// Create a buffer with the max size that a part file can have.
 	buf := make([]byte, minUploadBytes+events.MaxProtoMessageSizeBytes)
 
+	// TODO(codingllama): Here? This is only the reservation file.
+	//  Notice that this could be a Truncate, no need to allocate the slice or do the write.
 	_, err = file.Write(buf)
 	if err = trace.NewAggregate(err, file.Close()); err != nil {
 		if rmErr := os.Remove(partPath); rmErr != nil {
