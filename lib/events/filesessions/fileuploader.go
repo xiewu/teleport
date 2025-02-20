@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"filippo.io/age"
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport"
@@ -41,6 +42,12 @@ type Config struct {
 	Directory string
 	// OnBeforeComplete can be used to inject failures during tests
 	OnBeforeComplete func(ctx context.Context, upload events.StreamUpload) error
+	// OpenFile is the function to use to open OS files.
+	// Defaults to GetOpenFileFunc / os.OpenFile.
+	OpenFile utils.OpenFileWithFlagsFunc
+	// Recipients are the age recipients for encrypted session files.
+	// A non-empty slice enables encrypted session recordings.
+	Recipients []age.Recipient
 }
 
 // nopBeforeComplete does nothing
@@ -72,9 +79,46 @@ func NewHandler(cfg Config) (*Handler, error) {
 		return nil, trace.Wrap(err)
 	}
 
+	logger := slog.With(teleport.ComponentKey, teleport.SchemeFile)
+
+	openFile := cfg.OpenFile
+	if openFile == nil {
+		openFile = GetOpenFileFunc()
+	}
+
+	// TODO(codingllama): Hack! Read from configuration instead.
+	recipients := cfg.Recipients
+	if val := os.Getenv("TELEPORT_RECIPIENTS"); val != "" {
+		recs, err := age.ParseRecipients(strings.NewReader(val))
+		if err != nil {
+			return nil, trace.Wrap(err, "parse age recipients")
+		}
+		recipients = append(recipients, recs...)
+	}
+
+	var fops FileOps
+	if len(recipients) > 0 {
+		logger.InfoContext(context.Background(),
+			"Enabled encrypted session recordings",
+			"recipients", recipients,
+		)
+		fops = &encryptedFileOps{
+			Logger:     logger,
+			OpenFile:   openFile,
+			Recipients: recipients,
+		}
+	} else {
+		fops = &plainFileOps{
+			Logger:   logger,
+			OpenFile: openFile,
+		}
+	}
+
 	h := &Handler{
-		logger: slog.With(teleport.ComponentKey, teleport.SchemeFile),
-		Config: cfg,
+		Config:   cfg,
+		logger:   slog.With(teleport.ComponentKey, teleport.SchemeFile),
+		fileOps:  fops,
+		openFile: openFile,
 	}
 	return h, nil
 }
@@ -86,6 +130,11 @@ type Handler struct {
 	Config
 	// logger emits logs messages
 	logger *slog.Logger
+	// fileOps is the interface for "low-level" file operations.
+	// Allows for both plaintext or encrypted session files.
+	fileOps FileOps
+	// openFile is used to open OS files.
+	openFile utils.OpenFileWithFlagsFunc
 }
 
 // Closer releases connection and resources associated with log if any

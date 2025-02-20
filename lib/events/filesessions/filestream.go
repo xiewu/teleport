@@ -40,32 +40,31 @@ import (
 	"github.com/gravitational/teleport/lib/utils"
 )
 
-var (
-	// openFileFunc this is the `OpenFileWithFlagsFunc` used by the handler.
-	//
-	// TODO(gabrielcorado): remove this global variable.
-	openFileFunc utils.OpenFileWithFlagsFunc = os.OpenFile
-
-	// flagLock protects access to all globals declared in this file
-	flagLock sync.Mutex
-)
+// TODO(gabrielcorado): remove this global variable.
+var globalOpenFile = struct {
+	mu       sync.Mutex // guards openFile
+	openFile utils.OpenFileWithFlagsFunc
+}{
+	openFile: os.OpenFile,
+}
 
 // SetOpenFileFunc sets the OpenFileWithFlagsFunc used by the package.
 //
 // TODO(gabrielcorado): remove this global variable.
 func SetOpenFileFunc(f utils.OpenFileWithFlagsFunc) {
-	flagLock.Lock()
-	defer flagLock.Unlock()
-	openFileFunc = f
+	globalOpenFile.mu.Lock()
+	globalOpenFile.openFile = f
+	globalOpenFile.mu.Unlock()
 }
 
 // GetOpenFileFunc gets the OpenFileWithFlagsFunc set in the package.
 //
 // TODO(gabrielcorado): remove this global variable.
 func GetOpenFileFunc() utils.OpenFileWithFlagsFunc {
-	flagLock.Lock()
-	defer flagLock.Unlock()
-	return openFileFunc
+	globalOpenFile.mu.Lock()
+	fn := globalOpenFile.openFile
+	globalOpenFile.mu.Unlock()
+	return fn
 }
 
 // minUploadBytes is the minimum part file size required to trigger its upload.
@@ -110,14 +109,9 @@ func (h *Handler) UploadPart(ctx context.Context, upload events.StreamUpload, pa
 		return nil, trace.Wrap(err)
 	}
 
-	file, reservationPath, err := h.openReservationPart(upload, partNumber)
-	if err != nil {
-		return nil, trace.ConvertSystemError(err)
-	}
-
-	// TODO(codingllama): Here?
-	size, err := io.Copy(file, partBody)
-	if err = trace.NewAggregate(err, file.Truncate(size), file.Close()); err != nil {
+	reservationPath := h.reservationPath(upload, partNumber)
+	if err := h.fileOps.WriteReservation(reservationPath, partBody); err != nil {
+		// TODO(codingllama): Move Remove into fileOps?
 		if rmErr := os.Remove(reservationPath); rmErr != nil {
 			h.logger.WarnContext(ctx, "Failed to remove part file", "file", reservationPath, "error", rmErr)
 		}
@@ -126,8 +120,7 @@ func (h *Handler) UploadPart(ctx context.Context, upload events.StreamUpload, pa
 
 	// Rename reservation to part file.
 	partPath := h.partPath(upload, partNumber)
-	err = os.Rename(reservationPath, partPath)
-	if err != nil {
+	if err := os.Rename(reservationPath, partPath); err != nil {
 		return nil, trace.ConvertSystemError(err)
 	}
 
@@ -136,7 +129,6 @@ func (h *Handler) UploadPart(ctx context.Context, upload events.StreamUpload, pa
 	if err == nil {
 		lastModified = fi.ModTime()
 	}
-
 	return &events.StreamPart{Number: partNumber, LastModified: lastModified}, nil
 }
 
@@ -146,15 +138,10 @@ func (h *Handler) CompleteUpload(ctx context.Context, upload events.StreamUpload
 		return trace.Wrap(err)
 	}
 
-	// Parts must be sorted in PartNumber order.
-	sort.Slice(parts, func(i, j int) bool {
-		return parts[i].Number < parts[j].Number
-	})
-
 	uploadPath := h.path(upload.SessionID)
 
 	// Prevent other processes from accessing this file until the write is completed
-	f, err := GetOpenFileFunc()(uploadPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := h.openFile(uploadPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return trace.ConvertSystemError(err)
 	}
@@ -205,27 +192,18 @@ Loop:
 		}
 	}()
 
-	writePartToFile := func(path string) error {
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer func() {
-			if err := file.Close(); err != nil {
-				h.logger.ErrorContext(ctx, "failed to close file", "file", path, "error", err)
-			}
-		}()
-
-		// TODO(codingllama): Here. (Notice how the parts are read and collated into the session "tar".)
-		_, err = io.Copy(f, file)
-		return err
+	// Collect part names in order.
+	sort.Slice(parts, func(i, j int) bool {
+		return parts[i].Number < parts[j].Number
+	})
+	partNames := make([]string, len(parts))
+	for i, part := range parts {
+		partNames[i] = h.partPath(upload, part.Number)
 	}
 
-	for _, part := range parts {
-		partPath := h.partPath(upload, part.Number)
-		if err := writePartToFile(partPath); err != nil {
-			return trace.Wrap(err)
-		}
+	// Combine parts into f.
+	if err := h.fileOps.CombineParts(f, partNames); err != nil {
+		return trace.Wrap(err)
 	}
 
 	err = h.Config.OnBeforeComplete(ctx, upload)
@@ -351,37 +329,17 @@ func (h *Handler) GetUploadMetadata(s session.ID) events.UploadMetadata {
 
 // ReserveUploadPart reserves an upload part.
 func (h *Handler) ReserveUploadPart(ctx context.Context, upload events.StreamUpload, partNumber int64) error {
-	file, partPath, err := h.openReservationPart(upload, partNumber)
-	if err != nil {
-		return trace.ConvertSystemError(err)
-	}
-
-	// Create a buffer with the max size that a part file can have.
-	buf := make([]byte, minUploadBytes+events.MaxProtoMessageSizeBytes)
-
-	// TODO(codingllama): Here? This is only the reservation file.
-	//  Notice that this could be a Truncate, no need to allocate the slice or do the write.
-	_, err = file.Write(buf)
-	if err = trace.NewAggregate(err, file.Close()); err != nil {
-		if rmErr := os.Remove(partPath); rmErr != nil {
-			h.logger.WarnContext(ctx, "Failed to remove part file.", "file", partPath, "error", rmErr)
+	reservationPath := h.reservationPath(upload, partNumber)
+	const size = minUploadBytes + events.MaxProtoMessageSizeBytes
+	if err := h.fileOps.CreateReservation(reservationPath, size); err != nil {
+		// TODO(codingllama): Move Remove into fileOps?
+		if rmErr := os.Remove(reservationPath); rmErr != nil {
+			h.logger.WarnContext(ctx, "Failed to remove part file.", "file", reservationPath, "error", rmErr)
 		}
-
-		return trace.ConvertSystemError(err)
+		return trace.Wrap(err)
 	}
 
 	return nil
-}
-
-// openReservationPart opens a reservation upload part file.
-func (h *Handler) openReservationPart(upload events.StreamUpload, partNumber int64) (*os.File, string, error) {
-	partPath := h.reservationPath(upload, partNumber)
-	file, err := GetOpenFileFunc()(partPath, os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		return nil, partPath, trace.ConvertSystemError(err)
-	}
-
-	return file, partPath, nil
 }
 
 func (h *Handler) uploadsPath() string {

@@ -24,6 +24,8 @@ import (
 
 	"filippo.io/age"
 	"github.com/gravitational/trace"
+
+	"github.com/gravitational/teleport/lib/utils"
 )
 
 const (
@@ -36,11 +38,12 @@ const (
 type FileOps interface {
 	CreateReservation(name string, size int64) error
 	WriteReservation(name string, data io.Reader) error
-	CombineParts(dst string, parts []string) error
+	CombineParts(dst io.Writer, parts []string) error
 }
 
 type plainFileOps struct {
-	Logger *slog.Logger
+	Logger   *slog.Logger
+	OpenFile utils.OpenFileWithFlagsFunc
 }
 
 var _ FileOps = &plainFileOps{}
@@ -52,7 +55,7 @@ func (p *plainFileOps) CreateReservation(name string, size int64) (err error) {
 		}
 	}()
 
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE, reservationFilePerm)
+	f, err := p.OpenFile(name, os.O_WRONLY|os.O_CREATE, reservationFilePerm)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -75,7 +78,7 @@ func (p *plainFileOps) WriteReservation(name string, data io.Reader) (err error)
 	// O_CREATE kept for backwards compatibility only.
 	const flag = os.O_WRONLY | os.O_CREATE
 
-	f, err := os.OpenFile(name, flag, reservationFilePerm)
+	f, err := p.OpenFile(name, flag, reservationFilePerm)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -96,28 +99,16 @@ func (p *plainFileOps) WriteReservation(name string, data io.Reader) (err error)
 	return trace.Wrap(f.Close())
 }
 
-func (p *plainFileOps) CombineParts(dst string, parts []string) (err error) {
-	defer func() {
-		if err != nil {
-			err = trace.ConvertSystemError(err)
-		}
-	}()
-
-	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, combinedFilePerm)
-	if err != nil {
-		return trace.Wrap(err)
+func (p *plainFileOps) CombineParts(dst io.Writer, parts []string) (err error) {
+	if err := combineParts(dst, parts, p.OpenFile, p.Logger); err != nil {
+		return trace.ConvertSystemError(err)
 	}
-
-	if err := combineParts(f, parts, p.Logger); err != nil {
-		loggingClose(f, p.Logger, "Failed to close combined file", "name", dst)
-		return trace.Wrap(err)
-	}
-
-	return trace.Wrap(f.Close())
+	return nil
 }
 
 type encryptedFileOps struct {
 	Logger     *slog.Logger
+	OpenFile   utils.OpenFileWithFlagsFunc
 	Recipients []age.Recipient
 }
 
@@ -133,46 +124,25 @@ func (e *encryptedFileOps) WriteReservation(name string, data io.Reader) error {
 	return e.plaintext().WriteReservation(name, data)
 }
 
-func (e *encryptedFileOps) CombineParts(dst string, parts []string) (err error) {
-	defer func() {
-		if err != nil {
-			err = trace.ConvertSystemError(err)
-		}
-	}()
-
-	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, combinedFilePerm)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-	fClosed := false
-	defer func() {
-		if !fClosed {
-			loggingClose(f, e.Logger, "Failed to close combined file", "name", dst)
-		}
-	}()
-
-	encWriter, err := age.Encrypt(f, e.Recipients...)
+func (e *encryptedFileOps) CombineParts(dst io.Writer, parts []string) (err error) {
+	encWriter, err := age.Encrypt(dst, e.Recipients...)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 	// No need to "defer encWriter.Close()" on failures.
 
-	if err := combineParts(encWriter, parts, e.Logger); err != nil {
-		return trace.Wrap(err)
+	if err := combineParts(encWriter, parts, e.OpenFile, e.Logger); err != nil {
+		return trace.ConvertSystemError(err)
 	}
 
 	// Flush last chunk.
-	if err := encWriter.Close(); err != nil {
-		return trace.Wrap(err)
-	}
-
-	fClosed = true
-	return trace.Wrap(f.Close())
+	return trace.Wrap(encWriter.Close())
 }
 
 func (e *encryptedFileOps) plaintext() *plainFileOps {
 	return &plainFileOps{
-		Logger: e.Logger,
+		Logger:   e.Logger,
+		OpenFile: e.OpenFile,
 	}
 }
 
@@ -182,21 +152,18 @@ func (e *encryptedFileOps) plaintext() *plainFileOps {
 // It does not wraps errors with trace.ConvertSystemError.
 //
 // Do not use this directly, use a [FileOps] implementation instead.
-func combineParts(dst io.Writer, parts []string, logger *slog.Logger) (err error) {
+func combineParts(dst io.Writer, parts []string, openFile utils.OpenFileWithFlagsFunc, logger *slog.Logger) (err error) {
 	for _, part := range parts {
-		partFile, err := os.Open(part)
+		partFile, err := openFile(part, os.O_RDONLY, 0 /* perm */)
 		if err != nil {
 			return trace.Wrap(err)
 		}
-
 		if _, err := io.Copy(dst, partFile); err != nil {
 			loggingClose(partFile, logger, "Failed to close part (io.Copy error flow)", "name", part)
 			return trace.Wrap(err)
 		}
-
 		loggingClose(partFile, logger, "Failed to close part", "name", part)
 	}
-
 	return nil
 }
 
