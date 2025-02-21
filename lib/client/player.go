@@ -20,6 +20,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/gravitational/trace"
@@ -57,6 +58,28 @@ func (p *playFromFileStreamer) StreamSessionEvents(
 			if err != nil {
 				errs <- trace.Wrap(err)
 				return
+			}
+
+			if printEvt, ok := evt.(*apievents.SessionPrint); ok {
+				fmt.Fprintf(
+					os.Stderr,
+					"i=%d: Decoded print event: ci=%d offset=%d delay=%d data=[%s]\n",
+					i, printEvt.ChunkIndex, printEvt.Offset, printEvt.DelayMilliseconds,
+					printEvt.Data,
+				)
+				if b1, b2 := int(printEvt.Bytes), len(printEvt.Data); b1 != b2 {
+					fmt.Fprintf(os.Stderr, "BYTES DIFFER! %d vs %d\n", b1, b2)
+				}
+			} else {
+				fmt.Fprintf(
+					os.Stderr,
+					"i=%d: Decoded event: type=%q, code=%q\n",
+					i, evt.GetType(), evt.GetCode(),
+				)
+			}
+
+			if true {
+				continue
 			}
 
 			if i >= startIndex {
