@@ -24,6 +24,7 @@ import (
 
 	apievents "github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/lib/session"
+	"github.com/gravitational/trace"
 )
 
 // MockRecorderEmitter is a recorder and emitter that stores all events.
@@ -52,6 +53,10 @@ func (e *MockRecorderEmitter) RecordEvent(ctx context.Context, event apievents.P
 	e.recordedEvents = append(e.recordedEvents, event)
 	e.events = append(e.events, event.GetAuditEvent())
 	return nil
+}
+
+func (e *MockRecorderEmitter) RecordSessionEventRaw(ctx context.Context, data []byte) error {
+	return trace.NotImplemented("not implemented: MockRecorderEmitter.RecordSessionEventRaw")
 }
 
 // LastEvent returns the last emitted event.

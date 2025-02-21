@@ -485,6 +485,8 @@ func (u *Uploader) upload(ctx context.Context, up *upload) error {
 	}()
 
 	var stream apievents.Stream
+	// TODO(codingllama): This won't work for raw files, we are not counting
+	//  indexes.
 	status, err := up.readStatus()
 	if err != nil {
 		if !trace.IsNotFound(err) {
@@ -554,24 +556,47 @@ func (u *Uploader) upload(ctx context.Context, up *upload) error {
 		u.monitorStreamStatus(ctx, up, stream, cancel)
 	}()
 
-	for {
-		event, err := up.reader.Read(ctx)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
+	if false {
+		// TODO(codingllama): Separate "parsed" and "non-parsed" upload logic.
+		for {
+			event, err := up.reader.Read(ctx)
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				return sessionError{err: trace.Wrap(err)}
 			}
-			return sessionError{err: trace.Wrap(err)}
+			// skip events that have been already submitted
+			if status != nil && event.GetIndex() <= status.LastEventIndex {
+				continue
+			}
+			// ProtoStream will only write PreparedSessionEvents, so
+			// this event doesn't need to be prepared again. Convert it
+			// with a NoOpPreparer.
+			preparedEvent, _ := u.eventPreparer.PrepareSessionEvent(event)
+			if err := stream.RecordEvent(ctx, preparedEvent); err != nil {
+				return trace.Wrap(err)
+			}
 		}
-		// skip events that have been already submitted
-		if status != nil && event.GetIndex() <= status.LastEventIndex {
-			continue
+	} else {
+		// TODO(codingllama): Look into this, it may cause problems.
+		//  sliceWriter and its friends are all finicky.
+		const bufSize = events.MaxProtoMessageSizeBytes
+		buf := make([]byte, bufSize)
+
+		var err error
+		for err == nil {
+			var n int
+			n, err = up.file.Read(buf)
+			// err handled below
+			if n > 0 {
+				if err := stream.RecordSessionEventRaw(ctx, buf[:n]); err != nil {
+					return trace.Wrap(err, "write raw session event")
+				}
+			}
 		}
-		// ProtoStream will only write PreparedSessionEvents, so
-		// this event doesn't need to be prepared again. Convert it
-		// with a NoOpPreparer.
-		preparedEvent, _ := u.eventPreparer.PrepareSessionEvent(event)
-		if err := stream.RecordEvent(ctx, preparedEvent); err != nil {
-			return trace.Wrap(err)
+		if !errors.Is(err, io.EOF) {
+			return trace.Wrap(err, "read session file")
 		}
 	}
 

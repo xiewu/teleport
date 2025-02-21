@@ -114,4 +114,8 @@ type Stream interface {
 	// Close flushes non-uploaded flight stream data without marking
 	// the stream completed and closes the stream instance
 	Close(ctx context.Context) error
+
+	// RecordSessionEventRaw records uninterpret (raw) event data into session
+	// storage.
+	RecordSessionEventRaw(ctx context.Context, data []byte) error
 }

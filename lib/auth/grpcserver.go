@@ -488,6 +488,11 @@ func (g *GRPCServer) CreateAuditStream(stream authpb.AuthService_CreateAuditStre
 					"duration", time.Since(event.GetTime()),
 				)
 			}
+		} else if event := request.GetSessionEventRaw(); event != nil {
+			if err := eventStream.RecordSessionEventRaw(stream.Context(), event.RawData); err != nil {
+				return trace.Wrap(err)
+			}
+
 		} else {
 			g.logger.ErrorContext(stream.Context(), "Rejecting unsupported stream request", "request", request)
 			return trace.BadParameter("unsupported stream request")

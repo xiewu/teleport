@@ -366,6 +366,10 @@ func (a *SessionWriter) RecordEvent(ctx context.Context, pe apievents.PreparedSe
 	}
 }
 
+func (a *SessionWriter) RecordSessionEventRaw(ctx context.Context, data []byte) error {
+	panic("not implemented: SessionWriter.RecordSessionEventRaw")
+}
+
 var timerPool sync.Pool
 
 // Stats returns up to date stats from this session writer

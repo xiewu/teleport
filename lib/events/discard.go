@@ -134,6 +134,13 @@ func (d *DiscardRecorder) RecordEvent(ctx context.Context, pe apievents.Prepared
 	return nil
 }
 
+func (d *DiscardRecorder) RecordSessionEventRaw(ctx context.Context, data []byte) error {
+	slog.Log(ctx, logutils.TraceLevel, "Discaring raw session event",
+		"data_len", len(data),
+	)
+	return nil
+}
+
 // NewDiscardEmitter returns a no-op discard emitter
 func NewDiscardEmitter() *DiscardEmitter {
 	return &DiscardEmitter{}

@@ -56,6 +56,7 @@ func (p *playFromFileStreamer) StreamSessionEvents(
 		for i := int64(0); ; i++ {
 			evt, err := pr.Read(ctx)
 			if err != nil {
+				fmt.Fprintf(os.Stderr, "ProtoReader errored: %v", err)
 				errs <- trace.Wrap(err)
 				return
 			}

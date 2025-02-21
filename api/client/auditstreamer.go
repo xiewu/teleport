@@ -122,6 +122,21 @@ func (s *auditStreamer) RecordEvent(ctx context.Context, event events.PreparedSe
 	return nil
 }
 
+func (s *auditStreamer) RecordSessionEventRaw(ctx context.Context, data []byte) error {
+	err := s.stream.Send(&proto.AuditStreamRequest{
+		Request: &proto.AuditStreamRequest_SessionEventRaw{
+			SessionEventRaw: &proto.SessionEventRaw{
+				RawData: data,
+			},
+		},
+	})
+	if err != nil {
+		s.closeWithError(err)
+		return trace.Wrap(err)
+	}
+	return nil
+}
+
 // Done returns channel closed when streamer is closed.
 func (s *auditStreamer) Done() <-chan struct{} {
 	return s.closeCtx.Done()

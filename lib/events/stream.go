@@ -365,8 +365,11 @@ const (
 )
 
 type protoEvent struct {
-	index int64
+	index int64 // either index+oneof is set...
 	oneof *apievents.OneOf
+
+	rawDataEvent bool // ... or it's a rawData event.
+	rawData      []byte
 }
 
 func (s *ProtoStream) setCompleteResult(err error) {
@@ -420,6 +423,32 @@ func (s *ProtoStream) RecordEvent(ctx context.Context, pe apievents.PreparedSess
 		return trace.ConnectionProblem(s.cancelCtx.Err(), "emitter has been closed")
 	case <-s.completeCtx.Done():
 		return trace.ConnectionProblem(nil, "emitter is completed")
+	case <-ctx.Done():
+		return trace.ConnectionProblem(ctx.Err(), "context is closed")
+	}
+}
+
+func (s *ProtoStream) RecordSessionEventRaw(ctx context.Context, data []byte) error {
+	start := time.Now()
+	select {
+	case s.eventsCh <- protoEvent{rawDataEvent: true, rawData: data}:
+		// TODO(codingllama): Consolidate this logic?
+		diff := time.Since(start)
+		if diff > 100*time.Millisecond {
+			slog.DebugContext(ctx, "[SLOW] RecordSessionEventRaw took", "duration", diff)
+		}
+		return nil
+
+	case <-s.cancelCtx.Done():
+		cancelErr := s.getCancelError()
+		if cancelErr != nil {
+			return trace.Wrap(cancelErr)
+		}
+		return trace.ConnectionProblem(s.cancelCtx.Err(), "emitter has been closed")
+
+	case <-s.completeCtx.Done():
+		return trace.ConnectionProblem(nil, "emitter is completed")
+
 	case <-ctx.Done():
 		return trace.ConnectionProblem(ctx.Err(), "context is closed")
 	}
@@ -651,7 +680,7 @@ func (w *sliceWriter) newSlice() (*slice, error) {
 	return &slice{
 		proto:  w.proto,
 		buffer: buffer,
-		writer: newGzipWriter(&bufferCloser{Buffer: buffer}),
+		// writer: newGzipWriter(&bufferCloser{Buffer: buffer}),
 	}, nil
 }
 
@@ -664,6 +693,9 @@ func (w *sliceWriter) submitEvent(event protoEvent) error {
 		}
 	}
 
+	if event.rawDataEvent {
+		return w.current.recordRawEvent(event.rawData)
+	}
 	return w.current.recordEvent(event)
 }
 
@@ -844,20 +876,31 @@ func (a *activeUpload) getPart() (*StreamPart, error) {
 // slice contains serialized protobuf messages
 type slice struct {
 	proto          *ProtoStream
-	writer         *gzipWriter
+	writer         io.WriteCloser
 	buffer         *bytes.Buffer
 	isLast         bool
 	lastEventIndex int64
 	eventCount     uint64
+
+	isInterpretedSlice, isRawSlice bool
 }
 
 // reader returns a reader for the bytes written, no writes should be done after this
 // method is called and this method should be called at most once per slice, otherwise
 // the resulting recording will be corrupted.
 func (s *slice) reader() (io.ReadSeeker, error) {
+	if s.writer == nil {
+		return nil, errors.New("slice misuse, called reader() without previous writes")
+	}
 	if err := s.writer.Close(); err != nil {
 		return nil, trace.Wrap(err)
 	}
+
+	// Don't re-interpret!
+	if s.isRawSlice {
+		return bytes.NewReader(s.buffer.Bytes()), nil
+	}
+
 	wroteBytes := int64(s.buffer.Len())
 	var paddingBytes int64
 	// non last slices should be at least min upload bytes (as limited by S3 API spec)
@@ -879,7 +922,11 @@ func (s *slice) reader() (io.ReadSeeker, error) {
 
 // Close closes buffer and returns all allocated resources
 func (s *slice) Close() error {
-	err := s.writer.Close()
+	var err error
+	if s.writer != nil {
+		err = s.writer.Close()
+		s.writer = nil
+	}
 	s.proto.cfg.BufferPool.Put(s.buffer)
 	s.buffer = nil
 	return trace.Wrap(err)
@@ -899,6 +946,15 @@ func (s *slice) isEmpty() bool {
 
 // recordEvent emits a single session event to the stream
 func (s *slice) recordEvent(event protoEvent) error {
+	if s.isRawSlice {
+		panic("slice misuse!")
+	}
+	if !s.isInterpretedSlice {
+		s.isInterpretedSlice = true
+		// TODO(codingllama): Initializing here isn't great, do better.
+		s.writer = newGzipWriter(&bufferCloser{Buffer: s.buffer})
+	}
+
 	bytes := s.proto.cfg.SlicePool.Get()
 	defer s.proto.cfg.SlicePool.Put(bytes)
 
@@ -927,6 +983,41 @@ func (s *slice) recordEvent(event protoEvent) error {
 	if event.index > s.lastEventIndex {
 		s.lastEventIndex = event.index
 	}
+	return nil
+}
+
+func (s *slice) recordRawEvent(data []byte) error {
+	if s.isInterpretedSlice {
+		panic("slice misuse!")
+	}
+	if !s.isRawSlice {
+		s.isRawSlice = true
+		s.buffer.Reset()                              // Reset pre-written header bytes.
+		s.writer = &closeableWriter{Writer: s.buffer} // Use the raw buffer, no gzip
+	}
+
+	s.eventCount++
+	_, err := s.writer.Write(data)
+	return trace.Wrap(err)
+}
+
+type closeableWriter struct {
+	closed bool
+	io.Writer
+}
+
+func (n *closeableWriter) Write(p []byte) (int, error) {
+	if n.closed {
+		return 0, errors.New("writer closed")
+	}
+	return n.Writer.Write(p)
+}
+
+func (n *closeableWriter) Close() error {
+	if n.closed {
+		return nil // Allow multiple closes, code does that.
+	}
+	n.closed = true
 	return nil
 }
 

@@ -20,6 +20,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/gravitational/trace"
@@ -348,6 +349,10 @@ func (a *audit) RecordEvent(ctx context.Context, event events.AuditEvent) {
 			"event_id", event.GetID(),
 		)
 	}
+}
+
+func (a *audit) RecordSessionEventRaw(ctx context.Context, data []byte) error {
+	return trace.Wrap(errors.New("audit does not support raw session events"))
 }
 
 // MakeEventMetadata returns common event metadata for database session.

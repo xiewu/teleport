@@ -4394,6 +4394,10 @@ func (s *streamWithRoles) RecordEvent(ctx context.Context, pe apievents.Prepared
 	return s.stream.RecordEvent(ctx, pe)
 }
 
+func (s *streamWithRoles) RecordSessionEventRaw(ctx context.Context, data []byte) error {
+	return trace.NotImplemented("not implemented: streamWithRoles.RecordSessionEventRaw")
+}
+
 func (a *ServerWithRoles) findSessionEndEvent(ctx context.Context, sid session.ID) (apievents.AuditEvent, error) {
 	sessionEvents, _, err := a.alog.SearchSessionEvents(ctx, events.SearchSessionEventsRequest{
 		From:  time.Time{},

@@ -469,6 +469,10 @@ func (s *CallbackStream) RecordEvent(ctx context.Context, event apievents.Prepar
 	return s.stream.RecordEvent(ctx, event)
 }
 
+func (s *CallbackStream) RecordSessionEventRaw(ctx context.Context, data []byte) error {
+	return trace.NotImplemented("not implemented: CallbackStream.RecordSessionEventRaw")
+}
+
 // NewReportingStreamer reports upload events
 // to the eventsC channel, if the channel is not nil.
 func NewReportingStreamer(streamer Streamer, eventsC chan UploadEvent) *ReportingStreamer {

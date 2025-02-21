@@ -98,7 +98,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 
 	var fops FileOps
 	if len(recipients) > 0 {
-		logger.InfoContext(context.Background(),
+		logger.WarnContext(context.Background(),
 			"Enabled encrypted session recordings",
 			"recipients", recipients,
 		)

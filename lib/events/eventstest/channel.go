@@ -26,6 +26,7 @@ import (
 	"github.com/gravitational/teleport"
 	apievents "github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/lib/session"
+	"github.com/gravitational/trace"
 )
 
 // ChannelEmitter emits audit events by writing them to a channel.
@@ -115,6 +116,10 @@ func (e *ChannelRecorder) RecordEvent(ctx context.Context, event apievents.Prepa
 			)
 		}
 	}
+}
+
+func (e *ChannelRecorder) RecordSessionEventRaw(ctx context.Context, data []byte) error {
+	return trace.NotImplemented("not implemented: ChannelRecorder.RecordSessionEventRaw")
 }
 
 func (e *ChannelRecorder) Status() <-chan apievents.StreamStatus {

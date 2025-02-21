@@ -99,8 +99,12 @@ func (p *plainFileOps) WriteReservation(name string, data io.Reader) (err error)
 	return trace.Wrap(f.Close())
 }
 
-func (p *plainFileOps) CombineParts(dst io.Writer, parts []string) (err error) {
-	if err := combineParts(dst, parts, p.OpenFile, p.Logger); err != nil {
+func (p *plainFileOps) CombineParts(dst io.Writer, parts []string) error {
+	if err := combineParts(
+		dst, parts,
+		false, // encrypted
+		p.OpenFile, p.Logger,
+	); err != nil {
 		return trace.ConvertSystemError(err)
 	}
 	return nil
@@ -124,14 +128,35 @@ func (e *encryptedFileOps) WriteReservation(name string, data io.Reader) error {
 	return e.plaintext().WriteReservation(name, data)
 }
 
-func (e *encryptedFileOps) CombineParts(dst io.Writer, parts []string) (err error) {
+func (e *encryptedFileOps) CombineParts(dst io.Writer, parts []string) error {
+	// TODO(codingllama): Remove fallback.
+	if len(parts) > 0 {
+		firstPart, err := e.OpenFile(parts[0], os.O_RDONLY, 0 /* perm */)
+		if err != nil {
+			return trace.Wrap(err, "open first part")
+		}
+		silentlyClose := func() {
+			loggingClose(firstPart, e.Logger, "Failed to close first part", "name", parts[0])
+		}
+		if _, err := guardAgainstDoubleEncryption(firstPart); err != nil {
+			e.Logger.WarnContext(context.Background(), "Double-encryption detected, falling back to plaintext")
+			silentlyClose()
+			return e.plaintext().CombineParts(dst, parts)
+		}
+		silentlyClose()
+	}
+
 	encWriter, err := age.Encrypt(dst, e.Recipients...)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 	// No need to "defer encWriter.Close()" on failures.
 
-	if err := combineParts(encWriter, parts, e.OpenFile, e.Logger); err != nil {
+	if err := combineParts(
+		encWriter, parts,
+		true, // encrypted
+		e.OpenFile, e.Logger,
+	); err != nil {
 		return trace.ConvertSystemError(err)
 	}
 
@@ -152,19 +177,59 @@ func (e *encryptedFileOps) plaintext() *plainFileOps {
 // It does not wraps errors with trace.ConvertSystemError.
 //
 // Do not use this directly, use a [FileOps] implementation instead.
-func combineParts(dst io.Writer, parts []string, openFile utils.OpenFileWithFlagsFunc, logger *slog.Logger) (err error) {
-	for _, part := range parts {
+func combineParts(
+	dst io.Writer, parts []string, encrypted bool,
+	openFile utils.OpenFileWithFlagsFunc,
+	logger *slog.Logger) error {
+
+	copyPart := func(i int, part string) error {
 		partFile, err := openFile(part, os.O_RDONLY, 0 /* perm */)
 		if err != nil {
 			return trace.Wrap(err)
 		}
-		if _, err := io.Copy(dst, partFile); err != nil {
-			loggingClose(partFile, logger, "Failed to close part (io.Copy error flow)", "name", part)
+		defer loggingClose(partFile, logger, "Failed to close part", "name", part)
+
+		// Guard against double-encryption. This should not be here for prod!
+		if i == 0 && encrypted {
+			bytesRead, err := guardAgainstDoubleEncryption(partFile)
+			if err != nil {
+				return trace.Wrap(err)
+			}
+			if _, err := dst.Write(bytesRead); err != nil {
+				return trace.Wrap(err, "write part header to dst")
+			}
+		}
+
+		_, err = io.Copy(dst, partFile)
+		return trace.Wrap(err)
+	}
+
+	for i, part := range parts {
+		if err := copyPart(i, part); err != nil {
 			return trace.Wrap(err)
 		}
-		loggingClose(partFile, logger, "Failed to close part", "name", part)
 	}
 	return nil
+}
+
+func guardAgainstDoubleEncryption(partFile io.Reader) (bytesRead []byte, err error) {
+	// https://github.com/C2SP/C2SP/blob/8991f70ddf8a11de3a68d5a081e7be27e59d87c8/age.md#version-line
+	const ageHeader = `age-encryption.org/`
+
+	// Read enough to identify the age header.
+	bytesRead = make([]byte, len(ageHeader))
+	n, err := partFile.Read(bytesRead)
+	if err != nil {
+		return nil, trace.Wrap(err, "read part file header")
+	}
+	bytesRead = bytesRead[:n]
+
+	// Error on double-encryption!
+	if string(bytesRead) == ageHeader {
+		return nil, trace.BadParameter("double-encryption of detected, aborting")
+	}
+
+	return bytesRead, nil
 }
 
 func loggingClose(closer io.Closer, logger *slog.Logger, msg string, args ...any) {
