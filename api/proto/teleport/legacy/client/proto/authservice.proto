@@ -685,7 +685,13 @@ message AuditStreamRequest {
     FlushAndCloseStream FlushAndCloseStream = 4;
     // Event contains the stream event
     events.OneOf Event = 5;
+
+    SessionEventRaw SessionEventRaw = 6;
   }
+}
+
+message SessionEventRaw {
+  bytes raw_data = 1;
 }
 
 // AuditStreamStatus returns audit stream status
