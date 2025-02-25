@@ -1015,6 +1015,8 @@ const (
 	RequireMFATypeHardwareKeyPINString = "hardware_key_pin"
 	// RequireMFATypeHardwareKeyTouchAndPINString is the string representation of RequireMFATypeHardwareKeyTouchAndPIN
 	RequireMFATypeHardwareKeyTouchAndPINString = "hardware_key_touch_and_pin"
+	//
+	RequireMFATypeMultiSessionString = "multi_session"
 )
 
 // encode RequireMFAType into a string or boolean. This is necessary for
@@ -1034,6 +1036,8 @@ func (r *RequireMFAType) encode() (interface{}, error) {
 		return RequireMFATypeHardwareKeyPINString, nil
 	case RequireMFAType_HARDWARE_KEY_TOUCH_AND_PIN:
 		return RequireMFATypeHardwareKeyTouchAndPINString, nil
+	case RequireMFAType_MULTI_SESSION:
+		return RequireMFATypeMultiSessionString, nil
 	default:
 		return nil, trace.BadParameter("RequireMFAType invalid value %v", *r)
 	}
@@ -1054,6 +1058,8 @@ func (r *RequireMFAType) decode(val interface{}) error {
 			*r = RequireMFAType_HARDWARE_KEY_PIN
 		case RequireMFATypeHardwareKeyTouchAndPINString:
 			*r = RequireMFAType_HARDWARE_KEY_TOUCH_AND_PIN
+		case RequireMFATypeMultiSessionString:
+			*r = RequireMFAType_MULTI_SESSION
 		case "":
 			// default to off
 			*r = RequireMFAType_OFF

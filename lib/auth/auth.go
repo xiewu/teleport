@@ -6923,6 +6923,8 @@ func (a *Server) isMFARequired(ctx context.Context, checker services.AccessCheck
 		}, nil
 	}
 
+	// TODO(greedy52) current way is very hacky, refactor
+	var allowReuse bool
 	var noMFAAccessErr error
 	switch t := req.Target.(type) {
 	case *proto.IsMFARequiredRequest_Node:
@@ -7060,6 +7062,19 @@ func (a *Server) isMFARequired(ctx context.Context, checker services.AccessCheck
 				services.AccessState{},
 				dbRoleMatchers...,
 			)
+
+			// TODO(greedy52) current way is very hacky, refactor
+			if errors.Is(noMFAAccessErr, services.ErrSessionMFARequired) {
+				if checker.CheckAccess(
+					db,
+					services.AccessState{
+						MFAVerifyedByReuse: true,
+					},
+					dbRoleMatchers...,
+				) == nil {
+					allowReuse = true
+				}
+			}
 		}
 
 	case *proto.IsMFARequiredRequest_WindowsDesktop:
@@ -7123,6 +7138,7 @@ func (a *Server) isMFARequired(ctx context.Context, checker services.AccessCheck
 	// ErrSessionMFARequired.
 
 	return &proto.IsMFARequiredResponse{
+		AllowReuse:  allowReuse,
 		MFARequired: proto.MFARequired_MFA_REQUIRED_YES,
 	}, nil
 }

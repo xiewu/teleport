@@ -1485,6 +1485,8 @@ message IsMFARequiredResponse {
   // MFARequired informs whether MFA is required to access the corresponding
   // resource.
   MFARequired MFARequired = 2;
+  // AllowReuse TODO
+  bool allow_reuse = 3;
 }
 
 // Order specifies any ordering of some objects as returned in regards to some aspect

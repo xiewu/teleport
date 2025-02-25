@@ -19,13 +19,18 @@
 package common
 
 import (
+	"bufio"
 	"bytes"
-	"errors"
+	"context"
 	"fmt"
 	"iter"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"sync"
 	"text/template"
+	"time"
 
 	"github.com/gravitational/trace"
 	"github.com/mattn/go-shellwords"
@@ -34,7 +39,9 @@ import (
 	"github.com/gravitational/teleport/api/mfa"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/client"
+	"github.com/gravitational/teleport/lib/srv/alpnproxy"
 	"github.com/gravitational/teleport/lib/tlsca"
+	"github.com/gravitational/teleport/lib/utils"
 	logutils "github.com/gravitational/teleport/lib/utils/log"
 )
 
@@ -51,6 +58,10 @@ func resourceNameIterator[T types.Resource](s []T) iter.Seq[string] {
 type databaseExecCommand struct {
 	//TODO(greedy52) consider moving some states here instead of passing around
 	//as function params.
+
+	clusterClient      *client.ClusterClient
+	reuseMFAResponse   *proto.MFAAuthenticateResponse
+	reuseMFAResponseMu sync.Mutex
 }
 
 func (c *databaseExecCommand) run(cf *CLIConf) error {
@@ -82,13 +93,9 @@ func (c *databaseExecCommand) run(cf *CLIConf) error {
 		return trace.Wrap(err)
 	}
 	defer clusterClient.Close()
-	// TODO save this clusterClient in context
+	c.clusterClient = clusterClient
 
-	// TODO(greedy52) use access checker to guess if MFA is required for each
-	// database service.
-	ctx := cf.Context
-	printer := newDatabaseExecInfoPrinter(cf)
-	fmt.Fprintf(printer, "Found %d databases.\n", len(databases))
+	ctx := context.WithValue(cf.Context, "db-exec-mfa", c.reuseMFA)
 
 	// TODO(greedy52) run parallel with errgroup
 	for _, db := range databases {
@@ -103,27 +110,11 @@ func (c *databaseExecCommand) run(cf *CLIConf) error {
 			database: db,
 		}
 
-		if _, err := mfa.MFAResponseFromContext(ctx); trace.IsNotFound(err) {
-			route := &proto.RouteToDatabase{
-				ServiceName: dbInfo.ServiceName,
-				Protocol:    dbInfo.Protocol,
-				Username:    dbInfo.Username,
-				Database:    dbInfo.Database,
-			}
-			mfaResponse, err := mfa.PerformDBExecMFACeremony(ctx, route, clusterClient.AuthClient.PerformMFACeremony)
-			if err == nil {
-				logger.DebugContext(cf.Context, "MFA response", "mfa_response", mfaResponse)
-				ctx = mfa.ContextWithMFAResponse(ctx, mfaResponse)
-			} else if !errors.Is(err, &mfa.ErrMFANotRequired) && !errors.Is(err, &mfa.ErrMFANotSupported) {
-				return trace.Wrap(err)
-			}
-		}
-
 		requires := &dbLocalProxyRequirement{
 			localProxy: true,
 			tunnel:     true,
 		}
-		lp, err := startDatabaseLocalProxy(ctx, cf, tc, profile, dbInfo, requires)
+		lp, err := c.startLocalProxy(ctx, cf, tc, profile, dbInfo, requires)
 		if err != nil {
 			return trace.Wrap(err)
 		}
@@ -137,15 +128,35 @@ func (c *databaseExecCommand) run(cf *CLIConf) error {
 
 		// TODO(greedy52) add some line prefix to differentiate output from the
 		// targets.
-		fmt.Fprintf(printer, "Execute command for database service %s: %s\n", db.GetName(), dbCmd)
+		var logFileName string
+		if cf.SSHLogDir != "" {
+			logFileName = filepath.Join(cf.SSHLogDir, dbInfo.ServiceName+".log")
+			fmt.Fprintf(cf.Stdout(), "Execute command for database service %s. Logs will be saved at %q.\n", db.GetName(), logFileName)
+		} else {
+			fmt.Fprintf(cf.Stdout(), "Execute command for database service %s.\n", db.GetName())
+		}
 		if !cf.DryRun {
-			dbCmd.Stdout = newDatabaseExecOutputPrinter(cf, db)
-			dbCmd.Stderr = newDatabaseExecErrorPrinter(cf, db)
+			if logFileName != "" {
+				logFilePath, err := utils.EnsureLocalPath(logFileName, "", "")
+				if err != nil {
+					return trace.Wrap(err)
+				}
+				logFile, err := os.Create(logFilePath)
+				if err != nil {
+					return trace.Wrap(err)
+				}
+				dbCmd.Stdout = logFile
+				dbCmd.Stderr = logFile
+			} else {
+				dbCmd.Stdout = cf.Stdout()
+				dbCmd.Stderr = cf.Stderr()
+			}
 			if err := cf.RunCommand(dbCmd); err != nil {
-				errMsg := fmt.Sprintf("Failed to execute database service %s: %v.", db.GetName(), err)
+				errMsg := fmt.Sprintf("Failed to execute database service %s: %v.\n", db.GetName(), err)
 				dbCmd.Stderr.Write([]byte(errMsg))
 			}
 		}
+		fmt.Fprintln(cf.Stdout(), "")
 	}
 	return nil
 }
@@ -153,8 +164,8 @@ func (c *databaseExecCommand) run(cf *CLIConf) error {
 func (c *databaseExecCommand) checkInputs(cf *CLIConf) error {
 	// TODO(greedy52) support selecting individual databases
 	switch {
-	case cf.Labels == "" && cf.PredicateExpression == "":
-		return trace.BadParameter("At least one of --labels,--query must be specified")
+	case cf.Labels == "" && cf.PredicateExpression == "" && cf.SearchKeywords == "" && len(cf.DatabaseServices) == 0:
+		return trace.BadParameter("Provide at least one database service names or use one of --search-labels,--search-keywords,--search-query")
 	}
 
 	// TODO(greedy52) support command template
@@ -165,22 +176,71 @@ func (c *databaseExecCommand) checkInputs(cf *CLIConf) error {
 	return nil
 }
 
-func (c *databaseExecCommand) fetchDatabases(cf *CLIConf, tc *client.TeleportClient) ([]types.Database, error) {
-	// TODO(greedy52) if len(cf.DatabaseServices) > 0
+func (c *databaseExecCommand) fetchDatabases(cf *CLIConf, tc *client.TeleportClient) (dbs []types.Database, err error) {
+	if len(cf.DatabaseServices) == 0 {
+		return c.searchDatabases(cf, tc)
+	}
+
+	for _, service := range cf.DatabaseServices {
+		database, err := getDatabase(cf.Context, tc, service)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		dbs = append(dbs, database)
+	}
+	if err := c.precheckDatabases(cf, dbs); err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return dbs, nil
+}
+
+func (c *databaseExecCommand) precheckDatabases(cf *CLIConf, dbs []types.Database) error {
+	// Pre-checks.
+	for _, db := range dbs {
+		if isDatabaseUserRequired(db.GetProtocol()) && cf.DatabaseUser == "" {
+			return trace.BadParameter("--db-user is required for database %s", db.GetName())
+		}
+		if isDatabaseNameRequired(db.GetProtocol()) && cf.DatabaseName == "" {
+			return trace.BadParameter("--db-name is required for database %s", db.GetName())
+		}
+	}
+	return nil
+}
+
+func (c *databaseExecCommand) searchDatabases(cf *CLIConf, tc *client.TeleportClient) ([]types.Database, error) {
 	dbs, err := tc.ListDatabases(cf.Context, tc.ResourceFilter(types.KindDatabaseServer))
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-
-	// Pre-checks.
-	for _, db := range dbs {
-		if isDatabaseUserRequired(db.GetProtocol()) && cf.DatabaseUser == "" {
-			return nil, trace.BadParameter("--db-user is required for database %s", db.GetName())
-		}
-		if isDatabaseNameRequired(db.GetProtocol()) && cf.DatabaseName == "" {
-			return nil, trace.BadParameter("--db-name is required for database %s", db.GetName())
-		}
+	if err := c.precheckDatabases(cf, dbs); err != nil {
+		return nil, trace.Wrap(err)
 	}
+
+	// prompt
+	fmt.Fprintf(cf.Stdout(), "Found %d databases:\n\n", len(dbs))
+
+	var rows []databaseTableRow
+	for _, db := range dbs {
+		rows = append(rows, getDatabaseRow(
+			"",
+			"",
+			cf.SiteName,
+			db,
+			nil,
+			nil,
+			cf.Verbose))
+	}
+	printDatabaseTable(printDatabaseTableConfig{
+		writer:         cf.Stdout(),
+		rows:           rows,
+		includeColumns: []string{"Name", "Protocol", "Description", "Labels"},
+	})
+
+	fmt.Fprintln(cf.Stdout(), "Tip: use --skip-confirm to skip this confirmation.")
+	fmt.Fprint(cf.Stdout(), "Do you want to continue? (Press <enter> to proceed or Ctrl+C/Command+C to exit): ")
+	reader := bufio.NewReader(cf.Stdin())
+	_, _ = reader.ReadString('\n')
+	fmt.Fprintln(cf.Stdout(), "")
 	return dbs, nil
 }
 
@@ -223,4 +283,52 @@ func (c *databaseExecCommand) makeCommand(cf *CLIConf, tc *client.TeleportClient
 	}
 
 	return exec.CommandContext(cf.Context, words[0], words[1:]...), nil
+}
+
+func (c *databaseExecCommand) reuseMFA(ctx context.Context) (*proto.MFAAuthenticateResponse, error) {
+	c.reuseMFAResponseMu.Lock()
+	defer c.reuseMFAResponseMu.Unlock()
+	if c.reuseMFAResponse != nil {
+		return c.reuseMFAResponse, nil
+	}
+	response, err := mfa.PerformDBExecMFACeremony(ctx, c.clusterClient.AuthClient.PerformMFACeremony)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	c.reuseMFAResponse = response
+	return c.reuseMFAResponse, nil
+}
+
+func (c *databaseExecCommand) startLocalProxy(ctx context.Context, cf *CLIConf,
+	tc *client.TeleportClient, profile *client.ProfileStatus,
+	dbInfo *databaseInfo, requires *dbLocalProxyRequirement,
+) (*alpnproxy.LocalProxy, error) {
+	listener, err := createLocalProxyListener("localhost:0", dbInfo.RouteToDatabase, profile)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	opts := []alpnproxy.LocalProxyConfigOpt{
+		alpnproxy.WithDatabaseProtocol(dbInfo.Protocol),
+		alpnproxy.WithClusterCAsIfConnUpgrade(cf.Context, tc.RootClusterCACertPool),
+	}
+	cc := client.NewDBCertChecker(tc, dbInfo.RouteToDatabase, nil, client.WithTTL(time.Duration(cf.MinsToLive)*time.Minute))
+	opts = append(opts, alpnproxy.WithMiddleware(cc))
+
+	lp, err := alpnproxy.NewLocalProxy(makeBasicLocalProxyConfig(cf.Context, tc, listener, cf.InsecureSkipVerify), opts...)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	// Force a retrieval before local proxy start
+	if err := cc.OnNewConnection(ctx, lp); err != nil {
+		return nil, trace.Wrap(err)
+	}
+	go func() {
+		defer listener.Close()
+		if err := lp.Start(ctx); err != nil {
+			logger.ErrorContext(cf.Context, "Failed to start local proxy", "error", err)
+		}
+	}()
+	return lp, nil
 }

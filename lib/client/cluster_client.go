@@ -453,14 +453,15 @@ func (c *ClusterClient) performSessionMFACeremony(ctx context.Context, rootClien
 	}
 
 	keyRing, _, err = PerformSessionMFACeremony(ctx, PerformSessionMFACeremonyParams{
-		CurrentAuthClient: c.AuthClient,
-		RootAuthClient:    rootClient.AuthClient,
-		MFACeremony:       c.tc.NewMFACeremony(),
-		MFAAgainstRoot:    c.cluster == rootClient.cluster,
-		MFARequiredReq:    mfaRequiredReq,
-		CertsReq:          certsReq,
-		KeyRing:           keyRing,
-		newUserKeys:       newUserKeys,
+		CurrentAuthClient:   c.AuthClient,
+		RootAuthClient:      rootClient.AuthClient,
+		MFACeremony:         c.tc.NewMFACeremony(),
+		MFAAgainstRoot:      c.cluster == rootClient.cluster,
+		MFARequiredReq:      mfaRequiredReq,
+		MFARequiredResponse: params.MFACheck,
+		CertsReq:            certsReq,
+		KeyRing:             keyRing,
+		newUserKeys:         newUserKeys,
 	}, promptOpts...)
 	return keyRing, trace.Wrap(err)
 }
@@ -492,7 +493,6 @@ func (c *ClusterClient) IssueUserCertsWithMFA(ctx context.Context, params Reissu
 	}
 
 	certClient := c
-	var mfaRequired bool
 	if params.MFACheck == nil {
 		var err error
 		authClient := params.AuthClient
@@ -511,7 +511,7 @@ func (c *ClusterClient) IssueUserCertsWithMFA(ctx context.Context, params Reissu
 		if err != nil {
 			return nil, proto.MFARequired_MFA_REQUIRED_UNSPECIFIED, trace.Wrap(err)
 		}
-		mfaRequired = resp.Required
+		params.MFACheck = resp
 
 		// If connected to the root cluster, store the client so that it
 		// can be reused below.
@@ -528,12 +528,12 @@ func (c *ClusterClient) IssueUserCertsWithMFA(ctx context.Context, params Reissu
 
 		// only close the new auth client and not the copied cluster client.
 		defer authClient.Close()
-	} else {
-		mfaRequired = params.MFACheck.Required
 	}
 
+	log.DebugContext(ctx, "=== MFA requirement", "mfa_required", params.MFACheck)
+
 	// SSH certs can be used without embedding the node name.
-	if !mfaRequired && params.usage() == proto.UserCertsRequest_SSH && keyRing.Cert != nil {
+	if !params.MFACheck.Required && params.usage() == proto.UserCertsRequest_SSH && keyRing.Cert != nil {
 		return keyRing, proto.MFARequired_MFA_REQUIRED_NO, nil
 	}
 
@@ -560,7 +560,7 @@ func (c *ClusterClient) IssueUserCertsWithMFA(ctx context.Context, params Reissu
 
 	// MFA is not required, but the user requires a new certificate with the
 	// target included in it for routing.
-	if !mfaRequired {
+	if !params.MFACheck.Required {
 		log.DebugContext(ctx, "MFA not required for access")
 		keyRing, err := certClient.generateUserCerts(ctx, CertCacheKeep, params)
 		return keyRing, proto.MFARequired_MFA_REQUIRED_NO, trace.Wrap(err)
@@ -606,6 +606,8 @@ type PerformSessionMFACeremonyParams struct {
 	MFAAgainstRoot bool
 	// MFARequiredReq is the request for the MFA verification check.
 	MFARequiredReq *proto.IsMFARequiredRequest
+	// TODO
+	MFARequiredResponse *proto.IsMFARequiredResponse
 	// CertsReq is the request for new certificates.
 	CertsReq *proto.UserCertsRequest
 
@@ -643,23 +645,34 @@ func PerformSessionMFACeremony(ctx context.Context, params PerformSessionMFACere
 	currentClient := params.CurrentAuthClient
 	mfaRequiredReq := params.MFARequiredReq
 
-	// If connecting to a host in a leaf cluster and MFA failed check to see
-	// if the leaf cluster requires MFA. If it doesn't return an error indicating
-	// that MFA was not required instead of the error received from the root cluster.
-	if mfaRequiredReq != nil && !params.MFAAgainstRoot {
-		mfaRequiredResp, err := currentClient.IsMFARequired(ctx, mfaRequiredReq)
-		log.DebugContext(ctx, "MFA requirement acquired from leaf", "mfa_required", mfaRequiredResp.GetMFARequired())
-		switch {
-		case err != nil:
-			return nil, nil, trace.Wrap(MFARequiredUnknown(err))
-		case !mfaRequiredResp.Required:
-			return nil, nil, trace.Wrap(services.ErrSessionMFANotRequired)
+	// TODO(greedy52) obviously hacky, refactor this
+	var mfaResp *proto.MFAAuthenticateResponse
+	if params.MFARequiredResponse != nil && params.MFARequiredResponse.AllowReuse {
+		callback, ok := ctx.Value("db-exec-mfa").(func(context.Context) (*proto.MFAAuthenticateResponse, error))
+		if !ok {
+			return nil, nil, trace.BadParameter("callback not provided")
 		}
-		mfaRequiredReq = nil // Already checked, don't check again at root.
-	}
+		var err error
+		mfaResp, err = callback(ctx)
+		if err != nil {
+			return nil, nil, trace.Wrap(err)
+		}
+	} else {
+		// If connecting to a host in a leaf cluster and MFA failed check to see
+		// if the leaf cluster requires MFA. If it doesn't return an error indicating
+		// that MFA was not required instead of the error received from the root cluster.
+		if mfaRequiredReq != nil && !params.MFAAgainstRoot {
+			mfaRequiredResp, err := currentClient.IsMFARequired(ctx, mfaRequiredReq)
+			log.DebugContext(ctx, "MFA requirement acquired from leaf", "mfa_required", mfaRequiredResp.GetMFARequired())
+			switch {
+			case err != nil:
+				return nil, nil, trace.Wrap(MFARequiredUnknown(err))
+			case !mfaRequiredResp.Required:
+				return nil, nil, trace.Wrap(services.ErrSessionMFANotRequired)
+			}
+			mfaRequiredReq = nil // Already checked, don't check again at root.
+		}
 
-	mfaResp, _ := mfa.MFAResponseFromContext(ctx)
-	if mfaResp == nil {
 		var err error
 		params.MFACeremony.CreateAuthenticateChallenge = rootClient.CreateAuthenticateChallenge
 		mfaResp, err = params.MFACeremony.Run(ctx, &proto.CreateAuthenticateChallengeRequest{

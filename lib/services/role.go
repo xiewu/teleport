@@ -2660,7 +2660,7 @@ func (set RoleSet) checkAccess(r AccessCheckable, traits wrappers.Traits, state 
 		// MFA verification.
 		if !mfaAllowed && role.GetOptions().RequireMFAType.IsSessionMFARequired() {
 			// TODO
-			if !(state.MFAVerifyedByReuse && role.GetOptions().MfaSessionResponseReuse) {
+			if !(state.MFAVerifyedByReuse && role.GetOptions().RequireMFAType == types.RequireMFAType_MULTI_SESSION) {
 				logger.LogAttrs(ctx, logutils.TraceLevel, "Access to resource denied, role requires per-session MFA",
 					slog.String("role", role.GetName()),
 				)

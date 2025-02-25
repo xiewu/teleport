@@ -240,7 +240,7 @@ type CLIConf struct {
 	// DatabaseService specifies the database proxy server to log into.
 	DatabaseService string
 	// TODO(greedy52) DatabaseServices specifies a list of database services.
-	// DatabaseServices []string
+	DatabaseServices []string
 	// DatabaseUser specifies database user to embed in the certificate.
 	DatabaseUser string
 	// DatabaseName specifies database name to embed in the certificate.
@@ -1032,14 +1032,16 @@ func Run(ctx context.Context, args []string, opts ...CliOption) error {
 	dbExec.Flag("db-user", "Database user to log in as.").Short('u').StringVar(&cf.DatabaseUser)
 	dbExec.Flag("db-name", "Database name to log in to.").Short('n').StringVar(&cf.DatabaseName)
 	dbExec.Flag("db-roles", "List of comma separate database roles to use for auto-provisioned user.").Short('r').StringVar(&cf.DatabaseRoles)
-	dbExec.Flag("labels", labelHelp).StringVar(&cf.Labels)
-	dbExec.Flag("query", queryHelp).StringVar(&cf.PredicateExpression)
+	dbExec.Flag("search-keywords", searchHelp).StringVar(&cf.SearchKeywords)
+	dbExec.Flag("search-labels", labelHelp).StringVar(&cf.Labels)
+	dbExec.Flag("search-query", queryHelp).StringVar(&cf.PredicateExpression)
 	dbExec.Flag("exec-query", "Execute this query in target database services").StringVar(&cf.DatabaseQuery)
 	dbExec.Flag("dry-run", "Do not execute the command but print them out.").BoolVar(&cf.DryRun)
+	dbExec.Arg("dbs", "List of database services. Mutually exclusive with any of the search methods.").StringsVar(&cf.DatabaseServices)
+	dbExec.Flag("log-dir", "Directory to log separated command output.").StringVar(&cf.SSHLogDir)
 	// TODO(greedy52)
 	// - support --exec-cmd-template './my-script {.db_service} {.db_name} {.db_user} {.db_host}/{.db_port}'
 	// - support --max-connections
-	// - support cf.DatabaseServices as args
 
 	// join
 	join := app.Command("join", "Join the active SSH or Kubernetes session.")

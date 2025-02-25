@@ -3260,9 +3260,6 @@ message RoleOptions {
     (gogoproto.nullable) = true,
     (gogoproto.jsontag) = "ssh_port_forwarding,omitempty"
   ];
-
-  // allows reuse of the mfa response. TODO(greedy52)
-  bool mfa_session_response_reuse = 33;
 }
 
 message RecordSession {
@@ -6441,6 +6438,8 @@ enum RequireMFAType {
   // HARDWARE_KEY_TOUCH_AND_PIN means login sessions must use a hardware private key that
   // requires touch and pin to be used.
   HARDWARE_KEY_TOUCH_AND_PIN = 5;
+  // MULTI_SESSION
+  MULTI_SESSION = 6;
 }
 
 // SignatureAlgorithmSuite represents the suite of cryptographic signature algorithms used in the cluster.

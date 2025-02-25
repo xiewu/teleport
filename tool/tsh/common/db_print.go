@@ -79,6 +79,7 @@ type printDatabaseTableConfig struct {
 	rows                []databaseTableRow
 	showProxyAndCluster bool
 	verbose             bool
+	includeColumns      []string
 }
 
 func (cfg printDatabaseTableConfig) excludeColumns() (out []string) {
@@ -99,8 +100,14 @@ func printDatabaseTable(cfg printDatabaseTableConfig) {
 	var printColumns []string
 	printRows := make([][]string, len(cfg.rows))
 	for columnIndex, column := range allColumns {
-		if slices.Contains(excludeColumns, column) {
-			continue
+		if len(cfg.includeColumns) > 0 {
+			if !slices.Contains(cfg.includeColumns, column) {
+				continue
+			}
+		} else {
+			if slices.Contains(excludeColumns, column) {
+				continue
+			}
 		}
 
 		printColumns = append(printColumns, column)
