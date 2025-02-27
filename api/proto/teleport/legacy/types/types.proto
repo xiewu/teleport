@@ -2126,6 +2126,36 @@ message SessionRecordingConfigSpecV2 {
     (gogoproto.jsontag) = "proxy_checks_host_keys",
     (gogoproto.customtype) = "BoolOption"
   ];
+
+  // Encrypted file recipients for recorded sessions.
+  // If non-empty then all session recordings are encrypted end-to-end (from
+  // filesystem up to external storage, if applicable).
+  repeated EncryptedFileRecipient recipients = 3 [(gogoproto.jsontag) = "recipients"];
+}
+
+enum EncryptedFileRecipientType {
+  ENCRYPTED_FILE_RECIPIENT_TYPE_UNSPECIFIED = 0;
+  // Age X25519 recipient string.
+  // * https://github.com/C2SP/C2SP/blob/8991f70ddf8a11de3a68d5a081e7be27e59d87c8/age.md#the-x25519-recipient-type
+  ENCRYPTED_FILE_RECIPIENT_TYPE_AGE_X25519 = 1;
+  // Ed25519 public key marshaled as an ssh-ed25519 public key.
+  ENCRYPTED_FILE_RECIPIENT_TYPE_SSH_ED25519 = 2;
+  // RSA public key marshaled as an ssh-rsa public key.
+  // RSA keys must have at least 2048 bits.
+  ENCRYPTED_FILE_RECIPIENT_TYPE_SSH_RSA = 3;
+  // Ed25519 public key marshaled in PKIX PEM form.
+  ENCRYPTED_FILE_RECIPIENT_TYPE_ED25519 = 4;
+  // RSA public key marshaled in PKIX PEM form.
+  // RSA keys must have at least 2048 bits.
+  ENCRYPTED_FILE_RECIPIENT_TYPE_RSA = 5;
+}
+
+// TODO(codingllama): A better name?
+message EncryptedFileRecipient {
+  // Recipient public key type.
+  EncryptedFileRecipientType recipient_type = 1 [(gogoproto.jsontag) = "recipient_type"];
+  // Public key marshaled according to the recipient type.
+  string public_key = 2 [(gogoproto.jsontag) = "public_key"];
 }
 
 // AuthPreferenceV2 implements the AuthPreference interface.
