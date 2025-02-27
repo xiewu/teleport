@@ -45,6 +45,7 @@ type Config struct {
 	// OpenFile is the function to use to open OS files.
 	// Defaults to GetOpenFileFunc / os.OpenFile.
 	OpenFile utils.OpenFileWithFlagsFunc
+
 	// Recipients are the age recipients for encrypted session files.
 	// A non-empty slice enables encrypted session recordings.
 	Recipients []age.Recipient
@@ -86,16 +87,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 		openFile = GetOpenFileFunc()
 	}
 
-	// TODO(codingllama): Hack! Read from configuration instead.
 	recipients := cfg.Recipients
-	if val := os.Getenv("TELEPORT_RECIPIENTS"); val != "" {
-		recs, err := age.ParseRecipients(strings.NewReader(val))
-		if err != nil {
-			return nil, trace.Wrap(err, "parse age recipients")
-		}
-		recipients = append(recipients, recs...)
-	}
-
 	var fops FileOps
 	if len(recipients) > 0 {
 		logger.WarnContext(context.Background(),

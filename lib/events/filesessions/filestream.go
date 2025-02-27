@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"filippo.io/age"
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
 
@@ -70,9 +71,21 @@ func GetOpenFileFunc() utils.OpenFileWithFlagsFunc {
 // minUploadBytes is the minimum part file size required to trigger its upload.
 const minUploadBytes = events.MaxProtoMessageSizeBytes * 2
 
+type ProtoStreamerConfig struct {
+	// Dir is the directory in which recordings are saved.
+	Dir string
+
+	// Recipients are the encrypted session file recipients.
+	// Enables session encryption if non-empty.
+	Recipients []age.Recipient
+}
+
 // NewStreamer creates a streamer sending uploads to disk
-func NewStreamer(dir string) (*events.ProtoStreamer, error) {
-	handler, err := NewHandler(Config{Directory: dir})
+func NewStreamer(cfg ProtoStreamerConfig) (*events.ProtoStreamer, error) {
+	handler, err := NewHandler(Config{
+		Directory:  cfg.Dir,
+		Recipients: cfg.Recipients,
+	})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

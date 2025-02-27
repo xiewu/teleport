@@ -129,23 +129,6 @@ func (e *encryptedFileOps) WriteReservation(name string, data io.Reader) error {
 }
 
 func (e *encryptedFileOps) CombineParts(dst io.Writer, parts []string) error {
-	// TODO(codingllama): Remove fallback.
-	if len(parts) > 0 {
-		firstPart, err := e.OpenFile(parts[0], os.O_RDONLY, 0 /* perm */)
-		if err != nil {
-			return trace.Wrap(err, "open first part")
-		}
-		silentlyClose := func() {
-			loggingClose(firstPart, e.Logger, "Failed to close first part", "name", parts[0])
-		}
-		if _, err := guardAgainstDoubleEncryption(firstPart); err != nil {
-			e.Logger.WarnContext(context.Background(), "Double-encryption detected, falling back to plaintext")
-			silentlyClose()
-			return e.plaintext().CombineParts(dst, parts)
-		}
-		silentlyClose()
-	}
-
 	encWriter, err := age.Encrypt(dst, e.Recipients...)
 	if err != nil {
 		return trace.Wrap(err)

@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"filippo.io/age"
+	"filippo.io/age/agessh"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
 
@@ -126,13 +128,23 @@ func New(cfg Config) (events.SessionPreparerRecorder, error) {
 		return events.NewSessionPreparerRecorder(preparer, events.NewDiscardRecorder()), nil
 	}
 
+	// TODO(codingllama): Sync recording should encrypt too!
 	var streamer events.Streamer = cfg.SyncStreamer
 	if !services.IsRecordSync(cfg.RecordingCfg.GetMode()) {
 		uploadDir := filepath.Join(
 			cfg.DataDir, teleport.LogsDir, teleport.ComponentUpload,
 			events.StreamingSessionsDir, cfg.Namespace,
 		)
-		fileStreamer, err := filesessions.NewStreamer(uploadDir)
+
+		recipients, err := parseRecipients(cfg.RecordingCfg.GetRecipients())
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+
+		fileStreamer, err := filesessions.NewStreamer(filesessions.ProtoStreamerConfig{
+			Dir:        uploadDir,
+			Recipients: recipients,
+		})
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -155,4 +167,37 @@ func New(cfg Config) (events.SessionPreparerRecorder, error) {
 	}
 
 	return rec, nil
+}
+
+var recipientTypeToParser = map[types.EncryptedFileRecipientType]func(string) (age.Recipient, error){
+	// AGE recipient.
+	types.EncryptedFileRecipientType_ENCRYPTED_FILE_RECIPIENT_TYPE_AGE_X25519: func(s string) (age.Recipient, error) {
+		return age.ParseX25519Recipient(s)
+	},
+
+	// SSH recipients.
+	types.EncryptedFileRecipientType_ENCRYPTED_FILE_RECIPIENT_TYPE_SSH_ED25519: agessh.ParseRecipient,
+	types.EncryptedFileRecipientType_ENCRYPTED_FILE_RECIPIENT_TYPE_SSH_RSA:     agessh.ParseRecipient,
+
+	// TODO(codingllama): PEM recipients. These are more work.
+}
+
+func parseRecipients(recipients []*types.EncryptedFileRecipient) ([]age.Recipient, error) {
+	if len(recipients) == 0 {
+		return nil, nil
+	}
+
+	resp := make([]age.Recipient, 0, len(recipients))
+	for _, r := range recipients {
+		fn, ok := recipientTypeToParser[r.RecipientType]
+		if !ok {
+			return nil, trace.BadParameter("unsupported recipient type: %s", r.RecipientType)
+		}
+		parsed, err := fn(r.PublicKey)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		resp = append(resp, parsed)
+	}
+	return resp, nil
 }

@@ -45,6 +45,9 @@ type SessionRecordingConfig interface {
 
 	// Clone returns a copy of the resource.
 	Clone() SessionRecordingConfig
+
+	GetRecipients() []*EncryptedFileRecipient
+	SetRecipients(r []*EncryptedFileRecipient)
 }
 
 // NewSessionRecordingConfigFromConfigFile is a convenience method to create
@@ -163,6 +166,14 @@ func (c *SessionRecordingConfigV2) SetProxyChecksHostKeys(t bool) {
 	c.Spec.ProxyChecksHostKeys = NewBoolOption(t)
 }
 
+func (c *SessionRecordingConfigV2) GetRecipients() []*EncryptedFileRecipient {
+	return c.Spec.Recipients
+}
+
+func (c *SessionRecordingConfigV2) SetRecipients(r []*EncryptedFileRecipient) {
+	c.Spec.Recipients = r
+}
+
 // Clone returns a copy of the resource.
 func (c *SessionRecordingConfigV2) Clone() SessionRecordingConfig {
 	return utils.CloneProtoMsg(c)
@@ -198,6 +209,9 @@ func (c *SessionRecordingConfigV2) CheckAndSetDefaults() error {
 	if !slices.Contains(SessionRecordingModes, c.Spec.Mode) {
 		return trace.BadParameter("session recording mode must be one of %v; got %q", strings.Join(SessionRecordingModes, ","), c.Spec.Mode)
 	}
+
+	// TODO(codingllama): Parse/validate recipients here?
+	//  That would make api/ depend on age, but it's a no-brainer for types.
 
 	return nil
 }

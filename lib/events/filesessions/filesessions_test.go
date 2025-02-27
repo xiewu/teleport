@@ -42,42 +42,59 @@ import (
 func TestNonModifyingUpload_plaintext(t *testing.T) {
 	t.Parallel()
 
-	nopDecrypter := func(src io.Reader) (io.Reader, error) { return src, nil }
-	runTestNonModifyingUpload(t, nopDecrypter)
-}
+	t.Run("plaintext", func(t *testing.T) {
+		t.Parallel()
 
-func TestNonModifyingUpload_encrypted(t *testing.T) {
-	// Don't t.Parallel(), uses t.Setenv()
+		nopDecrypter := func(src io.Reader) (io.Reader, error) { return src, nil }
+		runTestNonModifyingUpload(t, testNonModifyingUploadOpts{
+			Decrypter: nopDecrypter,
+		})
+	})
 
-	const (
-		recipient1 = `age1488nwl034sc9h3m9kn5akwuq54gd3mf3aqv0cnkutdw2vqzk8vgse2qphm`
-		recipient2 = `age13k6u7udypf2cd2kg2yww9a0xenvuudk0z60g9hlnknen802czdpqxjdnzd`
-	)
-	// TODO(codingllama): Do this without env variables.
-	t.Setenv("TELEPORT_RECIPIENTS", fmt.Sprintf("%s\n%s\n", recipient1, recipient2))
+	t.Run("encrypted", func(t *testing.T) {
+		t.Parallel()
 
-	const identity2 = `AGE-SECRET-KEY-1KAQGEVFVNV435Q8DM8QJWLD05XFPE6JGACYARJN4XPQP077Q4X8SXRASXU`
-	id2, err := age.ParseX25519Identity(identity2)
-	require.NoError(t, err, "age.ParseX25519Identity()")
+		const (
+			recipient1 = `age1488nwl034sc9h3m9kn5akwuq54gd3mf3aqv0cnkutdw2vqzk8vgse2qphm`
+			recipient2 = `age13k6u7udypf2cd2kg2yww9a0xenvuudk0z60g9hlnknen802czdpqxjdnzd`
+			identity2  = `AGE-SECRET-KEY-1KAQGEVFVNV435Q8DM8QJWLD05XFPE6JGACYARJN4XPQP077Q4X8SXRASXU`
+		)
 
-	decrypter := func(src io.Reader) (io.Reader, error) {
-		r, err := age.Decrypt(src, id2)
-		if err != nil {
-			return nil, fmt.Errorf("create age decrypter: %w", err)
+		var recipients []age.Recipient
+		for _, r := range []string{recipient1, recipient2} {
+			parsed, err := age.ParseX25519Recipient(r)
+			require.NoError(t, err, "age.ParseX25519Recipient()")
+			recipients = append(recipients, parsed)
 		}
-		return r, nil
-	}
 
-	runTestNonModifyingUpload(t, decrypter)
+		id2, err := age.ParseX25519Identity(identity2)
+		require.NoError(t, err, "age.ParseX25519Identity()")
+
+		decrypter := func(src io.Reader) (io.Reader, error) { return age.Decrypt(src, id2) }
+		runTestNonModifyingUpload(t, testNonModifyingUploadOpts{
+			Recipients: recipients,
+			Decrypter:  decrypter,
+		})
+	})
 }
 
-func runTestNonModifyingUpload(t *testing.T, decrypter func(io.Reader) (io.Reader, error)) {
+type testNonModifyingUploadOpts struct {
+	// Recipients are the recipients used for the local streamer.
+	Recipients []age.Recipient
+	// Decrypter for one of the recipients. Must not be nil.
+	Decrypter func(io.Reader) (io.Reader, error)
+}
+
+func runTestNonModifyingUpload(t *testing.T, opts testNonModifyingUploadOpts) {
 	rootDir := t.TempDir()
 	recordsDir := filepath.Join(rootDir, "records")
 	streamingDir := filepath.Join(rootDir, "streaming")
 	corruptedDir := filepath.Join(rootDir, "corrupted")
 
-	localStreamer, err := NewStreamer(streamingDir)
+	localStreamer, err := NewStreamer(ProtoStreamerConfig{
+		Dir:        streamingDir,
+		Recipients: opts.Recipients,
+	})
 	require.NoError(t, err, "NewStreamer(local)")
 
 	ctx := t.Context()
@@ -141,11 +158,15 @@ func runTestNonModifyingUpload(t *testing.T, decrypter func(io.Reader) (io.Reade
 	}
 
 	// Step 1.1: validate streaming/ session file.
+	decrypter := opts.Decrypter
 	dec, err := decrypter(bytes.NewReader(streamedBytes))
 	require.NoError(t, err, "decrypter()")
 	validateSessionRecording(ctx, t, dec, allEvents)
 
-	remoteStreamer, err := NewStreamer(recordsDir)
+	remoteStreamer, err := NewStreamer(ProtoStreamerConfig{
+		Dir: recordsDir,
+		// Notice no encryption Recipients!
+	})
 	require.NoError(t, err, "NewStreamer(remote)")
 
 	clock := clockwork.NewRealClock()

@@ -123,7 +123,7 @@ func TestChaosUpload(t *testing.T) {
 	go uploader.Serve(ctx)
 	defer uploader.Close()
 
-	fileStreamer, err := NewStreamer(scanDir)
+	fileStreamer, err := NewStreamer(ProtoStreamerConfig{Dir: scanDir})
 	require.NoError(t, err)
 
 	parallelStreams := 20
