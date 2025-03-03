@@ -20,21 +20,25 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"log/slog"
 	"net"
-	"strings"
 	"sync"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
 	"golang.org/x/sync/singleflight"
+	"google.golang.org/grpc"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/client/proto"
+	proxyclient "github.com/gravitational/teleport/api/client/proxy"
+	"github.com/gravitational/teleport/api/utils/grpc/interceptors"
 	vnetv1 "github.com/gravitational/teleport/gen/proto/go/teleport/lib/vnet/v1"
 	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/srv/alpnproxy"
 	alpncommon "github.com/gravitational/teleport/lib/srv/alpnproxy/common"
+	"github.com/gravitational/teleport/lib/utils"
 )
 
 // appProvider is an interface for querying app info from an app fqdn, getting
@@ -43,6 +47,7 @@ type appProvider interface {
 	// ResolveAppInfo returns an *AppInfo for the given app fqdn, or an error if
 	// the app is not present in any logged-in cluster.
 	ResolveAppInfo(ctx context.Context, fqdn string) (*vnetv1.AppInfo, error)
+	ResolveSSHInfo(ctx context.Context, fqdn string) (*SSHInfo, error)
 	// ReissueAppCert issues a new cert for the target app.
 	ReissueAppCert(ctx context.Context, appInfo *vnetv1.AppInfo, targetPort uint16) (tls.Certificate, error)
 	// OnNewConnection gets called whenever a new connection is about to be established through VNet.
@@ -80,19 +85,77 @@ func newTCPAppResolver(appProvider appProvider, clock clockwork.Clock) *tcpAppRe
 // stack trace on every unhandled query.
 func (r *tcpAppResolver) resolveTCPHandler(ctx context.Context, fqdn string) (*tcpHandlerSpec, error) {
 	appInfo, err := r.appProvider.ResolveAppInfo(ctx, fqdn)
+	switch {
+	case errors.Is(err, errNoTCPHandler):
+		// continue after the switch to look for matching SSH nodes
+	case err != nil:
+		return nil, trace.Wrap(err, "resolving fqdn to app info")
+	case err == nil:
+		appHandler := r.newTCPAppHandler(ctx, appInfo)
+		return &tcpHandlerSpec{
+			ipv4CIDRRange: appInfo.GetIpv4CidrRange(),
+			tcpHandler:    appHandler,
+		}, nil
+	}
+	sshInfo, err := r.appProvider.ResolveSSHInfo(ctx, fqdn)
 	if err != nil {
-		// Intentionally don't wrap the error, collecting a trace is expensive
-		// and should only be done for unexpected errors
 		return nil, err
 	}
-	appHandler, err := r.newTCPAppHandler(ctx, appInfo)
-	if err != nil {
-		return nil, err
-	}
+	sshHandler := r.newSSHHandler(ctx, sshInfo)
 	return &tcpHandlerSpec{
-		ipv4CIDRRange: appInfo.GetIpv4CidrRange(),
-		tcpHandler:    appHandler,
+		ipv4CIDRRange: sshInfo.Ipv4CidrRange,
+		tcpHandler:    sshHandler,
 	}, nil
+}
+
+type sshHandler struct {
+	sshInfo     *SSHInfo
+	appProvider appProvider
+}
+
+func (r *tcpAppResolver) newSSHHandler(ctx context.Context, sshInfo *SSHInfo) *sshHandler {
+	return &sshHandler{
+		sshInfo:     sshInfo,
+		appProvider: r.appProvider,
+	}
+}
+
+func (h *sshHandler) handleTCPConnector(ctx context.Context, localPort uint16, connector func() (net.Conn, error)) error {
+	proxyClientConfig := proxyclient.ClientConfig{
+		ProxyAddress: h.sshInfo.DialOptions.WebProxyAddr,
+		// TLSRoutingEnabled: proxyConfig.TLSRoutingEnabled,
+		// TLSConfigFunc: func(cluster string) (*tls.Config, error) {
+		// 	cfg, err := facade.TLSConfig()
+		// 	if err != nil {
+		// 		return nil, trace.Wrap(err)
+		// 	}
+
+		// 	// The facade TLS config is tailored toward connections to the Auth service.
+		// 	// Override the server name to be the proxy and blank out the next protos to
+		// 	// avoid hitting the proxy web listener.
+		// 	cfg.ServerName = proxyHost
+		// 	cfg.NextProtos = nil
+		// 	return cfg, nil
+		// },
+		UnaryInterceptors:  []grpc.UnaryClientInterceptor{interceptors.GRPCClientUnaryErrorInterceptor},
+		StreamInterceptors: []grpc.StreamClientInterceptor{interceptors.GRPCClientStreamErrorInterceptor},
+		//SSHConfig:               sshConfig,
+		InsecureSkipVerify:      h.sshInfo.DialOptions.InsecureSkipVerify,
+		ALPNConnUpgradeRequired: h.sshInfo.DialOptions.AlpnConnUpgradeRequired,
+	}
+	pclt, err := proxyclient.NewClient(ctx, proxyClientConfig)
+	if err != nil {
+		return trace.Wrap(err, "creating proxy client")
+	}
+	targetConn, _ /*clusterDetails*/, err := pclt.DialHost(ctx, h.sshInfo.Hostname, h.sshInfo.Cluster, nil /*keyRing*/)
+	if err != nil {
+		return trace.Wrap(err, "dialing target host")
+	}
+	localConn, err := connector()
+	if err != nil {
+		return trace.Wrap(err, "unwrapping local conn")
+	}
+	return trace.Wrap(utils.ProxyConn(ctx, localConn, targetConn), "proxying SSH connection")
 }
 
 type tcpAppHandler struct {
@@ -106,7 +169,7 @@ type tcpAppHandler struct {
 	portToLocalProxy map[uint16]*alpnproxy.LocalProxy
 }
 
-func (r *tcpAppResolver) newTCPAppHandler(ctx context.Context, appInfo *vnetv1.AppInfo) (*tcpAppHandler, error) {
+func (r *tcpAppResolver) newTCPAppHandler(ctx context.Context, appInfo *vnetv1.AppInfo) *tcpAppHandler {
 	return &tcpAppHandler{
 		appInfo:     appInfo,
 		appProvider: r.appProvider,
@@ -114,7 +177,7 @@ func (r *tcpAppResolver) newTCPAppHandler(ctx context.Context, appInfo *vnetv1.A
 			"profile", appInfo.GetAppKey().GetProfile(), "leaf_cluster", appInfo.GetAppKey().GetLeafCluster(), "fqdn", appInfo.GetApp().GetPublicAddr()),
 		clock:            r.clock,
 		portToLocalProxy: make(map[uint16]*alpnproxy.LocalProxy),
-	}, nil
+	}
 }
 
 // getOrInitializeLocalProxy returns a separate local proxy for each port for multi-port apps. For
@@ -208,22 +271,6 @@ func (i *appCertIssuer) IssueCert(ctx context.Context) (tls.Certificate, error) 
 		return i.appProvider.ReissueAppCert(ctx, i.appInfo, i.targetPort)
 	})
 	return cert.(tls.Certificate), trace.Wrap(err)
-}
-
-// isDescendantSubdomain checks if appFQDN belongs in the hierarchy of zone. For example, both
-// foo.bar.baz.example.com and bar.baz.example.com belong in the hierarchy of baz.example.com, but
-// quux.example.com does not.
-func isDescendantSubdomain(appFQDN, zone string) bool {
-	return strings.HasSuffix(appFQDN, "."+fullyQualify(zone))
-}
-
-// fullyQualify returns a fully-qualified domain name from [domain]. Fully-qualified domain names always end
-// with a ".".
-func fullyQualify(domain string) string {
-	if strings.HasSuffix(domain, ".") {
-		return domain
-	}
-	return domain + "."
 }
 
 // localProxyMiddleware wraps around [client.CertChecker] and additionally makes it so that its
