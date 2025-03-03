@@ -2046,7 +2046,22 @@ func maybeDowngradeRole(ctx context.Context, role *types.RoleV6) (*types.RoleV6,
 	}
 
 	role = maybeDowngradeRoleSSHPortForwarding(role, clientVersion)
+	role = maybeDowngradeRoleRequireMFAType(role, clientVersionString)
 	return role, nil
+}
+
+func maybeDowngradeRoleRequireMFAType(role *types.RoleV6, clientVersion string) *types.RoleV6 {
+	if role.GetOptions().RequireMFAType != types.RequireMFAType_MULTI_SESSION {
+		return role
+	}
+	if utils.MeetsMinVersion(clientVersion, "18.0.0") {
+		return role
+	}
+	logger.InfoContext(context.Background(), "==== maybeDowngradeRoleRequireMFAType", "client_version", clientVersion)
+	options := role.GetOptions()
+	options.RequireMFAType = types.RequireMFAType_SESSION
+	role.SetOptions(options)
+	return role
 }
 
 var minSupportedSSHPortForwardingVersion = semver.Version{Major: 17, Minor: 1, Patch: 0}

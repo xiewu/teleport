@@ -1090,6 +1090,7 @@ func (a *ServerWithRoles) NewWatcher(ctx context.Context, watch types.Watch) (ty
 	if err := a.authorizeWatchRequest(&watch); err != nil {
 		return nil, trace.Wrap(err)
 	}
+
 	return a.authServer.NewWatcher(ctx, watch)
 }
 
@@ -4405,6 +4406,7 @@ func (a *ServerWithRoles) findSessionEndEvent(ctx context.Context, sid session.I
 
 // GetRoles returns a list of roles
 func (a *ServerWithRoles) GetRoles(ctx context.Context) ([]types.Role, error) {
+	a.authServer.logger.InfoContext(ctx, "=== GetRoles")
 	// delegate all access-control logic to ListRoles, which will eventually
 	// supplant GetRoles everywhere.
 	var roles []types.Role
@@ -4428,7 +4430,9 @@ func (a *ServerWithRoles) GetRoles(ctx context.Context) ([]types.Role, error) {
 }
 
 // ListRoles is a paginated role getter.
-func (a *ServerWithRoles) ListRoles(ctx context.Context, req *proto.ListRolesRequest) (*proto.ListRolesResponse, error) {
+func (a *ServerWithRoles) ListRoles(ctx context.Context, req *proto.ListRolesRequest) (resp *proto.ListRolesResponse, err error) {
+	a.authServer.logger.InfoContext(ctx, "=== ListRoles")
+
 	authErr := a.action(types.KindRole, types.VerbList, types.VerbRead)
 	if authErr == nil {
 		rsp, err := a.authServer.ListRoles(ctx, req)
@@ -4610,7 +4614,7 @@ func checkRoleFeatureSupport(role types.Role) error {
 }
 
 // GetRole returns role by name
-func (a *ServerWithRoles) GetRole(ctx context.Context, name string) (types.Role, error) {
+func (a *ServerWithRoles) GetRole(ctx context.Context, name string) (role types.Role, err error) {
 	// Current-user exception: we always allow users to read roles
 	// that they hold.  This requirement is checked first to avoid
 	// misleading denial messages in the logs.
@@ -4624,7 +4628,7 @@ func (a *ServerWithRoles) GetRole(ctx context.Context, name string) (types.Role,
 	}
 
 	// See if the user has access to this individual role.
-	role, err := a.authServer.GetRole(ctx, name)
+	role, err = a.authServer.GetRole(ctx, name)
 	if err != nil {
 		return nil, trace.Wrap(authErr)
 	}
@@ -4632,7 +4636,6 @@ func (a *ServerWithRoles) GetRole(ctx context.Context, name string) (types.Role,
 	if err := a.actionForResource(role, types.KindRole, types.VerbRead); err != nil {
 		return nil, trace.Wrap(err)
 	}
-
 	return role, nil
 }
 
