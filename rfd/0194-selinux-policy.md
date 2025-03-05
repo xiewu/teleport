@@ -88,6 +88,13 @@ A `selinux` subcommand will be added to Teleport agent binaries to allow users t
 will will use the Teleport agent configuration file to determine how to configure some of the tunable SELinux policy contexts, such as port
 numbers, file paths, and booleans using the `semanage` tool.
 
+The policy will allow the Teleport agent processes with the `selinux` subcommand only to create or update its SELinux policy. This will be enforced by
+creating a `teleport_selinux_management` domain, which will not be allowed to be a parent of any other Teleport related domain. Otherwise an attacker could
+use the SSH service to run the `selinux` subcommand and potentially modify the policy.
+
+If the SSH service itself was allowed to manage its own SELinux policy, an attacker that compromised the SSH service could modify the policy to
+be more permissive, defeating the point of the policy in the first place.
+
 If SELinux is not present on the host, the subcommand will tell the user this and exit. If SELinux is present but the Teleport agent policy is
 not installed, the subcommand will extract the embedded policy and use `checkmodule`, `semodule_package`, and `semodule` to compile and install the policy.
 
