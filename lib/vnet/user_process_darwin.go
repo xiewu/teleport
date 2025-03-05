@@ -115,11 +115,16 @@ func runPlatformUserProcess(ctx context.Context, cfg *UserProcessConfig) (pm *Pr
 	clock := clockwork.NewRealClock()
 	appProvider := newLocalAppProvider(cfg.ClientApplication, clock)
 	appResolver := newTCPAppResolver(appProvider, clock)
+	sshProvider := newLocalSSHProvider(cfg.ClientApplication, clock)
+	sshResolver := newSSHResolver(sshProvider, clock)
+	tcpHandlerResolver := &generalTCPHandlerResolver{
+		resolvers: []tcpHandlerResolver{appResolver, sshResolver},
+	}
 	ns, err := newNetworkStack(&networkStackConfig{
 		tunDevice:          tun,
 		ipv6Prefix:         ipv6Prefix,
 		dnsIPv6:            dnsIPv6,
-		tcpHandlerResolver: appResolver,
+		tcpHandlerResolver: tcpHandlerResolver,
 	})
 	if err != nil {
 		return nil, nsi, trace.Wrap(err)
@@ -135,4 +140,22 @@ func runPlatformUserProcess(ctx context.Context, cfg *UserProcessConfig) (pm *Pr
 	}
 
 	return pm, nsi, nil
+}
+
+type generalTCPHandlerResolver struct {
+	resolvers []tcpHandlerResolver
+}
+
+func (r *generalTCPHandlerResolver) resolveTCPHandler(ctx context.Context, fqdn string) (*tcpHandlerSpec, error) {
+	for _, resolver := range r.resolvers {
+		handlerSpec, err := resolver.resolveTCPHandler(ctx, fqdn)
+		switch {
+		case errors.Is(err, errNoTCPHandler):
+			continue
+		case err != nil:
+			return nil, trace.Wrap(err)
+		}
+		return handlerSpec, nil
+	}
+	return nil, errNoTCPHandler
 }

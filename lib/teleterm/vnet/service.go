@@ -26,6 +26,7 @@ import (
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"golang.org/x/crypto/ssh"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/gravitational/teleport"
@@ -381,6 +382,14 @@ func (p *clientApplication) getCachedClient(ctx context.Context, profileName, le
 	uri := uri.NewClusterURI(profileName).AppendLeafCluster(leafClusterName)
 	client, err := p.daemonService.GetCachedClient(ctx, uri)
 	return client, trace.Wrap(err)
+}
+
+func (p *clientApplication) TeleportClientTLSConfig(ctx context.Context, profileName, clusterName string) (*tls.Config, error) {
+	return nil, trace.NotImplemented("TeleportClientTLSConfig is not implemented")
+}
+
+func (p *clientApplication) UserSSHConfig(ctx context.Context, sshInfo *vnet.SSHInfo, username string) (*ssh.ClientConfig, error) {
+	return nil, trace.NotImplemented("TeleportClientTLSConfig is not implemented")
 }
 
 func (p *clientApplication) ReissueAppCert(ctx context.Context, appInfo *vnetv1.AppInfo, targetPort uint16) (tls.Certificate, error) {

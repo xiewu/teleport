@@ -25,12 +25,14 @@ import (
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"golang.org/x/crypto/ssh"
 
 	apiclient "github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
 	vnetv1 "github.com/gravitational/teleport/gen/proto/go/teleport/lib/vnet/v1"
 	"github.com/gravitational/teleport/lib/auth/authclient"
+	"github.com/gravitational/teleport/lib/client"
 )
 
 // ClientApplication is the common interface implemented by each VNet client
@@ -42,6 +44,9 @@ import (
 type ClientApplication interface {
 	// ListProfiles lists the names of all profiles saved for the user.
 	ListProfiles() ([]string, error)
+
+	TeleportClientTLSConfig(ctx context.Context, profileName, clusterName string) (*tls.Config, error)
+	UserSSHConfig(ctx context.Context, sshInfo *SSHInfo, username string) (*ssh.ClientConfig, error)
 
 	// GetCachedClient returns a [*client.ClusterClient] for the given profile and leaf cluster.
 	// [leafClusterName] may be empty when requesting a client for the root cluster. Returned clients are
@@ -73,6 +78,7 @@ type ClusterClient interface {
 	CurrentCluster() authclient.ClientI
 	ClusterName() string
 	RootClusterName() string
+	SessionSSHConfig(ctx context.Context, user string, target client.NodeDetails) (*ssh.ClientConfig, error)
 }
 
 // localAppProvider implements wraps a [ClientApplication] to implement
@@ -87,128 +93,6 @@ func newLocalAppProvider(clientApp ClientApplication, clock clockwork.Clock) *lo
 		ClientApplication:  clientApp,
 		clusterConfigCache: NewClusterConfigCache(clock),
 	}
-}
-
-type SSHInfo struct {
-	Profile       string
-	Cluster       string
-	LeafCluster   string
-	Hostname      string
-	Ipv4CidrRange string
-	DialOptions   *vnetv1.DialOptions
-}
-
-func (p *localAppProvider) ResolveSSHInfo(ctx context.Context, fqdn string) (*SSHInfo, error) {
-	if !strings.Contains(fqdn, ".ssh.") {
-		return nil, errNoTCPHandler
-	}
-	profileNames, err := p.ClientApplication.ListProfiles()
-	if err != nil {
-		return nil, trace.Wrap(err, "listing profiles")
-	}
-	for _, profileName := range profileNames {
-		clusterClient, err := p.clusterClientForSSHFQDN(ctx, profileName, fqdn)
-		if err != nil {
-			if errors.Is(err, errNoMatch) {
-				continue
-			}
-			// The user might be logged out from this one cluster (and retryWithRelogin isn't working). Log
-			// the error but don't return it so that DNS resolution will be forwarded upstream instead of
-			// failing, to avoid breaking e.g. web app access (we don't know if this is a web or TCP app yet
-			// because we can't log in).
-			log.ErrorContext(ctx, "Failed to get teleport client.", "error", err)
-			continue
-		}
-
-		leafClusterName := ""
-		clusterName := clusterClient.ClusterName()
-		if clusterName != "" && clusterName != clusterClient.RootClusterName() {
-			leafClusterName = clusterName
-		}
-
-		return p.resolveSSHInfoForCluster(ctx, clusterClient, profileName, leafClusterName, fqdn)
-	}
-	return nil, errNoTCPHandler
-}
-
-func (p *localAppProvider) clusterClientForSSHFQDN(ctx context.Context, profileName, fqdn string) (ClusterClient, error) {
-	rootClient, err := p.ClientApplication.GetCachedClient(ctx, profileName, "")
-	if err != nil {
-		log.ErrorContext(ctx, "Failed to get root cluster client, apps in this cluster will not be resolved.", "profile", profileName, "error", err)
-		return nil, errNoMatch
-	}
-
-	if isSSHDescendantSubdomain(fqdn, profileName) {
-		return rootClient, nil
-	}
-
-	leafClusters, err := getLeafClusters(ctx, rootClient)
-	if err != nil {
-		// Good chance we're here because the user is not logged in to the profile.
-		log.ErrorContext(ctx, "Failed to list leaf clusters, apps in this cluster will not be resolved.", "profile", profileName, "error", err)
-		return nil, errNoMatch
-	}
-
-	// Prefix with an empty string to represent the root cluster.
-	allClusters := append([]string{""}, leafClusters...)
-	for _, leafClusterName := range allClusters {
-		clusterClient, err := p.ClientApplication.GetCachedClient(ctx, profileName, leafClusterName)
-		if err != nil {
-			log.ErrorContext(ctx, "Failed to get cluster client, apps in this cluster will not be resolved.", "profile", profileName, "leaf_cluster", leafClusterName, "error", err)
-			continue
-		}
-
-		clusterConfig, err := p.clusterConfigCache.GetClusterConfig(ctx, clusterClient)
-		if err != nil {
-			log.ErrorContext(ctx, "Failed to get VNet config, apps in the cluster will not be resolved.", "profile", profileName, "leaf_cluster", leafClusterName, "error", err)
-			continue
-		}
-		for _, zone := range clusterConfig.DNSZones {
-			if isSSHDescendantSubdomain(fqdn, zone) {
-				return clusterClient, nil
-			}
-		}
-	}
-	return nil, errNoMatch
-}
-
-func (p *localAppProvider) resolveSSHInfoForCluster(
-	ctx context.Context,
-	clusterClient ClusterClient,
-	profileName, leafClusterName, fqdn string,
-) (*SSHInfo, error) {
-	target := stripSSHSuffix(fqdn)
-	log := log.With("profile", profileName, "leaf_cluster", leafClusterName, "fqdn", fqdn, "target", target)
-	resp, err := clusterClient.CurrentCluster().ResolveSSHTarget(ctx, &proto.ResolveSSHTargetRequest{
-		SearchKeywords: []string{target},
-	})
-	switch {
-	case trace.IsNotFound(err):
-		return nil, errNoTCPHandler
-	case err != nil:
-		log.ErrorContext(ctx, "Failed to query SSH node")
-		return nil, trace.Wrap(err)
-	case resp.GetServer() == nil:
-		return nil, errNoTCPHandler
-	}
-	clusterConfig, err := p.clusterConfigCache.GetClusterConfig(ctx, clusterClient)
-	if err != nil {
-		log.ErrorContext(ctx, "Failed to get cluster VNet config for matching SSH node", "error", err)
-		return nil, trace.Wrap(err, "getting cached cluster VNet config for matching SSH node")
-	}
-	dialOpts, err := p.ClientApplication.GetDialOptions(ctx, profileName)
-	if err != nil {
-		log.ErrorContext(ctx, "Failed to get cluster dial options", "error", err)
-		return nil, trace.Wrap(err, "getting dial options for matching app")
-	}
-	return &SSHInfo{
-		Profile:       profileName,
-		Cluster:       clusterClient.ClusterName(),
-		LeafCluster:   leafClusterName,
-		Hostname:      resp.GetServer().GetHostname(),
-		Ipv4CidrRange: clusterConfig.IPv4CIDRRange,
-		DialOptions:   dialOpts,
-	}, nil
 }
 
 // ResolveAppInfo implements [appProvider.ResolveAppInfo].
@@ -441,18 +325,6 @@ func (p *localAppProvider) targetOSConfigurationForProfile(ctx context.Context, 
 // quux.example.com does not.
 func isDescendantSubdomain(appFQDN, zone string) bool {
 	return strings.HasSuffix(appFQDN, "."+fullyQualify(zone))
-}
-
-func isSSHDescendantSubdomain(sshFQDN, zone string) bool {
-	return strings.HasSuffix(sshFQDN, ".ssh."+fullyQualify(zone))
-}
-
-func stripSSHSuffix(s string) string {
-	idx := strings.LastIndex(s, ".ssh.")
-	if idx == -1 {
-		return s
-	}
-	return s[:idx]
 }
 
 // fullyQualify returns a fully-qualified domain name from [domain]. Fully-qualified domain names always end
