@@ -385,11 +385,33 @@ func (p *clientApplication) getCachedClient(ctx context.Context, profileName, le
 }
 
 func (p *clientApplication) TeleportClientTLSConfig(ctx context.Context, profileName, clusterName string) (*tls.Config, error) {
-	return nil, trace.NotImplemented("TeleportClientTLSConfig is not implemented")
+	clusterClient, err := p.getCachedClient(ctx, profileName, "")
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	clientConfig, err := clusterClient.ProxyClient.ClientConfig(ctx, clusterName)
+	if err != nil {
+		return nil, trace.Wrap(err, "getting user client config")
+	}
+	tlsConfig, err := clientConfig.Credentials[0].TLSConfig()
+	if err != nil {
+		return nil, trace.Wrap(err, "getting user TLS config")
+	}
+	tlsConfig.ServerName = profileName
+	tlsConfig.NextProtos = nil
+	return tlsConfig, nil
 }
 
 func (p *clientApplication) UserSSHConfig(ctx context.Context, sshInfo *vnet.SSHInfo, username string) (*ssh.ClientConfig, error) {
-	return nil, trace.NotImplemented("TeleportClientTLSConfig is not implemented")
+	clusterClient, err := p.getCachedClient(ctx, sshInfo.Profile, sshInfo.LeafCluster)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	sshConfig, err := clusterClient.SessionSSHConfig(ctx, username, client.NodeDetails{
+		Addr:    sshInfo.Addr,
+		Cluster: sshInfo.Cluster,
+	})
+	return sshConfig, trace.Wrap(err, "getting session SSH config")
 }
 
 func (p *clientApplication) ReissueAppCert(ctx context.Context, appInfo *vnetv1.AppInfo, targetPort uint16) (tls.Certificate, error) {

@@ -120,7 +120,7 @@ func (p *vnetClientApplication) UserSSHConfig(ctx context.Context, sshInfo *vnet
 		Addr:    sshInfo.Addr,
 		Cluster: sshInfo.Cluster,
 	})
-	return sshConfig, trace.Wrap(err, "getting user session SSH config")
+	return sshConfig, trace.Wrap(err, "getting session SSH config")
 }
 
 // GetDialOptions returns ALPN dial options for the profile.

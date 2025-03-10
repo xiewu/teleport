@@ -321,7 +321,10 @@ func (c *ClusterClient) SessionSSHConfig(ctx context.Context, user string, targe
 		},
 		keyRing,
 	)
-	if err != nil {
+	switch {
+	case errors.Is(err, services.ErrSessionMFANotRequired):
+		return sshConfig, nil
+	case err != nil:
 		return nil, trace.Wrap(err)
 	}
 
