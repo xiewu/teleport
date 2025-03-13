@@ -85,7 +85,7 @@ new binaries being executed, or new Linux syscalls being called will require upd
 The policy source will be embedded in future Teleport agent binaries.
 
 A `selinux` subcommand will be added to Teleport agent binaries to allow users to install and configure the SELinux policy. This subcommand
-will will use the Teleport agent configuration file to determine how to configure some of the tunable SELinux policy contexts, such as port
+will use the Teleport agent configuration file to determine how to configure some of the tunable SELinux policy contexts, such as port
 numbers, file paths, and booleans using the `semanage` tool.
 
 The policy will allow the Teleport agent processes with the `selinux` subcommand only to create or update its SELinux policy. This will be enforced by
@@ -103,6 +103,9 @@ Installation scripts and the `teleport-update` tool will be updated to install a
 SELinux has 3 modes, disabled, permissive (policy violations are only logged) and enforcing (attempts to violate the policy are denied).
 The SELinux mode will not be modified by the `selinux` subcommand, users will be responsible for enabling SELinux if they so choose.
 
+The `selinux` subcommand will have a `--dry-run` flag that will print what actions it would need to take to manage the policy if run normally and
+print the policy that would be installed based on the provided Teleport agent configuration file.
+
 ### Compliance
 
 To ensure the SSH agent SELinux policy is installed and SELinux is configured to enforce it, a `--selinux` flag will be added to the `teleport start` subcommand
@@ -111,6 +114,9 @@ will exit with an error.
 
 Additionally since the SSH service is the only Teleport agent service that will be initially supported by the policy, if the `--selinux` flag is passed
 and the Teleport agent does not have the SSH service enabled, or at least one other Teleport service is enabled then the Teleport agent will exit with an error.
+Additionally if there is a SELinux policy for Teleport agents installed but it does not match the policy that would be generated with the version of the
+policy embedded in the Teleport agent and the Teleport agent's configuration file it will notify the user and exit with an error. Users will then have to
+run the `selinux` subcommand to update the SELinux policy.
 
 ### Host support
 
