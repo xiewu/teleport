@@ -27,9 +27,6 @@ import React, {
 import { Logger } from 'design/logger';
 import { debounce } from 'shared/utils/highbar';
 
-import { BitmapFrame } from 'teleport/lib/tdp/client';
-import type { PngFrame } from 'teleport/lib/tdp/codec';
-
 const logger = new Logger('CanvasRenderer');
 
 export interface CanvasRendererRef {
@@ -194,6 +191,14 @@ function setPointer(canvas: HTMLCanvasElement, pointer: Pointer): void {
   canvas.style.cursor = `url(${cursor.toDataURL()}) ${pointer.hotspot_x} ${pointer.hotspot_y}, auto`;
 }
 
+interface PngFrame {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  data: HTMLImageElement;
+}
+
 //TODO(gzdunek): renderBuffer is called  even when the buffer is empty.
 // This causes the function to run in a loop, 60 times per second
 // (actually x2 because we have two frame renderers).
@@ -219,6 +224,12 @@ function makePngFrameRenderer(
   requestAnimationFrame(renderBuffer);
 
   return frame => pngBuffer.push(frame);
+}
+
+interface BitmapFrame {
+  top: number;
+  left: number;
+  image_data: ImageData;
 }
 
 function makeBitmapFrameRenderer(
