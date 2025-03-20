@@ -16,8 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Route } from 'teleport/components/Router';
+import React from 'react';
+
 import cfg from 'teleport/config';
+import { Route } from 'teleport/components/Router';
 import { IntegrationKind } from 'teleport/services/integrations';
 
 import { AwsOidc } from './AwsOidc';

@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["lib/srv/desktop/rdp/rdpclient", "web/packages/teleport/src/ironrdp"]
+members = [
+    "lib/srv/desktop/rdp/rdpclient",
+    "web/packages/teleport/src/ironrdp"
+]
 
 [workspace.package]
 edition = "2021"
@@ -16,7 +19,6 @@ lto = "off"
 [profile.release]
 debug = 1
 codegen-units = 1
-lto = "thin"
 
 [workspace.dependencies]
 # Note: To use a local IronRDP repository as a crate (for example, ironrdp-cliprdr), define the dependency as follows:

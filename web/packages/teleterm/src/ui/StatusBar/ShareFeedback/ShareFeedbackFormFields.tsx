@@ -16,10 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Text, Toggle } from 'design';
+import React from 'react';
 import FieldInput from 'shared/components/FieldInput';
-import { FieldTextArea } from 'shared/components/FieldTextArea';
 import { requiredField } from 'shared/components/Validation/rules';
+import { FieldTextArea } from 'shared/components/FieldTextArea';
+import { Text, Toggle } from 'design';
 
 import { ShareFeedbackFormValues } from './types';
 
@@ -71,8 +72,11 @@ export function ShareFeedbackFormFields({
       />
       <FieldTextArea
         label="Suggestions"
+        textAreaCss={`
+            font-size: 14px;
+        `}
         rule={requiredField('Suggestions are required')}
-        disabled={disabled}
+        readOnly={disabled}
         value={formValues.feedback}
         onChange={e => updateFormField('feedback', e.target.value)}
         placeholder="Type your suggestions here"

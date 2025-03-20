@@ -47,40 +47,24 @@ func TestServiceAccess(t *testing.T) {
 		allowedStates []authz.AdminActionAuthState
 	}{
 		{
-			name: "CreateCrownJewel",
-			allowedStates: []authz.AdminActionAuthState{
-				authz.AdminActionAuthNotRequired,
-				authz.AdminActionAuthMFAVerified,
-				authz.AdminActionAuthMFAVerifiedWithReuse,
-			},
-			allowedVerbs: []string{types.VerbCreate},
+			name:          "CreateCrownJewel",
+			allowedStates: []authz.AdminActionAuthState{authz.AdminActionAuthNotRequired, authz.AdminActionAuthMFAVerified},
+			allowedVerbs:  []string{types.VerbCreate},
 		},
 		{
-			name: "UpdateCrownJewel",
-			allowedStates: []authz.AdminActionAuthState{
-				authz.AdminActionAuthNotRequired,
-				authz.AdminActionAuthMFAVerified,
-				authz.AdminActionAuthMFAVerifiedWithReuse,
-			},
-			allowedVerbs: []string{types.VerbUpdate},
+			name:          "UpdateCrownJewel",
+			allowedStates: []authz.AdminActionAuthState{authz.AdminActionAuthNotRequired, authz.AdminActionAuthMFAVerified},
+			allowedVerbs:  []string{types.VerbUpdate},
 		},
 		{
-			name: "DeleteCrownJewel",
-			allowedStates: []authz.AdminActionAuthState{
-				authz.AdminActionAuthNotRequired,
-				authz.AdminActionAuthMFAVerified,
-				authz.AdminActionAuthMFAVerifiedWithReuse,
-			},
-			allowedVerbs: []string{types.VerbDelete},
+			name:          "DeleteCrownJewel",
+			allowedStates: []authz.AdminActionAuthState{authz.AdminActionAuthNotRequired, authz.AdminActionAuthMFAVerified},
+			allowedVerbs:  []string{types.VerbDelete},
 		},
 		{
-			name: "UpsertCrownJewel",
-			allowedStates: []authz.AdminActionAuthState{
-				authz.AdminActionAuthNotRequired,
-				authz.AdminActionAuthMFAVerified,
-				authz.AdminActionAuthMFAVerifiedWithReuse,
-			},
-			allowedVerbs: []string{types.VerbCreate, types.VerbUpdate},
+			name:          "UpsertCrownJewel",
+			allowedStates: []authz.AdminActionAuthState{authz.AdminActionAuthNotRequired, authz.AdminActionAuthMFAVerified},
+			allowedVerbs:  []string{types.VerbCreate, types.VerbUpdate},
 		},
 		{
 			name: "ListCrownJewels",
@@ -198,7 +182,7 @@ type fakeChecker struct {
 
 func (f fakeChecker) CheckAccessToRule(_ services.RuleContext, _ string, resource string, verb string) error {
 	if resource == types.KindCrownJewel {
-		if slices.Contains(f.allowedVerbs, verb) {
+		for slices.Contains(f.allowedVerbs, verb) {
 			return nil
 		}
 	}

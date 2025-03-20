@@ -20,9 +20,9 @@ import { z, ZodError } from 'zod';
 
 import {
   createKeyboardShortcutSchema,
-  duplicateModifierIssue,
-  invalidKeyCodeIssue,
   invalidModifierIssue,
+  invalidKeyCodeIssue,
+  duplicateModifierIssue,
   missingModifierIssue,
 } from './keyboardShortcutSchema';
 

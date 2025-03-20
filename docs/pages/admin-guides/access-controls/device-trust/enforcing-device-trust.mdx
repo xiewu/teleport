@@ -5,13 +5,12 @@ videoBanner: gBQyj_X1LVw
 ---
 
 <Admonition type="note" title="Supported Resources">
-Device Trust fully supports SSH, database and Kubernetes resources using
-cluster-wide or role-based enforcement.
+Device trust fully supports SSH, Database and Kubernetes resources.
 
-Apps and Desktops may enforce trusted devices using role-based enforcement. See
-the [web application support](#web-application-support) and [desktop
-support](#desktop-support) sections for further details.
+Apps may enforce trusted devices using role-based enforcement. See the [App
+Access support](#app-access-support) section.
 
+Support for other resources is planned for upcoming Teleport versions.
 </Admonition>
 
 Resources protected by the device mode "required" will enforce the use of a
@@ -22,7 +21,7 @@ trails that include the device's information.
 Device Trust enforcement can be configured with the following three modes of operation, represented
 by the `device_trust_mode` authentication setting:
 
-- `off` - disables Device Trust. Device authentication is not performed and
+- `off` - disables device trust. Device authentication is not performed and
   device-aware audit logs are absent.
 - `optional` - enables device authentication and device-aware audit, but does
   not require a trusted device to access resources.
@@ -35,11 +34,6 @@ by the `device_trust_mode` authentication setting:
 
 (!docs/pages/includes/device-trust/prereqs.mdx!)
 
-This guide makes use of the preset `require-trusted-device` role, which does not
-enforce the use of a trusted device for [apps](#web-application-support) or
-[desktops](#desktop-support). Refer to their corresponding sections for
-instructions.
-
 ## Role-based trusted device enforcement
 
 Role-based configuration enforces trusted device access at the role level. It
@@ -47,37 +41,30 @@ can be configured with the `spec.options.device_trust_mode` option and
 applies to the resources in its `allow` rules. It
 works similarly to [`require_session_mfa`](../guides/per-session-mfa.mdx).
 
-To enforce authenticated device checks for a specific role when a user accesses
-databases, Kubernetes clusters, and servers with Teleport, update the role with
-the `device_trust_mode` field assigned to `"required"`. The following example
-updates the preset `require-trusted-device` role:
+<Admonition type="tip" title="v13.3.6+">
+  Teleport version 13.3.6 and above has the preset `require-trusted-device` role.
+  Make sure you update the "allow" rules in the role according to your requirements.
+</Admonition>
 
-```yaml
+To enforce authenticated device checks for a specific role, update the role with
+the following:
+
+```diff
 kind: role
 version: v7
 metadata:
   name: require-trusted-device
 spec:
   options:
-    device_trust_mode: "required"
+    # require authenticated device check for this role
++   device_trust_mode: "required" # add this line
   allow:
-    db_labels:
-      '*': '*'
-    db_names:
-    - '*'
-    db_users:
-    - '*'
-    kubernetes_groups:
-    - '{{internal.kubernetes_groups}}'
-    - system:masters
-    - developers
-    - viewers
-    kubernetes_labels:
-      '*': '*'
-    logins:
-    - '{{internal.logins}}'
+    logins: ['admin']
+    kubernetes_groups: ['edit']
     node_labels:
       '*': '*'
+    ...
+
 ```
 
 Update the role:
@@ -86,8 +73,6 @@ Update the role:
 $ tctl create -f device-enforcement.yaml
 ```
 
-(!docs/pages/includes/create-role-using-web.mdx!)
-
 ## Cluster-wide trusted device enforcement
 
 Cluster-wide configuration enforces trusted device access at the cluster level.
@@ -95,15 +80,17 @@ Enterprise clusters run in `optional` mode by default. Changing the mode to
 `required` will enforce a trusted device for all SSH, Database and Kubernetes
 accesses.
 
+<Admonition type="warning" title="Web UI">
+The Web UI is not capable of trusted device access. Only `tsh` and Teleport
+Connect are able to fulfill device mode `required`.
+</Admonition>
+
 To enable device mode `required` update your configuration as follows:
 
-Edit your cluster authentication preference using the following command:
-
-```code
-$ tctl edit cluster_auth_preference
-```
-
-Make the following change:
+<Tabs dropDownCaption="Teleport Deployment">
+<TabItem label="Dynamic Resources" options="Self-Hosted,Teleport Enterprise Cloud" >
+Create a `cap.yaml` file or get the existing configuration using
+`tctl get cluster_auth_preference`:
 
 ```diff
 kind: cluster_auth_preference
@@ -112,18 +99,46 @@ metadata:
   name: cluster-auth-preference
 spec:
   type: local
-  second_factors: ["webauthn"]
+  second_factor: "on"
   webauthn:
     rp_id: (=clusterDefaults.clusterName=)
   device_trust:
 +   mode: "required" # add this line
 ```
 
-Save and close your editor to apply your changes.
+Update the configuration:
 
-Once the config is updated, SSH, Database and Kubernetes access without a
-trusted device will be forbidden.  For example, SSH access without a trusted
-device fails with the following error:
+```code
+$ tctl create -f cap.yaml
+cluster auth preference has been updated
+```
+
+You can also edit this configuration directly:
+
+```code
+$ tctl edit cluster_auth_preference
+```
+
+</TabItem>
+<TabItem label="Static Config" options="Self-Hosted">
+Edit the Auth Server's `teleport.yaml` file and restart all Auth Services:
+
+```diff
+auth_service:
+  authentication:
+    type: local
+    second_factor: "on"
+    webauthn:
+      rp_id: (=clusterDefaults.clusterName=)
+    device_trust:
++     mode: "required" # add this line
+```
+
+</TabItem>
+</Tabs>
+
+Once the config is updated, SSH, Database and Kubernetes access without a trusted device will be forbidden.
+For example, SSH access without a trusted device fails with the following error:
 
 ```code
 $ tsh ssh (=clusterDefaults.nodeIP=)
@@ -135,24 +150,19 @@ It is possible to use [trusted
 clusters](../../management/admin/trustedclusters.mdx) to limit the impact of
 device mode `required`. A leaf cluster in mode `required` will enforce access to
 all of its resources, without imposing the same restrictions to the root
-cluster. Likewise, a root cluster will not enforce Device Trust on resources in
+cluster. Likewise, a root cluster will not enforce device trust on resources in
 leaf clusters.
 </Admonition>
 
-## Web application support
+## App Access support
 
-The Teleport App Service may enforce Device Trust via [role-based
-enforcement](#role-based-trusted-device-enforcement).
+Apps may enforce device trust via [role-based enforcement](
+#role-based-trusted-device-enforcement). Any apps that enforce device trust must
+be accessed using tsh commands such as [tsh proxy app](../../../reference/cli/tsh.mdx) or using the certificates issued by
+`tsh app login`. Direct access to those apps via the Web UI is not yet
+available.
 
-To access apps protected by Device Trust using the Web UI (Teleport v16 or
-later), make sure your device is [registered and enrolled](
-./device-management.mdx#register-a-trusted-device), install [Teleport Connect](../../../connect-your-client/teleport-connect.mdx), and
-follow the instructions during login.
-
-Alternatively, you may use [tsh proxy app](../../../reference/cli/tsh.mdx) or the certificates issued by
-`tsh app login`.
-
-As an example, to enforce Device Trust for all `env:production` apps, save the
+For example, to enforce device trust for all `env:production` apps, save the
 role below as `require-trusted-device-apps.yaml`:
 
 ```yaml
@@ -190,57 +200,8 @@ version: v2
 ```
 
 Now the alice user can only access `env:production` apps using a trusted device.
-
-## Desktop support
-
-The Teleport Desktop Service may enforce Device Trust via [role-based
-enforcement]( #role-based-trusted-device-enforcement).
-
-To access desktops protected by Device Trust make sure your device is
-[registered and enrolled](./device-management.mdx#register-a-trusted-device),
-install [Teleport Connect](../../../connect-your-client/teleport-connect.mdx), and
-follow the instructions during login.
-
-As an example, to enforce Device Trust for all `env:production` desktops, save
-the role below as `require-trusted-device-desktops.yaml`:
-
-```yaml
-kind: role
-version: v7
-metadata:
-  name: require-trusted-device-desktops
-spec:
-  options:
-    device_trust_mode: "required"
-  allow:
-    windows_desktop_labels:
-      env: "production"
-    windows_desktop_logins: ["Administrator", "alice"]
-```
-
-Create the role and assign it to a user:
-
-```code
-$ tctl create require-trusted-device-desktops.yaml
-$ tctl edit users/alice
-```
-
-```diff
-kind: user
-metadata:
-  name: alice
-  # (...)
-spec:
-  roles:
-  - access
-  - editor
-+ - require-trusted-device-desktops
-  # (...)
-version: v2
-```
-
-Now the alice user can only access `env:production` desktops using a trusted
-device.
+For example, to access an app called `myapp`, alice runs `tsh proxy app myapp -p
+8888` and opens http://localhost:8888 in her browser.
 
 ## Locking a device
 
@@ -248,7 +209,7 @@ Similar to [session and identity locking](../guides/locking.mdx), a device can
 be locked using `tctl lock`.
 
 Locking blocks certificate issuance and ongoing or future accesses originating
-from a locked device. Locking a device only works if Device Trust is enabled and
+from a locked device. Locking a device only works if device trust is enabled and
 if the device is enrolled to Teleport.
 
 Find a device ID to lock:

@@ -16,15 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { Flex } from 'design';
 import Dialog, { DialogTitle } from 'design/Dialog';
+
 import * as Icons from 'design/Icon';
 
-import { TabIcon } from 'teleport/components/TabIcon';
 import useTeleport from 'teleport/useTeleport';
 
-import { Automatically } from './Automatically';
+import { TabIcon } from 'teleport/components/TabIcon';
+
 import { Manually } from './Manually';
+
+import { Automatically } from './Automatically';
 import useAddApp, { State } from './useAddApp';
 
 export default function Container(props: Props) {
@@ -44,8 +48,6 @@ export function AddApp({
   setAutomatic,
   isAuthTypeLocal,
   token,
-  labels,
-  setLabels,
 }: State & Props) {
   return (
     <Dialog
@@ -84,8 +86,6 @@ export function AddApp({
             onCreate={createToken}
             attempt={attempt}
             token={token}
-            labels={labels}
-            setLabels={setLabels}
           />
         )}
         {!automatic && (

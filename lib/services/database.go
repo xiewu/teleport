@@ -21,7 +21,6 @@ package services
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net"
 	"net/netip"
 	"net/url"
@@ -29,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
 
@@ -77,7 +77,7 @@ func MarshalDatabase(database types.Database, opts ...MarshalOption) ([]byte, er
 			return nil, trace.Wrap(err)
 		}
 
-		return utils.FastMarshal(maybeResetProtoRevision(cfg.PreserveRevision, database))
+		return utils.FastMarshal(maybeResetProtoResourceID(cfg.PreserveResourceID, database))
 	default:
 		return nil, trace.BadParameter("unsupported database resource %T", database)
 	}
@@ -100,10 +100,13 @@ func UnmarshalDatabase(data []byte, opts ...MarshalOption) (types.Database, erro
 	case types.V3:
 		var database types.DatabaseV3
 		if err := utils.FastUnmarshal(data, &database); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 		if err := database.CheckAndSetDefaults(); err != nil {
 			return nil, trace.Wrap(err)
+		}
+		if cfg.ID != 0 {
+			database.SetResourceID(cfg.ID)
 		}
 		if cfg.Revision != "" {
 			database.SetRevision(cfg.Revision)
@@ -215,11 +218,6 @@ func ValidateDatabase(db types.Database) error {
 
 // needsADValidation returns whether a database AD configuration needs to
 // be validated.
-// We support Azure AD authentication and Kerberos auth with AD for SQL
-// Server. The first method doesn't require additional configuration since
-// it assumes the environment’s Azure credentials
-// (https://learn.microsoft.com/en-us/azure/developer/go/azure-sdk-authentication).
-// AD configurations are only required for the second method.
 func needsADValidation(db types.Database) bool {
 	if db.GetProtocol() != defaults.ProtocolSQLServer {
 		return false
@@ -277,11 +275,7 @@ func validateMongoDB(db types.Database) error {
 	// DNS errors here by replacing the scheme and then ParseAndValidate again
 	// to validate as much as we can.
 	if isDNSError(err) {
-		slog.WarnContext(context.Background(), "MongoDB database %q (connection string %q) failed validation with DNS error",
-			"database_name", db.GetName(),
-			"database_uri", db.GetURI(),
-			"error", err,
-		)
+		log.Warnf("MongoDB database %q (connection string %q) failed validation with DNS error: %v.", db.GetName(), db.GetURI(), err)
 
 		connString, err = connstring.ParseAndValidate(strings.Replace(
 			db.GetURI(),

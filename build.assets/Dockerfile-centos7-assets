@@ -41,18 +41,18 @@ RUN yum groupinstall -y 'Development Tools' && \
     /tmp/fix-yum-repo-list.sh \
     yum update -y && \
     yum install -y \
-    centos-release-scl \
-    cmake3 \
-    git \
-    scl-utils && \
+        centos-release-scl \
+        cmake3 \
+        git \
+        scl-utils && \
     yum clean all && \
     /tmp/fix-yum-repo-list.sh
 
 # As mentioned above, these packages are unsigned.
 RUN yum install --nogpgcheck -y \
-    ${DEVTOOLSET}-gcc \
-    ${DEVTOOLSET}-gcc-c++ \
-    ${DEVTOOLSET}-make && \
+        ${DEVTOOLSET}-gcc \
+        ${DEVTOOLSET}-gcc-c++ \
+        ${DEVTOOLSET}-make && \
     yum clean all
 
 ## NINJA-BUILD ###################################################################
@@ -63,13 +63,13 @@ FROM --platform=$BUILDPLATFORM centos-devtoolset AS ninja-build
 
 # Install additional required dependencies.
 RUN  yum install -y expat-devel \
-    gettext \
-    libcurl-devel \
-    openssl-devel \
-    pcre-devel \
-    xmlto \
-    zlib-devel \
-    && yum clean all
+     gettext \
+     libcurl-devel \
+     openssl-devel \
+     pcre-devel \
+     xmlto \
+     zlib-devel \
+     && yum clean all
 
 # mno-outline-atomics flag is needed to make the build works on ARM64 docker.
 RUN git clone --depth=1 https://github.com/Kitware/CMake.git -b v3.28.1 && \
@@ -80,9 +80,9 @@ RUN git clone --depth=1 https://github.com/Kitware/CMake.git -b v3.28.1 && \
 ENV PATH="/opt/cmake/bin:$PATH"
 
 RUN git clone --depth=1 https://github.com/ninja-build/ninja.git -b v1.11.1 && \
-    cd ninja && \
-    [ "$(git rev-parse HEAD)" = 'a524bf3f6bacd1b4ad85d719eed2737d8562f27a' ] && \
-    scl enable ${DEVTOOLSET} "cmake -Bbuild-cmake && \
+        cd ninja && \
+        [ "$(git rev-parse HEAD)" = 'a524bf3f6bacd1b4ad85d719eed2737d8562f27a' ] && \
+        scl enable ${DEVTOOLSET} "cmake -Bbuild-cmake && \
     cmake --build build-cmake -j"$(nproc)" && \
     cmake --build build-cmake --target  install"
 
@@ -125,7 +125,7 @@ RUN mkdir -p /opt/custom-packages && cd /opt && \
     yumdownloader --source elfutils-libelf-devel-static && \
     yum-builddep -y elfutils-libelf-devel-static && \
     export DIST=$(rpm -qp --queryformat '%{RELEASE}' elfutils-*.src.rpm | cut -d '.' -f 2) && \
-    rpmbuild --rebuild --nocheck --define "optflags `rpm -E %{optflags}` -fPIC" --define "dist .${DIST}" elfutils-*.src.rpm && \
+    rpmbuild --nocheck --rebuild --define "optflags `rpm -E %{optflags}` -fPIC" --define "dist .${DIST}" elfutils-*.src.rpm && \
     if [ "${BUILDARCH}" = "arm64" ]; then export BUILDARCH="aarch64"; fi && \
     cp /root/rpmbuild/RPMS/${BUILDARCH}/elfutils-libelf-devel-static-*${DIST}.${BUILDARCH}.rpm /opt/custom-packages/
 

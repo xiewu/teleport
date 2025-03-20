@@ -16,11 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
-
 import { Box } from 'design';
 
-import { BadgeTitle, ToolTipNoPermBadge } from './ToolTipNoPermBadge';
+import { ToolTipNoPermBadge, BadgeTitle } from './ToolTipNoPermBadge';
 
 export default {
   title: 'Teleport/ToolTip',

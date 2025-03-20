@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,15 +38,10 @@ import (
 	devicepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/devicetrust/v1"
 	loginrulepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/loginrule/v1"
 	machineidv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
-	userprovisioningpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/userprovisioning/v2"
-	usertasksv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/usertasks/v1"
-	"github.com/gravitational/teleport/api/gen/proto/go/teleport/vnet/v1"
-	workloadidentityv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/workloadidentity/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/accesslist"
 	"github.com/gravitational/teleport/api/types/discoveryconfig"
 	"github.com/gravitational/teleport/api/types/externalauditstorage"
-	"github.com/gravitational/teleport/api/types/label"
 	"github.com/gravitational/teleport/api/types/secreports"
 	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/asciitable"
@@ -569,17 +563,8 @@ func (c *authPrefCollection) resources() (r []types.Resource) {
 }
 
 func (c *authPrefCollection) writeText(w io.Writer, verbose bool) error {
-	var secondFactorStrings []string
-	for _, sf := range c.authPref.GetSecondFactors() {
-		sfString, err := sf.Encode()
-		if err != nil {
-			return trace.Wrap(err)
-		}
-		secondFactorStrings = append(secondFactorStrings, sfString)
-	}
-
-	t := asciitable.MakeTable([]string{"Type", "Second Factors"})
-	t.AddRow([]string{c.authPref.GetType(), strings.Join(secondFactorStrings, ", ")})
+	t := asciitable.MakeTable([]string{"Type", "Second Factor"})
+	t.AddRow([]string{c.authPref.GetType(), string(c.authPref.GetSecondFactor())})
 	_, err := t.AsBuffer().WriteTo(w)
 	return trace.Wrap(err)
 }
@@ -593,8 +578,8 @@ func (c *uiConfigCollection) resources() (r []types.Resource) {
 }
 
 func (c *uiConfigCollection) writeText(w io.Writer, verbose bool) error {
-	t := asciitable.MakeTable([]string{"Scrollback Lines", "Show Resources"})
-	t.AddRow([]string{strconv.FormatInt(int64(c.uiconfig.GetScrollbackLines()), 10), string(c.uiconfig.GetShowResources())})
+	t := asciitable.MakeTable([]string{"Scrollback Lines"})
+	t.AddRow([]string{string(c.uiconfig.GetScrollbackLines())})
 	_, err := t.AsBuffer().WriteTo(w)
 	return trace.Wrap(err)
 }
@@ -865,35 +850,6 @@ func (c *windowsDesktopCollection) writeYAML(w io.Writer) error {
 
 func (c *windowsDesktopCollection) writeJSON(w io.Writer) error {
 	return utils.WriteJSONArray(w, c.desktops)
-}
-
-type dynamicWindowsDesktopCollection struct {
-	desktops []types.DynamicWindowsDesktop
-}
-
-func (c *dynamicWindowsDesktopCollection) resources() (r []types.Resource) {
-	r = make([]types.Resource, 0, len(c.desktops))
-	for _, resource := range c.desktops {
-		r = append(r, resource)
-	}
-	return r
-}
-
-func (c *dynamicWindowsDesktopCollection) writeText(w io.Writer, verbose bool) error {
-	var rows [][]string
-	for _, d := range c.desktops {
-		labels := common.FormatLabels(d.GetAllLabels(), verbose)
-		rows = append(rows, []string{d.GetName(), d.GetAddr(), d.GetDomain(), labels})
-	}
-	headers := []string{"Name", "Address", "AD Domain", "Labels"}
-	var t asciitable.Table
-	if verbose {
-		t = asciitable.MakeTable(headers, rows...)
-	} else {
-		t = asciitable.MakeTableWithTruncatedColumn(headers, rows, "Labels")
-	}
-	_, err := t.AsBuffer().WriteTo(w)
-	return trace.Wrap(err)
 }
 
 type tokenCollection struct {
@@ -1513,28 +1469,6 @@ func (c *accessListCollection) writeText(w io.Writer, verbose bool) error {
 	return trace.Wrap(err)
 }
 
-type vnetConfigCollection struct {
-	vnetConfig *vnet.VnetConfig
-}
-
-func (c *vnetConfigCollection) resources() []types.Resource {
-	return []types.Resource{types.Resource153ToLegacy(c.vnetConfig)}
-}
-
-func (c *vnetConfigCollection) writeText(w io.Writer, verbose bool) error {
-	var dnsZoneSuffixes []string
-	for _, dnsZone := range c.vnetConfig.Spec.CustomDnsZones {
-		dnsZoneSuffixes = append(dnsZoneSuffixes, dnsZone.Suffix)
-	}
-	t := asciitable.MakeTable([]string{"IPv4 CIDR range", "Custom DNS Zones"})
-	t.AddRow([]string{
-		c.vnetConfig.GetSpec().GetIpv4CidrRange(),
-		strings.Join(dnsZoneSuffixes, ", "),
-	})
-	_, err := t.AsBuffer().WriteTo(w)
-	return trace.Wrap(err)
-}
-
 type accessGraphSettings struct {
 	accessGraphSettings *clusterconfigrec.AccessGraphSettings
 }
@@ -1593,45 +1527,33 @@ type pluginCollection struct {
 	plugins []types.Plugin
 }
 
-// pluginResourceWrapper provides custom JSON unmarshaling for Plugin resource
-// types. The Plugin resource uses structures generated from a protobuf `oneof`
-// directive, which the stdlib JSON unmarshaller can't handle, so we use this
-// custom wrapper to help.
 type pluginResourceWrapper struct {
 	types.PluginV1
 }
 
 func (p *pluginResourceWrapper) UnmarshalJSON(data []byte) error {
-	// If your plugin contains a `oneof` message, implement custom UnmarshalJSON/MarshalJSON
-	// using gogo/jsonpb for the type.
+
 	const (
-		credOauth2AccessToken             = "oauth2_access_token"
-		credBearerToken                   = "bearer_token"
-		credIdSecret                      = "id_secret"
-		credStaticCredentialsRef          = "static_credentials_ref"
-		settingsSlackAccessPlugin         = "slack_access_plugin"
-		settingsOpsgenie                  = "opsgenie"
-		settingsOpenAI                    = "openai"
-		settingsOkta                      = "okta"
-		settingsJamf                      = "jamf"
-		settingsPagerDuty                 = "pager_duty"
-		settingsMattermost                = "mattermost"
-		settingsJira                      = "jira"
-		settingsDiscord                   = "discord"
-		settingsServiceNow                = "serviceNow"
-		settingsGitlab                    = "gitlab"
-		settingsEntraID                   = "entra_id"
-		settingsDatadogIncidentManagement = "datadog_incident_management"
-		settingsEmailAccessPlugin         = "email_access_plugin"
-		settingsAWSIdentityCenter         = "aws_ic"
+		credOauth2AccessToken     = "oauth2_access_token"
+		credBearerToken           = "bearer_token"
+		credIdSecret              = "id_secret"
+		credStaticCredentialsRef  = "static_credentials_ref"
+		settingsSlackAccessPlugin = "slack_access_plugin"
+		settingsOpsgenie          = "opsgenie"
+		settingsOpenAI            = "openai"
+		settingsOkta              = "okta"
+		settingsJamf              = "jamf"
+		settingsPagerDuty         = "pager_duty"
+		settingsMattermost        = "mattermost"
+		settingsJira              = "jira"
+		settingsDiscord           = "discord"
+		settingsServiceNow        = "serviceNow"
+		settingsGitlab            = "gitlab"
 	)
 	type unknownPluginType struct {
 		Spec struct {
 			Settings map[string]json.RawMessage `json:"Settings"`
 		} `json:"spec"`
-		Status struct {
-			Details map[string]json.RawMessage `json:"Details"`
-		} `json:"status"`
 		Credentials struct {
 			Credentials map[string]json.RawMessage `json:"Credentials"`
 		} `json:"credentials"`
@@ -1668,6 +1590,7 @@ func (p *pluginResourceWrapper) UnmarshalJSON(data []byte) error {
 	}
 
 	for k := range unknownPlugin.Spec.Settings {
+
 		switch k {
 		case settingsSlackAccessPlugin:
 			p.PluginV1.Spec.Settings = &types.PluginSpecV1_SlackAccessPlugin{}
@@ -1691,15 +1614,6 @@ func (p *pluginResourceWrapper) UnmarshalJSON(data []byte) error {
 			p.PluginV1.Spec.Settings = &types.PluginSpecV1_ServiceNow{}
 		case settingsGitlab:
 			p.PluginV1.Spec.Settings = &types.PluginSpecV1_Gitlab{}
-		case settingsEntraID:
-			p.PluginV1.Spec.Settings = &types.PluginSpecV1_EntraId{}
-		case settingsDatadogIncidentManagement:
-			p.PluginV1.Spec.Settings = &types.PluginSpecV1_Datadog{}
-		case settingsEmailAccessPlugin:
-			p.PluginV1.Spec.Settings = &types.PluginSpecV1_Email{}
-		case settingsAWSIdentityCenter:
-			p.PluginV1.Spec.Settings = &types.PluginSpecV1_AwsIc{}
-			p.PluginV1.Status.Details = &types.PluginStatusV1_AwsIc{}
 		default:
 			return trace.BadParameter("unsupported plugin type: %v", k)
 		}
@@ -1727,36 +1641,6 @@ func (c *pluginCollection) writeText(w io.Writer, verbose bool) error {
 			plugin.GetStatus().GetCode().String(),
 		})
 	}
-	_, err := t.AsBuffer().WriteTo(w)
-	return trace.Wrap(err)
-}
-
-type botInstanceCollection struct {
-	items []*machineidv1pb.BotInstance
-}
-
-func (c *botInstanceCollection) resources() []types.Resource {
-	r := make([]types.Resource, 0, len(c.items))
-	for _, resource := range c.items {
-		r = append(r, types.Resource153ToLegacy(resource))
-	}
-	return r
-}
-
-func (c *botInstanceCollection) writeText(w io.Writer, verbose bool) error {
-	headers := []string{"Bot Name", "Instance ID"}
-
-	// TODO: consider adding additional (possibly verbose) fields showing
-	// last heartbeat, last auth, etc.
-	var rows [][]string
-	for _, item := range c.items {
-		rows = append(rows, []string{item.Spec.BotName, item.Spec.InstanceId})
-	}
-
-	t := asciitable.MakeTable(headers, rows...)
-
-	// stable sort by name.
-	t.SortRowsBy([]int{0}, true)
 	_, err := t.AsBuffer().WriteTo(w)
 	return trace.Wrap(err)
 }
@@ -1796,166 +1680,12 @@ func (c *spiffeFederationCollection) writeText(w io.Writer, verbose bool) error 
 	return trace.Wrap(err)
 }
 
-type workloadIdentityCollection struct {
-	items []*workloadidentityv1pb.WorkloadIdentity
-}
-
-func (c *workloadIdentityCollection) resources() []types.Resource {
-	r := make([]types.Resource, 0, len(c.items))
-	for _, resource := range c.items {
-		r = append(r, types.ProtoResource153ToLegacy(resource))
-	}
-	return r
-}
-
-func (c *workloadIdentityCollection) writeText(w io.Writer, verbose bool) error {
-	headers := []string{"Name", "SPIFFE ID"}
-
-	var rows [][]string
-	for _, item := range c.items {
-		rows = append(rows, []string{
-			item.Metadata.Name,
-			item.GetSpec().GetSpiffe().GetId(),
-		})
-	}
-
-	t := asciitable.MakeTable(headers, rows...)
-
-	// stable sort by name.
-	t.SortRowsBy([]int{0}, true)
-	_, err := t.AsBuffer().WriteTo(w)
-	return trace.Wrap(err)
-}
-
-type workloadIdentityX509RevocationCollection struct {
-	items []*workloadidentityv1pb.WorkloadIdentityX509Revocation
-}
-
-func (c *workloadIdentityX509RevocationCollection) resources() []types.Resource {
-	r := make([]types.Resource, 0, len(c.items))
-	for _, resource := range c.items {
-		r = append(r, types.ProtoResource153ToLegacy(resource))
-	}
-	return r
-}
-
-func (c *workloadIdentityX509RevocationCollection) writeText(w io.Writer, verbose bool) error {
-	headers := []string{"Serial", "Revoked At", "Expires At", "Reason"}
-
-	var rows [][]string
-	for _, item := range c.items {
-		expiryTime := item.GetMetadata().GetExpires().AsTime()
-		revokeTime := item.GetSpec().GetRevokedAt().AsTime()
-
-		rows = append(rows, []string{
-			item.Metadata.Name,
-			revokeTime.Format(time.RFC3339),
-			expiryTime.Format(time.RFC3339),
-			item.GetSpec().GetReason(),
-		})
-	}
-
-	t := asciitable.MakeTable(headers, rows...)
-
-	// stable sort by name.
-	t.SortRowsBy([]int{0}, true)
-	_, err := t.AsBuffer().WriteTo(w)
-	return trace.Wrap(err)
-}
-
-type staticHostUserCollection struct {
-	items []*userprovisioningpb.StaticHostUser
-}
-
-func (c *staticHostUserCollection) resources() []types.Resource {
-	r := make([]types.Resource, 0, len(c.items))
-	for _, resource := range c.items {
-		r = append(r, types.Resource153ToLegacy(resource))
-	}
-	return r
-}
-
-func (c *staticHostUserCollection) writeText(w io.Writer, verbose bool) error {
-	var rows [][]string
-	for _, item := range c.items {
-
-		for _, matcher := range item.Spec.Matchers {
-			labelMap := label.ToMap(matcher.NodeLabels)
-			labelStringMap := make(map[string]string, len(labelMap))
-			for k, vals := range labelMap {
-				labelStringMap[k] = fmt.Sprintf("[%s]", printSortedStringSlice(vals))
-			}
-			var uid string
-			if matcher.Uid != 0 {
-				uid = strconv.Itoa(int(matcher.Uid))
-			}
-			var gid string
-			if matcher.Gid != 0 {
-				gid = strconv.Itoa(int(matcher.Gid))
-			}
-			rows = append(rows, []string{
-				item.GetMetadata().Name,
-				common.FormatLabels(labelStringMap, verbose),
-				matcher.NodeLabelsExpression,
-				printSortedStringSlice(matcher.Groups),
-				uid,
-				gid,
-			})
-		}
-	}
-	headers := []string{"Login", "Node Labels", "Node Expression", "Groups", "Uid", "Gid"}
-	var t asciitable.Table
-	if verbose {
-		t = asciitable.MakeTable(headers, rows...)
-	} else {
-		t = asciitable.MakeTableWithTruncatedColumn(headers, rows, "Node Expression")
-	}
-	t.SortRowsBy([]int{0}, true)
-	_, err := t.AsBuffer().WriteTo(w)
-	return trace.Wrap(err)
-}
-
-func printSortedStringSlice(s []string) string {
-	s = slices.Clone(s)
-	slices.Sort(s)
-	return strings.Join(s, ",")
-}
-
-type userTaskCollection struct {
-	items []*usertasksv1.UserTask
-}
-
-func (c *userTaskCollection) resources() []types.Resource {
-	r := make([]types.Resource, 0, len(c.items))
-	for _, resource := range c.items {
-		r = append(r, types.Resource153ToLegacy(resource))
-	}
-	return r
-}
-
-// writeText formats the user tasks into a table and writes them into w.
-// If verbose is disabled, labels column can be truncated to fit into the console.
-func (c *userTaskCollection) writeText(w io.Writer, verbose bool) error {
-	var rows [][]string
-	for _, item := range c.items {
-		labels := common.FormatLabels(item.GetMetadata().GetLabels(), verbose)
-		rows = append(rows, []string{item.Metadata.GetName(), labels, item.Spec.TaskType, item.Spec.IssueType, item.Spec.GetIntegration()})
-	}
-	headers := []string{"Name", "Labels", "TaskType", "IssueType", "Integration"}
-	t := asciitable.MakeTable(headers, rows...)
-
-	// stable sort by name.
-	t.SortRowsBy([]int{0}, true)
-	_, err := t.AsBuffer().WriteTo(w)
-	return trace.Wrap(err)
-}
-
 type autoUpdateConfigCollection struct {
 	config *autoupdatev1pb.AutoUpdateConfig
 }
 
 func (c *autoUpdateConfigCollection) resources() []types.Resource {
-	return []types.Resource{types.ProtoResource153ToLegacy(c.config)}
+	return []types.Resource{types.Resource153ToLegacy(c.config)}
 }
 
 func (c *autoUpdateConfigCollection) writeText(w io.Writer, verbose bool) error {
@@ -1973,7 +1703,7 @@ type autoUpdateVersionCollection struct {
 }
 
 func (c *autoUpdateVersionCollection) resources() []types.Resource {
-	return []types.Resource{types.ProtoResource153ToLegacy(c.version)}
+	return []types.Resource{types.Resource153ToLegacy(c.version)}
 }
 
 func (c *autoUpdateVersionCollection) writeText(w io.Writer, verbose bool) error {
@@ -1981,28 +1711,6 @@ func (c *autoUpdateVersionCollection) writeText(w io.Writer, verbose bool) error
 	t.AddRow([]string{
 		c.version.GetMetadata().GetName(),
 		fmt.Sprintf("%v", c.version.GetSpec().GetTools().TargetVersion),
-	})
-	_, err := t.AsBuffer().WriteTo(w)
-	return trace.Wrap(err)
-}
-
-type autoUpdateAgentRolloutCollection struct {
-	rollout *autoupdatev1pb.AutoUpdateAgentRollout
-}
-
-func (c *autoUpdateAgentRolloutCollection) resources() []types.Resource {
-	return []types.Resource{types.ProtoResource153ToLegacy(c.rollout)}
-}
-
-func (c *autoUpdateAgentRolloutCollection) writeText(w io.Writer, verbose bool) error {
-	t := asciitable.MakeTable([]string{"Name", "Start Version", "Target Version", "Mode", "Schedule", "Strategy"})
-	t.AddRow([]string{
-		c.rollout.GetMetadata().GetName(),
-		fmt.Sprintf("%v", c.rollout.GetSpec().GetStartVersion()),
-		fmt.Sprintf("%v", c.rollout.GetSpec().GetTargetVersion()),
-		fmt.Sprintf("%v", c.rollout.GetSpec().GetAutoupdateMode()),
-		fmt.Sprintf("%v", c.rollout.GetSpec().GetSchedule()),
-		fmt.Sprintf("%v", c.rollout.GetSpec().GetStrategy()),
 	})
 	_, err := t.AsBuffer().WriteTo(w)
 	return trace.Wrap(err)

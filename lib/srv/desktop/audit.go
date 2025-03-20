@@ -41,7 +41,6 @@ type desktopSessionAuditor struct {
 	identity    *tlsca.Identity
 	windowsUser string
 	desktop     types.WindowsDesktop
-	enableNLA   bool
 
 	startTime          time.Time
 	clusterName        string
@@ -79,7 +78,6 @@ func (s *WindowsService) newSessionAuditor(
 		identity:    identity,
 		windowsUser: windowsUser,
 		desktop:     desktop,
-		enableNLA:   s.enableNLA,
 
 		startTime:          s.cfg.Clock.Now().UTC().Round(time.Millisecond),
 		clusterName:        s.clusterName,
@@ -110,7 +108,6 @@ func (d *desktopSessionAuditor) makeSessionStart(err error) *events.WindowsDeskt
 		Domain:                d.desktop.GetDomain(),
 		WindowsUser:           d.windowsUser,
 		DesktopLabels:         d.desktop.GetAllLabels(),
-		NLA:                   d.enableNLA && !d.desktop.NonAD(),
 	}
 
 	if err != nil {
@@ -449,13 +446,13 @@ func (d *desktopSessionAuditor) makeSharedDirectoryWriteResponse(m tdp.SharedDir
 
 func (s *WindowsService) emit(ctx context.Context, event events.AuditEvent) {
 	if err := s.cfg.Emitter.EmitAuditEvent(ctx, event); err != nil {
-		s.cfg.Logger.ErrorContext(ctx, "Failed to emit audit event", "kind", event.GetType())
+		s.cfg.Log.WithError(err).Errorf("Failed to emit audit event %v", event)
 	}
 }
 
 func (s *WindowsService) record(ctx context.Context, recorder libevents.SessionPreparerRecorder, event events.AuditEvent) {
 	if err := libevents.SetupAndRecordEvent(ctx, recorder, event); err != nil {
-		s.cfg.Logger.ErrorContext(ctx, "Failed to record session event", "kind", event.GetType())
+		s.cfg.Log.WithError(err).Errorf("Failed to record session event %v", event)
 	}
 }
 

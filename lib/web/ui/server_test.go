@@ -27,7 +27,6 @@ import (
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/services"
-	"github.com/gravitational/teleport/lib/ui"
 )
 
 func TestStripProtocolAndPort(t *testing.T) {
@@ -340,7 +339,7 @@ func TestMakeClusterHiddenLabels(t *testing.T) {
 	type testCase struct {
 		name           string
 		clusters       []types.KubeCluster
-		expectedLabels [][]ui.Label
+		expectedLabels [][]Label
 		roleSet        services.RoleSet
 	}
 
@@ -353,7 +352,7 @@ func TestMakeClusterHiddenLabels(t *testing.T) {
 					"label2":                 "value2",
 				}),
 			},
-			expectedLabels: [][]ui.Label{
+			expectedLabels: [][]Label{
 				{
 					{
 						Name:  "label2",
@@ -380,7 +379,7 @@ func TestMakeServersHiddenLabels(t *testing.T) {
 		name           string
 		clusterName    string
 		servers        []types.Server
-		expectedLabels [][]ui.Label
+		expectedLabels [][]Label
 	}
 
 	testCases := []testCase{
@@ -393,7 +392,7 @@ func TestMakeServersHiddenLabels(t *testing.T) {
 					"teleport.internal/app": "app1",
 				}),
 			},
-			expectedLabels: [][]ui.Label{
+			expectedLabels: [][]Label{
 				{
 					{
 						Name:  "simple",
@@ -407,7 +406,7 @@ func TestMakeServersHiddenLabels(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for i, srv := range tc.servers {
-				server := MakeServer(tc.clusterName, srv, nil, false)
+				server := MakeServer(tc.clusterName, srv, nil)
 				assert.Equal(t, tc.expectedLabels[i], server.Labels)
 			}
 		})
@@ -431,10 +430,9 @@ func TestMakeDatabaseHiddenLabels(t *testing.T) {
 		},
 	}
 
-	accessChecker := services.NewAccessCheckerWithRoleSet(&services.AccessInfo{}, "clusterName", nil)
-	outputDb := MakeDatabase(inputDb, accessChecker, &mockDatabaseInteractiveChecker{}, false)
+	outputDb := MakeDatabase(inputDb, nil, nil)
 
-	require.Equal(t, []ui.Label{
+	require.Equal(t, []Label{
 		{
 			Name:  "label",
 			Value: "value1",
@@ -453,8 +451,8 @@ func TestMakeDesktopHiddenLabel(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	desktop := MakeDesktop(windowsDesktop, nil, false)
-	labels := []ui.Label{
+	desktop := MakeDesktop(windowsDesktop, nil)
+	labels := []Label{
 		{
 			Name:  "label3",
 			Value: "value2",
@@ -477,7 +475,7 @@ func TestMakeDesktopServiceHiddenLabel(t *testing.T) {
 	}
 
 	desktopService := MakeDesktopService(windowsDesktopService)
-	labels := []ui.Label{
+	labels := []Label{
 		{
 			Name:  "label3",
 			Value: "value2",
@@ -492,7 +490,7 @@ func TestSortedLabels(t *testing.T) {
 		name           string
 		clusterName    string
 		servers        []types.Server
-		expectedLabels [][]ui.Label
+		expectedLabels [][]Label
 	}
 
 	testCases := []testCase{
@@ -508,7 +506,7 @@ func TestSortedLabels(t *testing.T) {
 					"teleport.internal/app": "app1",
 				}),
 			},
-			expectedLabels: [][]ui.Label{
+			expectedLabels: [][]Label{
 				{
 					{
 						Name:  "simple",
@@ -540,7 +538,7 @@ func TestSortedLabels(t *testing.T) {
 					"teleport.internal/app": "app1",
 				}),
 			},
-			expectedLabels: [][]ui.Label{
+			expectedLabels: [][]Label{
 				{
 					{
 						Name:  "anotherone",
@@ -567,7 +565,7 @@ func TestSortedLabels(t *testing.T) {
 					"teleport.internal/app": "app1",
 				}),
 			},
-			expectedLabels: [][]ui.Label{
+			expectedLabels: [][]Label{
 				{
 					{
 						Name:  "simple",
@@ -585,39 +583,9 @@ func TestSortedLabels(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for i, srv := range tc.servers {
-				server := MakeServer(tc.clusterName, srv, nil, false)
+				server := MakeServer(tc.clusterName, srv, nil)
 				assert.Equal(t, tc.expectedLabels[i], server.Labels)
 			}
 		})
 	}
-}
-
-func TestMakeDatabaseSupportsInteractive(t *testing.T) {
-	db := &types.DatabaseV3{}
-	accessChecker := services.NewAccessCheckerWithRoleSet(&services.AccessInfo{}, "clusterName", nil)
-
-	for name, tc := range map[string]struct {
-		supports bool
-	}{
-		"supported":   {supports: true},
-		"unsupported": {supports: false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			interactiveChecker := &mockDatabaseInteractiveChecker{supports: tc.supports}
-			single := MakeDatabase(db, accessChecker, interactiveChecker, false)
-			require.Equal(t, tc.supports, single.SupportsInteractive)
-
-			multi := MakeDatabases([]*types.DatabaseV3{db}, accessChecker, interactiveChecker)
-			require.Len(t, multi, 1)
-			require.Equal(t, tc.supports, multi[0].SupportsInteractive)
-		})
-	}
-}
-
-type mockDatabaseInteractiveChecker struct {
-	supports bool
-}
-
-func (m *mockDatabaseInteractiveChecker) IsSupported(_ string) bool {
-	return m.supports
 }

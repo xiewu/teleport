@@ -16,17 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import cfg from 'teleport/config';
 import api from 'teleport/services/api';
+import cfg from 'teleport/config';
 
 import {
-  CaptureEvent,
-  CtaEvent,
-  DiscoverEventRequest,
-  FeatureRecommendationEvent,
-  IntegrationEnrollEventRequest,
-  PreUserEvent,
   UserEvent,
+  PreUserEvent,
+  DiscoverEventRequest,
+  CtaEvent,
+  CaptureEvent,
+  IntegrationEnrollEventRequest,
+  FeatureRecommendationEvent,
 } from './types';
 
 export const userEventService = {

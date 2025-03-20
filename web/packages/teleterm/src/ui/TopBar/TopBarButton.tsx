@@ -18,7 +18,7 @@
 
 import styled from 'styled-components';
 
-export const TopBarButton = styled.button<{ isOpened?: boolean }>`
+export const TopBarButton = styled.button`
   display: flex;
   font-family: inherit;
   background: inherit;

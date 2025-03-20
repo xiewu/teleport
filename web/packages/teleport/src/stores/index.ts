@@ -18,5 +18,6 @@
 
 import StoreNav, { defaultNavState } from './storeNav';
 import StoreUserContext from './storeUserContext';
+import { StoreNotifications } from './storeNotifications';
 
-export { StoreNav, StoreUserContext, defaultNavState };
+export { StoreNav, StoreUserContext, StoreNotifications, defaultNavState };

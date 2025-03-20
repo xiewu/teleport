@@ -17,8 +17,8 @@
  */
 
 import cfg from 'teleport/config';
-import api from 'teleport/services/api';
 import auth from 'teleport/services/auth';
+import api from 'teleport/services/api';
 
 /* eslint-disable jest/no-conditional-expect */
 

@@ -21,25 +21,20 @@ package testenv
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
-	"golang.org/x/crypto/ssh"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	devicepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/devicetrust/v1"
-	"github.com/gravitational/teleport/api/utils/sshutils"
 	"github.com/gravitational/teleport/lib/devicetrust/assertserver"
-	"github.com/gravitational/teleport/lib/devicetrust/challenge"
 )
 
 // FakeEnrollmentToken is a "free", never spent enrollment token.
@@ -51,89 +46,21 @@ type storedDevice struct {
 	enrollToken string // stored separately from the device
 }
 
-// storedDeviceAuthnAttempt is the underlying entity behind
-// [devicepb.DeviceWebToken] and [devicepb.DeviceConfirmationToken].
-type storedDeviceAuthnAttempt struct {
-	id                     string
-	webSessionID           string
-	expectedDeviceID       string
-	webToken, confirmToken string
-}
-
 type FakeDeviceService struct {
 	devicepb.UnimplementedDeviceTrustServiceServer
 
 	autoCreateDevice bool
 
-	// mu guards the fields below it.
+	// mu guards devices and devicesLimitReached.
 	// As a rule of thumb we lock entire methods, so we can work with pointers to
 	// the contents of devices without worry.
 	mu                  sync.Mutex
 	devices             []storedDevice
 	devicesLimitReached bool
-	deviceAuthnAttempts []*storedDeviceAuthnAttempt
 }
 
 func newFakeDeviceService() *FakeDeviceService {
 	return &FakeDeviceService{}
-}
-
-// CreateDeviceWebTokenParams are the parameters for
-// [CreateDeviceWebTokenForTesting].
-type CreateDeviceWebTokenParams struct {
-	ExpectedDeviceID string
-	WebSessionID     string
-}
-
-// CreateDeviceWebTokenForTesting creates a fake [devicepb.DeviceWebToken] for
-// testing.
-// The returned token can be used for a successful [AuthenticateDevice] call.
-func (s *FakeDeviceService) CreateDeviceWebTokenForTesting(params CreateDeviceWebTokenParams) (*devicepb.DeviceWebToken, error) {
-	// "True" device web token creation requires quite a bit more and calculates
-	// the expected device itself.
-	// For the purposes of this fake this is good enough to give us confidence
-	// that the client-side ceremony is passing all the right inputs.
-	switch {
-	case params.ExpectedDeviceID == "":
-		return nil, trace.BadParameter("param ExpectedDeviceID required")
-	case params.WebSessionID == "":
-		return nil, trace.BadParameter("param WebSessionID required")
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	id := uuid.NewString()
-	webToken := uuid.NewString()
-
-	s.deviceAuthnAttempts = append(s.deviceAuthnAttempts, &storedDeviceAuthnAttempt{
-		id:               id,
-		expectedDeviceID: params.ExpectedDeviceID,
-		webSessionID:     params.WebSessionID,
-		webToken:         webToken,
-	})
-
-	return &devicepb.DeviceWebToken{
-		Id:    id,
-		Token: webToken,
-	}, nil
-}
-
-// VerifyConfirmationToken verifies that the token is valid within this
-// FakeDeviceService.
-//
-// This is a test support method, it doesn't spend the token.
-func (s *FakeDeviceService) VerifyConfirmationToken(token *devicepb.DeviceConfirmationToken) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, attempt := range s.deviceAuthnAttempts {
-		if attempt.id == token.Id && attempt.confirmToken == token.Token {
-			return nil
-		}
-	}
-
-	return errors.New("token not issued by FakeDeviceService")
 }
 
 // SetDevicesLimitReached simulates a server where the devices limit was already
@@ -235,7 +162,7 @@ func (s *FakeDeviceService) CreateDeviceEnrollToken(ctx context.Context, req *de
 
 	// Auto-enrollment path.
 	if err := validateCollectedData(req.DeviceData); err != nil {
-		return nil, trace.AccessDenied("%s", err)
+		return nil, trace.AccessDenied(err.Error())
 	}
 
 	return &devicepb.DeviceEnrollToken{
@@ -524,9 +451,9 @@ func (s *FakeDeviceService) AssertDevice(ctx context.Context, stream assertserve
 
 	switch dev.pb.OsType {
 	case devicepb.OSType_OS_TYPE_MACOS:
-		err = authenticateDeviceMacOS(dev, assertStreamAdapter{stream: stream}, nil /*sshCert*/)
+		err = authenticateDeviceMacOS(dev, assertStreamAdapter{stream: stream})
 	case devicepb.OSType_OS_TYPE_LINUX, devicepb.OSType_OS_TYPE_WINDOWS:
-		err = authenticateDeviceTPM(assertStreamAdapter{stream: stream}, nil /*sshCert*/)
+		err = authenticateDeviceTPM(assertStreamAdapter{stream: stream})
 	default:
 		err = fmt.Errorf("unrecognized os type %q", dev.pb.OsType)
 	}
@@ -572,21 +499,11 @@ func (s *FakeDeviceService) AuthenticateDevice(stream devicepb.DeviceTrustServic
 		return trace.Wrap(err)
 	}
 
-	// Validate/spent the device web token, if present.
-	var confirmToken *devicepb.DeviceConfirmationToken
-	if webToken := initReq.DeviceWebToken; webToken != nil {
-		var err error
-		confirmToken, err = s.spendDeviceWebToken(webToken, dev)
-		if err != nil {
-			return trace.Wrap(err)
-		}
-	}
-
 	switch dev.pb.OsType {
 	case devicepb.OSType_OS_TYPE_MACOS:
-		err = authenticateDeviceMacOS(dev, stream, initReq.GetUserCertificates().GetSshAuthorizedKey())
+		err = authenticateDeviceMacOS(dev, stream)
 	case devicepb.OSType_OS_TYPE_LINUX, devicepb.OSType_OS_TYPE_WINDOWS:
-		err = authenticateDeviceTPM(stream, initReq.GetUserCertificates().GetSshAuthorizedKey())
+		err = authenticateDeviceTPM(stream)
 	default:
 		err = fmt.Errorf("unrecognized os type %q", dev.pb.OsType)
 	}
@@ -594,66 +511,18 @@ func (s *FakeDeviceService) AuthenticateDevice(stream devicepb.DeviceTrustServic
 		return trace.Wrap(err)
 	}
 
-	// Standalone device authentication.
-	if confirmToken == nil {
-		return trace.Wrap(stream.Send(&devicepb.AuthenticateDeviceResponse{
-			Payload: &devicepb.AuthenticateDeviceResponse_UserCertificates{
-				UserCertificates: &devicepb.UserCertificates{
-					X509Der:          []byte("<insert augmented X.509 cert here"),
-					SshAuthorizedKey: []byte("<insert augmented SSH cert here"),
-				},
+	err = stream.Send(&devicepb.AuthenticateDeviceResponse{
+		Payload: &devicepb.AuthenticateDeviceResponse_UserCertificates{
+			UserCertificates: &devicepb.UserCertificates{
+				X509Der:          []byte("<insert augmented X.509 cert here"),
+				SshAuthorizedKey: []byte("<insert augmented SSH cert here"),
 			},
-		}))
-	}
-
-	// Web authentication.
-	return trace.Wrap(stream.Send(&devicepb.AuthenticateDeviceResponse{
-		Payload: &devicepb.AuthenticateDeviceResponse_ConfirmationToken{
-			ConfirmationToken: confirmToken,
 		},
-	}))
+	})
+	return trace.Wrap(err)
 }
 
-func (s *FakeDeviceService) spendDeviceWebToken(webToken *devicepb.DeviceWebToken, dev *storedDevice) (*devicepb.DeviceConfirmationToken, error) {
-	const invalidWebTokenMessage = "invalid device web token"
-
-	for _, attempt := range s.deviceAuthnAttempts {
-		if attempt.id != webToken.Id {
-			continue
-		}
-
-		storedToken := attempt.webToken
-
-		// Spend token regardless of outcome.
-		attempt.webToken = ""
-
-		switch {
-		case storedToken == "": // Invalid attempt state or token already spent.
-			return nil, trace.AccessDenied("%s", invalidWebTokenMessage)
-		case storedToken != webToken.Token: // Bad token
-			return nil, trace.AccessDenied("%s", invalidWebTokenMessage)
-		case attempt.expectedDeviceID != dev.pb.Id: // Failed expected device check.
-			return nil, trace.AccessDenied("%s", invalidWebTokenMessage)
-		}
-
-		// Issue a new confirmation token.
-		attempt.confirmToken = uuid.NewString()
-
-		return &devicepb.DeviceConfirmationToken{
-			Id:    attempt.id,
-			Token: attempt.confirmToken,
-		}, nil
-	}
-
-	// Token ID not found.
-	return nil, trace.AccessDenied("%s", invalidWebTokenMessage)
-}
-
-func authenticateDeviceMacOS(
-	dev *storedDevice,
-	stream authenticateDeviceStream,
-	sshCert []byte,
-) error {
+func authenticateDeviceMacOS(dev *storedDevice, stream authenticateDeviceStream) error {
 	// 2. Challenge.
 	chal, err := newChallenge()
 	if err != nil {
@@ -681,21 +550,10 @@ func authenticateDeviceMacOS(
 	case len(chalResp.Signature) == 0:
 		return trace.BadParameter("signature required")
 	}
-	if err := challenge.Verify(chal, chalResp.Signature, dev.pub); err != nil {
-		return trace.Wrap(err)
-	}
-
-	// Verify SSH challenge signature if augmented SSH cert was requested.
-	if len(sshCert) != 0 {
-		if err := verifySSHChallenge(sshCert, chal, chalResp.SshSignature); err != nil {
-			return trace.Wrap(err)
-		}
-	}
-
-	return nil
+	return trace.Wrap(verifyChallenge(chal, chalResp.Signature, dev.pub))
 }
 
-func authenticateDeviceTPM(stream authenticateDeviceStream, sshCert []byte) error {
+func authenticateDeviceTPM(stream authenticateDeviceStream) error {
 	// Produce a nonce we can send in the challenge that we expect to see in
 	// the EventLog field of the challenge response.
 	nonce, err := randomBytes()
@@ -724,39 +582,6 @@ func authenticateDeviceTPM(stream authenticateDeviceStream, sshCert []byte) erro
 		return trace.BadParameter("missing platform parameters in challenge response")
 	case !bytes.Equal(nonce, chalResp.PlatformParameters.EventLog):
 		return trace.BadParameter("nonce in challenge response did not match expected")
-	}
-
-	// Verify SSH challenge signature if augmented SSH cert was requested.
-	if len(sshCert) != 0 {
-		if err := verifySSHChallenge(sshCert, nonce, chalResp.SshSignature); err != nil {
-			return trace.Wrap(err)
-		}
-	}
-
-	return nil
-}
-
-func verifySSHChallenge(sshAuthorizedKey, chal, signature []byte) error {
-	switch {
-	case len(sshAuthorizedKey) == 0:
-		return trace.BadParameter("sshAuthorizedKey required")
-	case len(chal) == 0:
-		return trace.BadParameter("chal required")
-	case len(signature) == 0:
-		return trace.BadParameter("signature required")
-	}
-	sshCert, err := sshutils.ParseCertificate(sshAuthorizedKey)
-	if err != nil {
-		return trace.Wrap(err, "parsing SSH certificate")
-	}
-	var pubKey crypto.PublicKey
-	if cryptoKey, ok := sshCert.Key.(ssh.CryptoPublicKey); ok {
-		pubKey = cryptoKey.CryptoPublicKey()
-	} else {
-		return trace.BadParameter("unsupported SSH public key type %T", sshCert.Key)
-	}
-	if err := challenge.Verify(chal, signature, pubKey); err != nil {
-		return trace.BadParameter("SSH key verification failed: %v", err)
 	}
 	return nil
 }

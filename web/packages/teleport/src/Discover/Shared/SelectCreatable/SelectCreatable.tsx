@@ -17,9 +17,8 @@
  */
 
 import React from 'react';
-import ReactSelectCreatable from 'react-select/creatable';
 import { useTheme } from 'styled-components';
-
+import ReactSelectCreatable from 'react-select/creatable';
 import { Cross } from 'design/Icon';
 
 export const styles = theme => ({
@@ -100,8 +99,6 @@ export type SelectCreatableProps = {
   autoFocus?: boolean;
 };
 
-// TODO(bl-nero): There's no need for this to be a separate component. Migrate
-// it to the shared component.
 export const SelectCreatable = ({
   isMulti = true,
   isClearable = true,

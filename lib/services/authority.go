@@ -31,7 +31,7 @@ import (
 
 	"github.com/gravitational/teleport/api/types"
 	apiutils "github.com/gravitational/teleport/api/utils"
-	"github.com/gravitational/teleport/api/utils/keys"
+	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/jwt"
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/tlsca"
@@ -43,7 +43,7 @@ import (
 func CertAuthoritiesEquivalent(lhs, rhs types.CertAuthority) bool {
 	return cmp.Equal(lhs, rhs,
 		ignoreProtoXXXFields(),
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision"),
 		// Optimize types.CAKeySet comparison.
 		cmp.Comparer(func(a, b types.CAKeySet) bool {
 			// Note that Clone drops XXX_ fields. And it's benchmarked that cloning
@@ -68,7 +68,7 @@ func ValidateCertAuthority(ca types.CertAuthority) (err error) {
 		err = checkDatabaseCA(ca)
 	case types.OpenSSHCA:
 		err = checkOpenSSHCA(ca)
-	case types.JWTSigner, types.OIDCIdPCA, types.OktaCA:
+	case types.JWTSigner, types.OIDCIdPCA:
 		err = checkJWTKeys(ca)
 	case types.SAMLIDPCA:
 		err = checkSAMLIDPCA(ca)
@@ -137,7 +137,7 @@ func checkDatabaseCA(cai types.CertAuthority) error {
 			if len(pair.Cert) > 0 {
 				_, err = tls.X509KeyPair(pair.Cert, pair.Key)
 			} else {
-				_, err = keys.ParsePrivateKey(pair.Key)
+				_, err = utils.ParsePrivateKey(pair.Key)
 			}
 			if err != nil {
 				return trace.Wrap(err)
@@ -193,16 +193,17 @@ func checkJWTKeys(cai types.CertAuthority) error {
 	for _, pair := range ca.GetTrustedJWTKeyPairs() {
 		// TODO(nic): validate PKCS11 private keys
 		if len(pair.PrivateKey) > 0 && pair.PrivateKeyType == types.PrivateKeyType_RAW {
-			privateKey, err = keys.ParsePrivateKey(pair.PrivateKey)
+			privateKey, err = utils.ParsePrivateKey(pair.PrivateKey)
 			if err != nil {
 				return trace.Wrap(err)
 			}
 		}
-		publicKey, err := keys.ParsePublicKey(pair.PublicKey)
+		publicKey, err := utils.ParsePublicKey(pair.PublicKey)
 		if err != nil {
 			return trace.Wrap(err)
 		}
 		cfg := &jwt.Config{
+			Algorithm:   defaults.ApplicationTokenAlgorithm,
 			ClusterName: ca.GetClusterName(),
 			PrivateKey:  privateKey,
 			PublicKey:   publicKey,
@@ -233,7 +234,7 @@ func checkSAMLIDPCA(cai types.CertAuthority) error {
 			if len(pair.Cert) > 0 {
 				_, err = tls.X509KeyPair(pair.Cert, pair.Key)
 			} else {
-				_, err = keys.ParsePrivateKey(pair.Key)
+				_, err = utils.ParsePrivateKey(pair.Key)
 			}
 			if err != nil {
 				return trace.Wrap(err)
@@ -250,6 +251,7 @@ func checkSAMLIDPCA(cai types.CertAuthority) error {
 func GetJWTSigner(signer crypto.Signer, clusterName string, clock clockwork.Clock) (*jwt.Key, error) {
 	key, err := jwt.New(&jwt.Config{
 		Clock:       clock,
+		Algorithm:   defaults.ApplicationTokenAlgorithm,
 		ClusterName: clusterName,
 		PrivateKey:  signer,
 	})
@@ -332,11 +334,14 @@ func UnmarshalCertAuthority(bytes []byte, opts ...MarshalOption) (types.CertAuth
 	case types.V2:
 		var ca types.CertAuthorityV2
 		if err := utils.FastUnmarshal(bytes, &ca); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 
 		if err := ValidateCertAuthority(&ca); err != nil {
 			return nil, trace.Wrap(err)
+		}
+		if cfg.ID != 0 {
+			ca.SetResourceID(cfg.ID)
 		}
 		if cfg.Revision != "" {
 			ca.SetRevision(cfg.Revision)
@@ -372,7 +377,7 @@ func MarshalCertAuthority(certAuthority types.CertAuthority, opts ...MarshalOpti
 
 	switch certAuthority := certAuthority.(type) {
 	case *types.CertAuthorityV2:
-		return utils.FastMarshal(maybeResetProtoRevision(cfg.PreserveRevision, certAuthority))
+		return utils.FastMarshal(maybeResetProtoResourceID(cfg.PreserveResourceID, certAuthority))
 	default:
 		return nil, trace.BadParameter("unrecognized certificate authority version %T", certAuthority)
 	}

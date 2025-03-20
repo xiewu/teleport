@@ -16,10 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { createBrowserHistory, type History } from 'history';
+import { createBrowserHistory } from 'history';
+
 import { matchPath } from 'react-router';
 
 import cfg from 'teleport/config';
+
+import type { History } from 'history';
 
 let _inst: History = null;
 
@@ -50,41 +53,22 @@ const history = {
     window.location.reload();
   },
 
-  goToLogin({
-    rememberLocation = false,
-    withAccessChangedMessage = false,
-  } = {}) {
-    const params: string[] = [];
-
-    // withAccessChangedMessage determines whether the login page the user is redirected to should include a notice that
-    // they were logged out due to their roles having changed.
-    if (withAccessChangedMessage) {
-      params.push('access_changed');
-    }
-
+  goToLogin(rememberLocation = false) {
+    let url = cfg.routes.login;
     if (rememberLocation) {
       const { search, pathname } = _inst.location;
       const knownRoute = this.ensureKnownRoute(pathname);
       const knownRedirect = this.ensureBaseUrl(knownRoute);
       const query = search ? encodeURIComponent(search) : '';
-      params.push(`redirect_uri=${knownRedirect}${query}`);
-    }
 
-    const queryString = params.join('&');
-    const url = queryString
-      ? `${cfg.routes.login}?${queryString}`
-      : cfg.routes.login;
+      url = `${url}?redirect_uri=${knownRedirect}${query}`;
+    }
 
     this._pageRefresh(url);
   },
 
-  // TODO (avatus): make this return a path only if a full URI is present
   getRedirectParam() {
     return getUrlParameter('redirect_uri', this.original().location.search);
-  },
-
-  hasAccessChangedParam() {
-    return hasUrlParameter('access_changed', this.original().location.search);
   },
 
   ensureKnownRoute(route = '') {
@@ -144,9 +128,9 @@ function collectAllValues(record: RouteRecord) {
 
   for (const key in record) {
     if (typeof record[key] === 'string') {
-      result.push(record[key]);
+      result.push(record[key] as string);
     } else {
-      result.push(...collectAllValues(record[key]));
+      result.push(...collectAllValues(record[key] as RouteRecord));
     }
   }
 
@@ -159,9 +143,4 @@ export function getUrlParameter(name = '', path = '') {
   const params = new URLSearchParams(path);
   const value = params.get(name);
   return value || '';
-}
-
-function hasUrlParameter(name = '', path = '') {
-  const params = new URLSearchParams(path);
-  return params.has(name);
 }

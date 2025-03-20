@@ -18,7 +18,7 @@
 
 import { z } from 'zod';
 
-import { Platform, RuntimeSettings } from 'teleterm/mainProcess/types';
+import { Platform } from 'teleterm/mainProcess/types';
 
 import { createKeyboardShortcutSchema } from './keyboardShortcutSchema';
 
@@ -28,28 +28,11 @@ import { createKeyboardShortcutSchema } from './keyboardShortcutSchema';
 export type AppConfigSchema = ReturnType<typeof createAppConfigSchema>;
 export type AppConfig = z.infer<AppConfigSchema>;
 
-/** ID of the custom shell. When it is set, the shell path should be read from `terminal.customShell`. */
-export const CUSTOM_SHELL_ID = 'custom' as const;
+export const createAppConfigSchema = (platform: Platform) => {
+  const defaultKeymap = getDefaultKeymap(platform);
+  const defaultTerminalFont = getDefaultTerminalFont(platform);
 
-/**
- * List of properties that can be modified from the renderer process.
- * The motivation for adding this was to make it impossible to change
- * `terminal.customShell` from the renderer.
- */
-export const CONFIG_MODIFIABLE_FROM_RENDERER: (keyof AppConfig)[] = [
-  'usageReporting.enabled',
-  'skipVersionCheck',
-];
-
-export const createAppConfigSchema = (settings: RuntimeSettings) => {
-  const defaultKeymap = getDefaultKeymap(settings.platform);
-  const defaultTerminalFont = getDefaultTerminalFont(settings.platform);
-  const availableShellIdsWithCustom = [
-    ...settings.availableShells.map(({ id }) => id),
-    CUSTOM_SHELL_ID,
-  ];
-
-  const shortcutSchema = createKeyboardShortcutSchema(settings.platform);
+  const shortcutSchema = createKeyboardShortcutSchema(platform);
 
   // `keymap.` prefix is used in `initUi.ts` in a predicate function.
   return z.object({
@@ -57,12 +40,6 @@ export const createAppConfigSchema = (settings: RuntimeSettings) => {
       .enum(['light', 'dark', 'system'])
       .default('system')
       .describe('Color theme for the app.'),
-    skipVersionCheck: z
-      .boolean()
-      .default(false)
-      .describe(
-        'Skips the version check and hides the version compatibility warning when logging in to a cluster.'
-      ),
     /**
      * This value can be provided by the user and is unsanitized. This means that it cannot be directly interpolated
      * in a styled component or used in CSS, as it may inject malicious CSS code.
@@ -86,30 +63,9 @@ export const createAppConfigSchema = (settings: RuntimeSettings) => {
       .describe(
         '`auto` uses modern ConPTY system if available, which requires Windows 10 (19H1) or above. Set to `winpty` to use winpty even if ConPTY is available.'
       ),
-    'terminal.shell': z
-      .string()
-      .default(settings.defaultOsShellId)
-      .describe(
-        'A default terminal shell. Can be set to `custom` to take the shell path from `terminal.customShell`. It is best to configure it through UI (right click on a terminal tab > Default Shell).'
-      )
-      .refine(
-        configuredShell =>
-          availableShellIdsWithCustom.some(
-            shellId => shellId === configuredShell
-          ),
-        configuredShell => ({
-          message: `Cannot find the shell "${configuredShell}". Available options are: ${availableShellIdsWithCustom.join(', ')}. Using platform default.`,
-        })
-      ),
-    'terminal.customShell': z
-      .string()
-      .default('')
-      .describe(
-        'Path to the custom shell that is used when `terminal.shell` is set to `custom`. It is best to configure it through UI (right click on a terminal tab > Custom Shell…).'
-      ),
     'terminal.rightClick': z
       .enum(['paste', 'copyPaste', 'menu'])
-      .default(settings.platform === 'win32' ? 'copyPaste' : 'menu')
+      .default(platform === 'win32' ? 'copyPaste' : 'menu')
       .describe(
         '`paste` pastes clipboard content, `copyPaste` copies if text is selected, otherwise pastes, `menu` shows context menu.'
       ),
@@ -167,9 +123,6 @@ export const createAppConfigSchema = (settings: RuntimeSettings) => {
     'keymap.terminalPaste': shortcutSchema
       .default(defaultKeymap['terminalPaste'])
       .describe(getShortcutDesc('paste text in the terminal')),
-    'keymap.terminalSearch': shortcutSchema
-      .default(defaultKeymap['terminalSearch'])
-      .describe(getShortcutDesc('search for text in the terminal')),
     'keymap.previousTab': shortcutSchema
       .default(defaultKeymap['previousTab'])
       .describe(getShortcutDesc('go to the previous tab')),
@@ -200,7 +153,7 @@ export const createAppConfigSchema = (settings: RuntimeSettings) => {
       .describe('Disables SSH connection resumption.'),
     'ssh.forwardAgent': z
       .boolean()
-      .default(false)
+      .default(true)
       .describe(
         "Enables agent forwarding when connecting to SSH nodes. It's the equivalent of the forward-agent flag in tsh ssh."
       ),
@@ -236,8 +189,7 @@ export type KeyboardShortcutAction =
   | 'openClusters'
   | 'openProfiles'
   | 'terminalCopy'
-  | 'terminalPaste'
-  | 'terminalSearch';
+  | 'terminalPaste';
 
 const getDefaultKeymap = (
   platform: Platform
@@ -254,18 +206,17 @@ const getDefaultKeymap = (
         tab7: 'Ctrl+7',
         tab8: 'Ctrl+8',
         tab9: 'Ctrl+9',
-        closeTab: 'Ctrl+Shift+W',
-        newTab: 'Ctrl+Shift+T',
-        newTerminalTab: 'Ctrl+Shift+`',
+        closeTab: 'Ctrl+W',
+        newTab: 'Ctrl+T',
+        newTerminalTab: 'Ctrl+Shift+T',
         previousTab: 'Ctrl+Shift+Tab',
         nextTab: 'Ctrl+Tab',
-        openSearchBar: 'Ctrl+Shift+K',
-        openConnections: 'Ctrl+Shift+P',
-        openClusters: 'Ctrl+Shift+E',
-        openProfiles: 'Ctrl+Shift+I',
+        openSearchBar: 'Ctrl+K',
+        openConnections: 'Ctrl+P',
+        openClusters: 'Ctrl+E',
+        openProfiles: 'Ctrl+I',
         terminalCopy: 'Ctrl+Shift+C',
         terminalPaste: 'Ctrl+Shift+V',
-        terminalSearch: 'Ctrl+Shift+F',
       };
     case 'linux':
       return {
@@ -278,18 +229,17 @@ const getDefaultKeymap = (
         tab7: 'Alt+7',
         tab8: 'Alt+8',
         tab9: 'Alt+9',
-        closeTab: 'Ctrl+Shift+W',
-        newTab: 'Ctrl+Shift+T',
-        newTerminalTab: 'Ctrl+Shift+`',
+        closeTab: 'Ctrl+W',
+        newTab: 'Ctrl+T',
+        newTerminalTab: 'Ctrl+Shift+T',
         previousTab: 'Ctrl+Shift+Tab',
         nextTab: 'Ctrl+Tab',
-        openSearchBar: 'Ctrl+Shift+K',
-        openConnections: 'Ctrl+Shift+P',
-        openClusters: 'Ctrl+Shift+E',
-        openProfiles: 'Ctrl+Shift+I',
+        openSearchBar: 'Ctrl+K',
+        openConnections: 'Ctrl+P',
+        openClusters: 'Ctrl+E',
+        openProfiles: 'Ctrl+I',
         terminalCopy: 'Ctrl+Shift+C',
         terminalPaste: 'Ctrl+Shift+V',
-        terminalSearch: 'Ctrl+Shift+F',
       };
     case 'darwin':
       return {
@@ -304,7 +254,7 @@ const getDefaultKeymap = (
         tab9: 'Command+9',
         closeTab: 'Command+W',
         newTab: 'Command+T',
-        newTerminalTab: 'Control+Shift+`',
+        newTerminalTab: 'Shift+Command+T',
         previousTab: 'Control+Shift+Tab',
         nextTab: 'Control+Tab',
         openSearchBar: 'Command+K',
@@ -313,7 +263,6 @@ const getDefaultKeymap = (
         openProfiles: 'Command+I',
         terminalCopy: 'Command+C',
         terminalPaste: 'Command+V',
-        terminalSearch: 'Command+F',
       };
   }
 };

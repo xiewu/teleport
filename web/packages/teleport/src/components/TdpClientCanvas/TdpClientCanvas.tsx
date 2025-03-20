@@ -24,10 +24,11 @@ import React, {
   type CSSProperties,
 } from 'react';
 
-import { Logger } from 'design/logger';
+import { Logger } from 'shared/libs/logger';
 import { debounce } from 'shared/utils/highbar';
 
 import { BitmapFrame } from 'teleport/lib/tdp/client';
+
 import type { PngFrame } from 'teleport/lib/tdp/codec';
 
 const logger = new Logger('TdpClientCanvas');
@@ -76,26 +77,30 @@ export const TdpClientCanvas = forwardRef<
   } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  useImperativeHandle(ref, () => {
-    const renderPngFrame = makePngFrameRenderer(canvasRef.current);
-    const renderBimapFrame = makeBitmapFrameRenderer(canvasRef.current);
-    return {
-      setPointer: pointer => setPointer(canvasRef.current, pointer),
-      renderPngFrame: frame => renderPngFrame(frame),
-      renderBitmapFrame: frame => renderBimapFrame(frame),
-      setResolution: ({ width, height }) => {
-        const canvas = canvasRef.current;
-        canvas.width = width;
-        canvas.height = height;
-        logger.debug(`Canvas resolution set to ${width}x${height}.`);
-      },
-      clear: () => {
-        const canvas = canvasRef.current;
-        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-      },
-      focus: () => canvasRef.current.focus(),
-    };
-  }, []);
+  useImperativeHandle(
+    ref,
+    () => {
+      const renderPngFrame = makePngFrameRenderer(canvasRef.current);
+      const renderBimapFrame = makeBitmapFrameRenderer(canvasRef.current);
+      return {
+        setPointer: pointer => setPointer(canvasRef.current, pointer),
+        renderPngFrame: frame => renderPngFrame(frame),
+        renderBitmapFrame: frame => renderBimapFrame(frame),
+        setResolution: ({ width, height }) => {
+          const canvas = canvasRef.current;
+          canvas.width = width;
+          canvas.height = height;
+          logger.debug(`Canvas resolution set to ${width}x${height}.`);
+        },
+        clear: () => {
+          const canvas = canvasRef.current;
+          canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        },
+        focus: () => canvasRef.current.focus(),
+      };
+    },
+    []
+  );
 
   useEffect(() => {
     if (!onResize) {

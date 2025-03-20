@@ -16,18 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import {
-  Box,
-  ButtonLink,
-  ButtonSecondary,
-  Indicator,
-  Link,
   Text,
+  Box,
+  ButtonSecondary,
+  Link,
+  Indicator,
+  ButtonLink,
 } from 'design';
 import { DialogContent, DialogFooter } from 'design/Dialog';
 
-import DownloadLinks from 'teleport/components/DownloadLinks';
 import TextSelectCopy from 'teleport/components/TextSelectCopy';
+import DownloadLinks from 'teleport/components/DownloadLinks';
 import cfg from 'teleport/config';
 
 import { State } from './useAddApp';
@@ -101,7 +102,7 @@ const StepsWithoutToken = ({ tshLoginCmd, host }: StepsWithoutTokenProps) => (
       <Text bold as="span">
         Step 2
       </Text>
-      {' - Log in to Teleport'}
+      {' - Login to Teleport'}
       <TextSelectCopy mt="2" text={tshLoginCmd} />
     </Box>
     <Box mb={4}>

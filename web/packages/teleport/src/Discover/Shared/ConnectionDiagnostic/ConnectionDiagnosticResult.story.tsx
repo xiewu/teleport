@@ -16,12 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import type { ConnectionDiagnosticTrace } from 'teleport/services/agents';
+import React from 'react';
 
-import {
-  ConnectionDiagnosticResult,
-  type Props,
-} from './ConnectionDiagnosticResult';
+import { ConnectionDiagnosticResult } from './ConnectionDiagnosticResult';
+
+import type { Props } from './ConnectionDiagnosticResult';
+import type { ConnectionDiagnosticTrace } from 'teleport/services/agents';
 
 export default {
   title: 'Teleport/Discover/Shared/ConnectionDiagnostic',

@@ -184,11 +184,6 @@ func TestIsValidRegion(t *testing.T) {
 			errCheck: require.NoError,
 		},
 		{
-			name:     "aws global sentinel value",
-			region:   "aws-global",
-			errCheck: require.NoError,
-		},
-		{
 			name:     "eu region",
 			region:   "eu-west-1",
 			errCheck: require.NoError,

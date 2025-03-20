@@ -41,12 +41,11 @@ func TestBotJoinAuth(t *testing.T) {
 	// Configure and start Teleport server
 	clusterName := "root.example.com"
 	ctx := context.Background()
-	logger := utils.NewSlogLoggerForTests()
 	teleportServer := helpers.NewInstance(t, helpers.InstanceConfig{
 		ClusterName: clusterName,
 		HostID:      uuid.New().String(),
 		NodeName:    helpers.Loopback,
-		Logger:      logger,
+		Log:         utils.NewLoggerForTests(),
 	})
 
 	rcConf := servicecfg.MakeDefaultConfig()
@@ -123,21 +122,19 @@ func TestBotJoinAuth(t *testing.T) {
 			TokenValue: tokenName,
 			JoinMethod: types.JoinMethodToken,
 		},
-		AuthServer: authAddr.Addr,
-		CredentialLifetime: config.CredentialLifetime{
-			TTL:             defaultCertificateTTL,
-			RenewalInterval: defaultRenewalInterval,
-		},
-		Oneshot: true,
-		Debug:   true,
+		AuthServer:      authAddr.Addr,
+		CertificateTTL:  defaultCertificateTTL,
+		RenewalInterval: defaultRenewalInterval,
+		Oneshot:         true,
+		Debug:           true,
 	}
-	bot, err := New(botConfig, logger)
+	bot, err := New(botConfig)
 	require.NoError(t, err)
 	pong, err := bot.Preflight(ctx)
 	require.NoError(t, err)
 	require.Equal(t, clusterName, pong.ClusterName)
 
-	botClient, err := bot.StartAndWaitForClient(ctx, 10*time.Second)
+	botClient, err := bot.waitForClient(ctx, 10*time.Second)
 	require.NoError(t, err)
 	botPong, err := botClient.Ping(ctx)
 	require.NoError(t, err)

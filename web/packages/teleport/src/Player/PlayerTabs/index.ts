@@ -17,7 +17,6 @@
  */
 
 import Tabs, { TabItem } from './PlayerTabs';
-
 export { TabItem };
 
 export default Tabs;

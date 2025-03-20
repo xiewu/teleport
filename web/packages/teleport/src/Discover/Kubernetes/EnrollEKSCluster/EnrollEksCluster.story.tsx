@@ -15,32 +15,41 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { delay, http, HttpResponse } from 'msw';
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
+
+import { MemoryRouter } from 'react-router';
 
 import { Info } from 'design/Alert';
 
+import { rest } from 'msw';
+import { initialize, mswLoader } from 'msw-storybook-addon';
+
+import { ContextProvider } from 'teleport';
 import cfg from 'teleport/config';
-import {
-  RequiredDiscoverProviders,
-  resourceSpecAwsEks,
-} from 'teleport/Discover/Fixtures/fixtures';
-import { ResourceKind } from 'teleport/Discover/Shared';
-import { clearCachedJoinTokenResult } from 'teleport/Discover/Shared/useJoinTokenSuspender';
-import { AgentMeta } from 'teleport/Discover/useDiscover';
-import { getUserContext } from 'teleport/mocks/contexts';
 import {
   AwsEksCluster,
   IntegrationKind,
   IntegrationStatusCode,
 } from 'teleport/services/integrations';
+import {
+  DiscoverContextState,
+  DiscoverProvider,
+} from 'teleport/Discover/useDiscover';
+import { createTeleportContext, getUserContext } from 'teleport/mocks/contexts';
+import { clearCachedJoinTokenResult } from 'teleport/Discover/Shared/useJoinTokenSuspender';
+import { ResourceKind } from 'teleport/Discover/Shared';
 import { INTERNAL_RESOURCE_ID_LABEL_KEY } from 'teleport/services/joinToken';
+import { DiscoverEventResource } from 'teleport/services/userEvent/types';
 import { Kube } from 'teleport/services/kube';
+import { PingTeleportProvider } from 'teleport/Discover/Shared/PingTeleportContext';
 
 import { EnrollEksCluster } from './EnrollEksCluster';
 
+const { worker } = window.msw;
+
 const integrationName = 'test-oidc';
 
+initialize();
 const defaultIsCloud = cfg.isCloud;
 const defaultAutomaticUpgrades = cfg.automaticUpgrades;
 const defaultAutomaticUpgradesTargetVersion =
@@ -48,8 +57,10 @@ const defaultAutomaticUpgradesTargetVersion =
 
 export default {
   title: 'Teleport/Discover/Kube/EnrollEksClusters',
+  loaders: [mswLoader],
   decorators: [
     Story => {
+      worker.resetHandlers();
       clearCachedJoinTokenResult([ResourceKind.Kubernetes]);
 
       useEffect(() => {
@@ -66,30 +77,33 @@ export default {
   ],
 };
 
-const tokenHandler = http.post(cfg.api.discoveryJoinToken.createV2, () => {
-  return HttpResponse.json({
-    id: 'token-id',
-    suggestedLabels: [
-      { name: INTERNAL_RESOURCE_ID_LABEL_KEY, value: 'resource-id' },
-    ],
-  });
+const tokenHandler = rest.post(cfg.api.joinTokenPath, (req, res, ctx) => {
+  return res(
+    ctx.json({
+      id: 'token-id',
+      suggestedLabels: [
+        { name: INTERNAL_RESOURCE_ID_LABEL_KEY, value: 'resource-id' },
+      ],
+    })
+  );
 });
 
-const successEnrollmentHandler = http.post(
+const successEnrollmentHandler = rest.post(
   cfg.getEnrollEksClusterUrl(integrationName),
-  async () => {
-    await delay(1000);
-    return HttpResponse.json(
-      {
+  (req, res, ctx) => {
+    return res(
+      ctx.delay(1000),
+      ctx.status(200),
+      ctx.json({
         results: [{ clusterName: 'EKS1' }, { clusterName: 'EKS3' }],
-      },
-      { status: 200 }
+      })
     );
   }
 );
 
-const discoveryConfigHandler = http.post(cfg.api.discoveryConfigPath, () =>
-  HttpResponse.json({})
+const discoveryConfigHandler = rest.post(
+  cfg.api.discoveryConfigPath,
+  (req, res, ctx) => res(ctx.json({}))
 );
 
 export const ClustersList = () => <Component />;
@@ -100,15 +114,15 @@ ClustersList.parameters = {
       tokenHandler,
       successEnrollmentHandler,
       discoveryConfigHandler,
-      http.post(cfg.getListEKSClustersUrl(integrationName), () => {
+      rest.post(cfg.getListEKSClustersUrl(integrationName), (req, res, ctx) => {
         {
-          return HttpResponse.json({ clusters: eksClusters });
+          return res(ctx.json({ clusters: eksClusters }));
         }
       }),
-      http.get(
+      rest.get(
         cfg.getKubernetesUrl(getUserContext().cluster.clusterId, {}),
-        () => {
-          return HttpResponse.json({ items: kubeServers });
+        (req, res, ctx) => {
+          return res(ctx.json({ items: kubeServers }));
         }
       ),
     ],
@@ -128,15 +142,15 @@ ClustersListInCloud.parameters = {
       tokenHandler,
       successEnrollmentHandler,
       discoveryConfigHandler,
-      http.post(cfg.getListEKSClustersUrl(integrationName), () => {
+      rest.post(cfg.getListEKSClustersUrl(integrationName), (req, res, ctx) => {
         {
-          return HttpResponse.json({ clusters: eksClusters });
+          return res(ctx.json({ clusters: eksClusters }));
         }
       }),
-      http.get(
+      rest.get(
         cfg.getKubernetesUrl(getUserContext().cluster.clusterId, {}),
-        () => {
-          return HttpResponse.json({ items: kubeServers });
+        (req, res, ctx) => {
+          return res(ctx.json({ items: kubeServers }));
         }
       ),
     ],
@@ -149,10 +163,10 @@ WithAwsPermissionsError.parameters = {
   msw: {
     handlers: [
       tokenHandler,
-      http.post(cfg.getListEKSClustersUrl(integrationName), () =>
-        HttpResponse.json(
-          { message: 'StatusCode: 403, RequestID: operation error' },
-          { status: 403 }
+      rest.post(cfg.getListEKSClustersUrl(integrationName), (req, res, ctx) =>
+        res(
+          ctx.status(403),
+          ctx.json({ message: 'StatusCode: 403, RequestID: operation error' })
         )
       ),
     ],
@@ -160,63 +174,37 @@ WithAwsPermissionsError.parameters = {
 };
 
 export const WithEnrollmentError = () => <Component />;
+
 WithEnrollmentError.parameters = {
   msw: {
     handlers: [
       tokenHandler,
-      http.post(cfg.getListEKSClustersUrl(integrationName), () => {
+      rest.post(cfg.getListEKSClustersUrl(integrationName), (req, res, ctx) => {
         {
-          return HttpResponse.json({ clusters: eksClusters });
+          return res(ctx.json({ clusters: eksClusters }));
         }
       }),
-      http.get(
+      rest.get(
         cfg.getKubernetesUrl(getUserContext().cluster.clusterId, {}),
-        () => {
-          return HttpResponse.json({ items: kubeServers });
+        (req, res, ctx) => {
+          return res(ctx.json({ items: kubeServers }));
         }
       ),
-      http.post(cfg.getEnrollEksClusterUrl(integrationName), async () => {
-        await delay(1000);
-        return HttpResponse.json({
-          results: [
-            { clusterName: 'EKS1', error: 'something bad happened' },
-            { clusterName: 'EKS3', error: 'something bad happened' },
-          ],
-        });
-      }),
-    ],
-  },
-};
-
-export const WithAlreadyExistsError = () => (
-  <Component devInfoText="select any region, select EKS1 to see already exist error" />
-);
-WithAlreadyExistsError.parameters = {
-  msw: {
-    handlers: [
-      tokenHandler,
-      http.post(cfg.getListEKSClustersUrl(integrationName), () => {
-        {
-          return HttpResponse.json({ clusters: eksClusters });
-        }
-      }),
-      http.get(
-        cfg.getKubernetesUrl(getUserContext().cluster.clusterId, {}),
-        () => {
-          return HttpResponse.json({ items: kubeServers });
+      rest.post(
+        cfg.getEnrollEksClusterUrl(integrationName),
+        (req, res, ctx) => {
+          return res(
+            ctx.delay(1000),
+            ctx.status(200),
+            ctx.json({
+              results: [
+                { clusterName: 'EKS1', error: 'something bad happened' },
+                { clusterName: 'EKS3', error: 'something bad happened' },
+              ],
+            })
+          );
         }
       ),
-      http.post(cfg.getEnrollEksClusterUrl(integrationName), async () => {
-        await delay(1000);
-        return HttpResponse.json({
-          results: [
-            {
-              clusterName: 'EKS1',
-              error: 'teleport-kube-agent is already installed on the cluster',
-            },
-          ],
-        });
-      }),
     ],
   },
 };
@@ -227,48 +215,78 @@ WithOtherError.parameters = {
   msw: {
     handlers: [
       tokenHandler,
-      http.post(cfg.getListEKSClustersUrl(integrationName), () =>
-        HttpResponse.json(
-          {
-            error: { message: 'Whoops, something went wrong.' },
-          },
-          { status: 503 }
-        )
+      rest.post(cfg.getListEKSClustersUrl(integrationName), (req, res, ctx) =>
+        res(ctx.status(503))
       ),
     ],
   },
 };
 
-const agentMeta: AgentMeta = {
-  resourceName: 'kube-name',
-  agentMatcherLabels: [],
-  kube: {
-    kind: 'kube_cluster',
-    name: '',
-    labels: [],
-  },
-  awsIntegration: {
-    kind: IntegrationKind.AwsOidc,
-    name: integrationName,
-    resourceType: 'integration',
-    spec: {
-      roleArn: 'arn:aws:iam::123456789012:role/test-role-arn',
-      issuerS3Bucket: '',
-      issuerS3Prefix: '',
+const Component = () => {
+  const ctx = createTeleportContext();
+  const discoverCtx: DiscoverContextState = {
+    agentMeta: {
+      resourceName: 'db-name',
+      agentMatcherLabels: [],
+      kube: {
+        kind: 'kube_cluster',
+        name: '',
+        labels: [],
+      },
+      awsIntegration: {
+        kind: IntegrationKind.AwsOidc,
+        name: integrationName,
+        resourceType: 'integration',
+        spec: {
+          roleArn: 'arn:aws:iam::123456789012:role/test-role-arn',
+          issuerS3Bucket: '',
+          issuerS3Prefix: '',
+        },
+        statusCode: IntegrationStatusCode.Running,
+      },
     },
-    statusCode: IntegrationStatusCode.Running,
-  },
-};
+    currentStep: 0,
+    nextStep: () => null,
+    prevStep: () => null,
+    onSelectResource: () => null,
+    resourceSpec: {
+      name: 'Eks',
+      kind: ResourceKind.Kubernetes,
+      icon: 'eks',
+      keywords: '',
+      event: DiscoverEventResource.KubernetesEks,
+    },
+    exitFlow: () => null,
+    viewConfig: null,
+    indexedViews: [],
+    setResourceSpec: () => null,
+    updateAgentMeta: () => null,
+    emitErrorEvent: () => null,
+    emitEvent: () => null,
+    eventState: null,
+  };
 
-const Component = ({ devInfoText = '' }) => {
   return (
-    <RequiredDiscoverProviders
-      agentMeta={agentMeta}
-      resourceSpec={resourceSpecAwsEks}
+    <MemoryRouter
+      initialEntries={[
+        { pathname: cfg.routes.discover, state: { entity: 'eks' } },
+      ]}
     >
-      <Info>{devInfoText || 'Devs: Select any region to see story state'}</Info>
-      <EnrollEksCluster nextStep={() => null} updateAgentMeta={() => null} />
-    </RequiredDiscoverProviders>
+      <ContextProvider ctx={ctx}>
+        <PingTeleportProvider
+          interval={1000}
+          resourceKind={ResourceKind.Kubernetes}
+        >
+          <DiscoverProvider mockCtx={discoverCtx}>
+            <Info>Devs: Select any region to see story state</Info>
+            <EnrollEksCluster
+              nextStep={discoverCtx.nextStep}
+              updateAgentMeta={discoverCtx.updateAgentMeta}
+            />
+          </DiscoverProvider>
+        </PingTeleportProvider>
+      </ContextProvider>
+    </MemoryRouter>
   );
 };
 

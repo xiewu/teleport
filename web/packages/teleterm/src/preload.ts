@@ -16,28 +16,28 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import { contextBridge, webUtils } from 'electron';
 import { ChannelCredentials, ServerCredentials } from '@grpc/grpc-js';
 import { GrpcTransport } from '@protobuf-ts/grpc-transport';
-import { contextBridge, webUtils } from 'electron';
 
-import Logger from 'teleterm/logger';
+import { createTshdClient } from 'teleterm/services/tshd/createClient';
+import { loggingInterceptor } from 'teleterm/services/tshd/interceptors';
 import createMainProcessClient from 'teleterm/mainProcess/mainProcessClient';
+import { createFileLoggerService } from 'teleterm/services/logger';
+import Logger from 'teleterm/logger';
+import { createPtyService } from 'teleterm/services/pty/ptyService';
 import {
+  GrpcCertName,
   createClientCredentials,
+  createServerCredentials,
   createInsecureClientCredentials,
   createInsecureServerCredentials,
-  createServerCredentials,
   generateAndSaveGrpcCert,
-  GrpcCertName,
   readGrpcCert,
   shouldEncryptConnection,
 } from 'teleterm/services/grpcCredentials';
-import { createFileLoggerService } from 'teleterm/services/logger';
-import { createPtyService } from 'teleterm/services/pty/ptyService';
-import { createTshdClient, createVnetClient } from 'teleterm/services/tshd';
-import { loggingInterceptor } from 'teleterm/services/tshd/interceptors';
-import { createTshdEventsServer } from 'teleterm/services/tshdEvents';
 import { ElectronGlobals, RuntimeSettings } from 'teleterm/types';
+import { createTshdEventsServer } from 'teleterm/services/tshdEvents';
 
 const mainProcessClient = createMainProcessClient();
 const runtimeSettings = mainProcessClient.getRuntimeSettings();
@@ -68,12 +68,22 @@ async function getElectronGlobals(): Promise<ElectronGlobals> {
     interceptors: [loggingInterceptor(new Logger('tshd'))],
   });
   const tshClient = createTshdClient(tshdTransport);
-  const vnetClient = createVnetClient(tshdTransport);
   const ptyServiceClient = createPtyService(
     addresses.shared,
     credentials.shared,
     runtimeSettings,
-    mainProcessClient.configService
+    {
+      ssh: {
+        noResume: mainProcessClient.configService.get('ssh.noResume').value,
+        forwardAgent:
+          mainProcessClient.configService.get('ssh.forwardAgent').value,
+      },
+      terminal: {
+        windowsBackend: mainProcessClient.configService.get(
+          'terminal.windowsBackend'
+        ).value,
+      },
+    }
   );
   const {
     setupTshdEventContextBridgeService,
@@ -96,7 +106,6 @@ async function getElectronGlobals(): Promise<ElectronGlobals> {
   return {
     mainProcessClient,
     tshClient,
-    vnetClient,
     ptyServiceClient,
     setupTshdEventContextBridgeService,
     // Ideally, we would call this function only on the preload side,

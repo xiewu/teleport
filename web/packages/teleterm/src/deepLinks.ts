@@ -17,15 +17,7 @@
  */
 
 import * as whatwg from 'whatwg-url';
-
-import {
-  AuthenticateWebDeviceDeepURL,
-  ConnectMyComputerDeepURL,
-  CUSTOM_PROTOCOL,
-  DeepURL,
-  Path,
-  VnetDeepURL,
-} from 'shared/deepLinks';
+import { CUSTOM_PROTOCOL, Path } from 'shared/deepLinks';
 
 export type DeepLinkParseResult =
   // Just having a field like `ok: true` for success and `status: 'error'` for errors would be much more
@@ -34,12 +26,9 @@ export type DeepLinkParseResult =
   | DeepLinkParseResultSuccess
   | ParseError<'malformed-url', { error: TypeError }>
   | ParseError<'unknown-protocol', { protocol: string }>
-  | ParseError<'unsupported-url'>;
+  | ParseError<'unsupported-uri'>;
 
-export type DeepLinkParseResultSuccess = {
-  status: 'success';
-  url: DeepURL;
-};
+export type DeepLinkParseResultSuccess = { status: 'success'; url: DeepURL };
 
 type ParseError<Reason, AdditionalData = void> = AdditionalData extends void
   ? {
@@ -52,9 +41,38 @@ type ParseError<Reason, AdditionalData = void> = AdditionalData extends void
     } & AdditionalData;
 
 /**
- * pathname is the path from the URL with the leading slash included, e.g. if the URL is
- * "teleport://example.com/connect_my_computer", the pathname is "/connect_my_computer"
+ *
+ * DeepURL is a parsed version of an URL.
+ *
+ * Since DeepLinkParseResult goes through IPC in Electron [1], anything included in it is subject to
+ * Structured Clone Algorithm [2]. As such, getters and setters are dropped which means were not
+ * able to pass whatwg.URL without casting it to an object.
+ *
+ * [1] https://www.electronjs.org/docs/latest/tutorial/ipc
+ * [2] https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm
  */
+export type DeepURL = {
+  /**
+   * host is the hostname plus the port.
+   */
+  host: string;
+  /**
+   * hostname is the host without the port, e.g. if the host is "example.com:4321", the hostname is
+   * "example.com".
+   */
+  hostname: string;
+  port: string;
+  /**
+   * username is percent-decoded username from the URL. whatwg-url encodes usernames found in URLs.
+   * parseDeepLink decodes them so that other parts of the app don't have to deal with this.
+   */
+  username: string;
+  /**
+   * pathname is the path from the URL with the leading slash included, e.g. if the URL is
+   * "teleport://example.com/connect_my_computer", the pathname is "/connect_my_computer"
+   */
+  pathname: `/${Path}`;
+};
 
 /**
  * parseDeepLink receives a full URL of a deep link passed to Connect, e.g.
@@ -86,61 +104,20 @@ export function parseDeepLink(rawUrl: string): DeepLinkParseResult {
     };
   }
 
-  const { host, hostname, port, username, pathname, searchParams } = whatwgURL;
-  const baseUrl = {
+  if (whatwgURL.pathname !== '/connect_my_computer') {
+    return { status: 'error', reason: 'unsupported-uri' };
+  }
+
+  const { host, hostname, port, username, pathname } = whatwgURL;
+  const url: DeepURL = {
     host,
     hostname,
     port,
     // whatwg-url percent-encodes usernames. We decode them here so that the rest of the app doesn't
     // have to do this. https://url.spec.whatwg.org/#set-the-username
     username: decodeURIComponent(username),
+    pathname,
   };
 
-  const pathnameAsPath = pathname as Path;
-  switch (pathnameAsPath) {
-    case '/connect_my_computer': {
-      const url: ConnectMyComputerDeepURL = {
-        ...baseUrl,
-        pathname: '/connect_my_computer',
-        searchParams: {},
-      };
-      return { status: 'success', url };
-    }
-    case '/authenticate_web_device': {
-      const id = searchParams.get('id');
-      const token = searchParams.get('token');
-      const redirect_uri = searchParams.get('redirect_uri');
-      if (!(id && token)) {
-        return {
-          status: 'error',
-          reason: 'malformed-url',
-          error: new TypeError(
-            'id and token must be included in the deep link for authenticating a web device'
-          ),
-        };
-      }
-
-      const url: AuthenticateWebDeviceDeepURL = {
-        ...baseUrl,
-        pathname: '/authenticate_web_device',
-        searchParams: {
-          id,
-          token,
-          redirect_uri,
-        },
-      };
-      return { status: 'success', url };
-    }
-    case '/vnet': {
-      const url: VnetDeepURL = {
-        ...baseUrl,
-        pathname: '/vnet',
-        searchParams: {},
-      };
-      return { status: 'success', url };
-    }
-    default:
-      pathnameAsPath satisfies never;
-      return { status: 'error', reason: 'unsupported-url' };
-  }
+  return { status: 'success', url };
 }

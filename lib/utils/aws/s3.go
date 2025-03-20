@@ -22,51 +22,64 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
+	"net/http"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
-	managerv2 "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	awsV2 "github.com/aws/aws-sdk-go-v2/aws"
+	managerV2 "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	s3v2 "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/aws/smithy-go"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gravitational/trace"
 )
 
 // ConvertS3Error wraps S3 error and returns trace equivalent
 // It works on both sdk v1 and v2.
-func ConvertS3Error(err error) error {
+func ConvertS3Error(err error, args ...interface{}) error {
 	if err == nil {
 		return nil
 	}
 
+	// SDK v1 errors:
+	if rerr, ok := err.(awserr.RequestFailure); ok && rerr.StatusCode() == http.StatusForbidden {
+		return trace.AccessDenied(rerr.Message())
+	}
+
+	if aerr, ok := err.(awserr.Error); ok {
+		switch aerr.Code() {
+		case s3.ErrCodeNoSuchKey, s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchUpload, "NotFound":
+			return trace.NotFound(aerr.Error(), args...)
+		case s3.ErrCodeBucketAlreadyExists, s3.ErrCodeBucketAlreadyOwnedByYou:
+			return trace.AlreadyExists(aerr.Error(), args...)
+		default:
+			return trace.BadParameter(aerr.Error(), args...)
+		}
+	}
+
+	// SDK v2 errors:
 	var noSuchKey *s3types.NoSuchKey
 	if errors.As(err, &noSuchKey) {
-		return trace.NotFound("%s", noSuchKey)
+		return trace.NotFound(noSuchKey.Error(), args...)
 	}
 	var noSuchBucket *s3types.NoSuchBucket
 	if errors.As(err, &noSuchBucket) {
-		return trace.NotFound("%s", noSuchBucket)
+		return trace.NotFound(noSuchBucket.Error(), args...)
 	}
 	var noSuchUpload *s3types.NoSuchUpload
 	if errors.As(err, &noSuchUpload) {
-		return trace.NotFound("%s", noSuchUpload)
+		return trace.NotFound(noSuchUpload.Error(), args...)
 	}
 	var bucketAlreadyExists *s3types.BucketAlreadyExists
 	if errors.As(err, &bucketAlreadyExists) {
-		return trace.AlreadyExists("%s", bucketAlreadyExists.Error())
+		return trace.AlreadyExists(bucketAlreadyExists.Error(), args...)
 	}
 	var bucketAlreadyOwned *s3types.BucketAlreadyOwnedByYou
 	if errors.As(err, &bucketAlreadyOwned) {
-		return trace.AlreadyExists("%s", bucketAlreadyOwned.Error())
+		return trace.AlreadyExists(bucketAlreadyOwned.Error(), args...)
 	}
 	var notFound *s3types.NotFound
 	if errors.As(err, &notFound) {
-		return trace.NotFound("%s", notFound)
-	}
-
-	var opError *smithy.OperationError
-	if errors.As(err, &opError) && strings.Contains(opError.Err.Error(), "FIPS") {
-		return trace.BadParameter("%s", opError)
+		return trace.NotFound(notFound.Error(), args...)
 	}
 
 	return err
@@ -83,13 +96,13 @@ type s3V2FileWriter struct {
 
 // NewS3V2FileWriter created s3V2FileWriter. Close method on writer should be called
 // to make sure that reader has finished.
-func NewS3V2FileWriter(ctx context.Context, s3Client managerv2.UploadAPIClient, bucket, key string, uploaderOptions []func(*managerv2.Uploader), putObjectInputOptions ...func(*s3v2.PutObjectInput)) (*s3V2FileWriter, error) {
-	uploader := managerv2.NewUploader(s3Client, uploaderOptions...)
+func NewS3V2FileWriter(ctx context.Context, s3Client managerV2.UploadAPIClient, bucket, key string, uploaderOptions []func(*managerV2.Uploader), putObjectInputOptions ...func(*s3v2.PutObjectInput)) (*s3V2FileWriter, error) {
+	uploader := managerV2.NewUploader(s3Client, uploaderOptions...)
 	pr, pw := io.Pipe()
 
 	uploadParams := &s3v2.PutObjectInput{
-		Bucket: awsv2.String(bucket),
-		Key:    awsv2.String(key),
+		Bucket: awsV2.String(bucket),
+		Key:    awsV2.String(key),
 		Body:   pr,
 	}
 

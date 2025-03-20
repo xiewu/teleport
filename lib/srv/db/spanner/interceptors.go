@@ -20,15 +20,13 @@ package spanner
 
 import (
 	"context"
-	"log/slog"
 
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-
-	logutil "github.com/gravitational/teleport/lib/utils/log"
 )
 
 // unaryServerLoggingInterceptor is gRPC middleware that logs some debug info.
-func unaryServerLoggingInterceptor(ctx context.Context, log *slog.Logger) grpc.UnaryServerInterceptor {
+func unaryServerLoggingInterceptor(log logrus.FieldLogger) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
@@ -36,13 +34,13 @@ func unaryServerLoggingInterceptor(ctx context.Context, log *slog.Logger) grpc.U
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
 		res, err := handler(ctx, req)
-		logRPC(ctx, log, info.FullMethod, err)
+		logRPC(log, info.FullMethod, err)
 		return res, err
 	}
 }
 
 // streamServerLoggingInterceptor is gRPC middleware that logs some debug info.
-func streamServerLoggingInterceptor(ctx context.Context, log *slog.Logger) grpc.StreamServerInterceptor {
+func streamServerLoggingInterceptor(log logrus.FieldLogger) grpc.StreamServerInterceptor {
 	return func(
 		srv interface{},
 		stream grpc.ServerStream,
@@ -50,15 +48,19 @@ func streamServerLoggingInterceptor(ctx context.Context, log *slog.Logger) grpc.
 		handler grpc.StreamHandler,
 	) error {
 		err := handler(srv, stream)
-		logRPC(ctx, log, info.FullMethod, err)
+		logRPC(log, info.FullMethod, err)
 		return err
 	}
 }
 
-func logRPC(ctx context.Context, log *slog.Logger, fullMethod string, handlerErr error) {
+func logRPC(log logrus.FieldLogger, fullMethod string, handlerErr error) {
 	if handlerErr != nil {
-		log.DebugContext(ctx, "failed to handle Spanner RPC", "full_method", fullMethod, "error", handlerErr)
+		log.WithError(handlerErr).
+			WithField("full_method", fullMethod).
+			Debug("failed to handle Spanner RPC")
 		return
 	}
-	log.Log(ctx, logutil.TraceLevel, "Handled Spanner RPC", "full_method", fullMethod)
+
+	log.WithField("full_method", fullMethod).
+		Trace("handled Spanner RPC")
 }

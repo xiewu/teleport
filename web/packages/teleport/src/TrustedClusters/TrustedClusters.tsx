@@ -16,11 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Box, Button, ButtonPrimary, Flex, H3, Indicator, Link } from 'design';
+import React from 'react';
 import { Danger } from 'design/Alert';
+import { Indicator, Text, Box, Flex, ButtonPrimary, Link } from 'design';
 import Card from 'design/Card';
 import Image from 'design/Image';
-import { P } from 'design/Text/Text';
 
 import {
   FeatureBox,
@@ -28,13 +28,14 @@ import {
   FeatureHeaderTitle,
 } from 'teleport/components/Layout';
 import ResourceEditor from 'teleport/components/ResourceEditor';
+
 import useResources from 'teleport/components/useResources';
 
-import { emptyPng } from './assets';
 import DeleteTrust from './DeleteTrust';
 import templates from './templates';
 import TrustedList from './TrustedList';
 import useTrustedClusters from './useTrustedClusters';
+import { emptyPng } from './assets';
 
 export default function TrustedClusters() {
   const { items, canCreate, remove, save, attempt } = useTrustedClusters();
@@ -44,8 +45,8 @@ export default function TrustedClusters() {
 
   const title =
     resources.status === 'creating'
-      ? 'Add a new trusted root cluster'
-      : 'Edit trusted root cluster';
+      ? 'Add a new trusted cluster'
+      : 'Edit trusted cluster';
 
   function onRemove() {
     return remove(resources.item.name);
@@ -60,18 +61,16 @@ export default function TrustedClusters() {
   return (
     <FeatureBox>
       <FeatureHeader alignItems="center">
-        <FeatureHeaderTitle>Trusted Root Clusters</FeatureHeaderTitle>
+        <FeatureHeaderTitle>Trusted Clusters</FeatureHeaderTitle>
         {hasClusters && (
-          <Button
-            intent="primary"
-            fill="border"
+          <ButtonPrimary
             disabled={!canCreate}
             ml="auto"
             width="240px"
             onClick={() => resources.create('trusted_cluster')}
           >
             Connect to Root Cluster
-          </Button>
+          </ButtonPrimary>
         )}
       </FeatureHeader>
       {attempt.status === 'failed' && <Danger>{attempt.statusText} </Danger>}
@@ -126,14 +125,16 @@ export default function TrustedClusters() {
 
 const Info = props => (
   <Box {...props}>
-    <H3 mb={3}>Trusted Clusters</H3>
-    <P>
+    <Text typography="h6" mb={3}>
+      TRUSTED CLUSTERS
+    </Text>
+    <Text typography="subtitle1" mb={3}>
       Trusted Clusters allow Teleport administrators to connect multiple
       clusters together and establish trust between them. Users of Trusted
-      Clusters can seamlessly access the resources of the leaf cluster from the
-      root cluster.
-    </P>
-    <P mb={2}>
+      Clusters can seamlessly access the nodes of the cluster from the root
+      cluster.
+    </Text>
+    <Text typography="subtitle1" mb={2}>
       Please{' '}
       <Link
         color="text.main"
@@ -143,7 +144,7 @@ const Info = props => (
         view our documentation
       </Link>{' '}
       to learn more about Trusted Clusters.
-    </P>
+    </Text>
   </Box>
 );
 

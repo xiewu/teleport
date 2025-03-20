@@ -18,15 +18,15 @@
 
 import React from 'react';
 import styled from 'styled-components';
-
-import { Box, ButtonBorder, Flex, Text } from 'design';
-import { ChevronDown } from 'design/Icon';
+import { space } from 'design/system';
+import { ButtonBorder, Flex, Text, Box } from 'design';
 import Menu, { MenuItem } from 'design/Menu';
-import { space, SpaceProps } from 'design/system';
+import { ChevronDown } from 'design/Icon';
+
 import { AwsRole } from 'shared/services/apps';
 
 export class AwsLaunchButton extends React.Component<Props> {
-  anchorEl: React.MutableRefObject<HTMLButtonElement> = React.createRef();
+  anchorEl = React.createRef();
 
   state = {
     open: false,
@@ -48,15 +48,14 @@ export class AwsLaunchButton extends React.Component<Props> {
 
   render() {
     const { open } = this.state;
-    const { awsRoles, getLaunchUrl, onLaunchUrl, isAwsIdentityCenterApp } =
-      this.props;
+    const { awsRoles, getLaunchUrl, onLaunchUrl } = this.props;
     return (
       <>
         <ButtonBorder
           textTransform="none"
-          width={this.props.width || '90px'}
+          width="90px"
           size="small"
-          setRef={e => (this.anchorEl.current = e)}
+          setRef={e => (this.anchorEl = e)}
           onClick={this.onOpen}
         >
           Launch
@@ -77,7 +76,7 @@ export class AwsLaunchButton extends React.Component<Props> {
             horizontal: 'right',
           }}
           getContentAnchorEl={null}
-          anchorEl={this.anchorEl.current}
+          anchorEl={this.anchorEl}
           open={open}
           onClose={this.onClose}
         >
@@ -95,7 +94,6 @@ export class AwsLaunchButton extends React.Component<Props> {
             onLaunchUrl={onLaunchUrl}
             closeMenu={this.onClose}
             onChange={this.onChange}
-            isAwsIdentityCenterApp={isAwsIdentityCenterApp}
           />
         </Menu>
       </>
@@ -109,7 +107,6 @@ function RoleItemList({
   closeMenu,
   onChange,
   onLaunchUrl,
-  isAwsIdentityCenterApp,
 }: Props & {
   closeMenu: () => void;
   onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -120,9 +117,6 @@ function RoleItemList({
     let text = `${accountId}: ${display}`;
     if (display !== name) {
       text = `${text} (${name})`;
-    }
-    if (isAwsIdentityCenterApp) {
-      text = name;
     }
     return (
       <StyledMenuItem
@@ -143,24 +137,17 @@ function RoleItemList({
     );
   });
 
-  let selectLabel = 'Select IAM Role';
-  let placeholder = 'Search IAM roles...';
-  if (isAwsIdentityCenterApp) {
-    selectLabel = 'Select Permission Sets';
-    placeholder = 'Search Permission Sets...';
-  }
-
   return (
     <Flex flexDirection="column">
       <Text
         px="2"
-        typography="body3"
+        fontSize="11px"
         css={`
           color: ${props => props.theme.colors.text.main};
           background: ${props => props.theme.colors.spotBackground[2]};
         `}
       >
-        {selectLabel}
+        Select IAM Role
       </Text>
       <StyledInput
         p="2"
@@ -168,7 +155,7 @@ function RoleItemList({
         type="text"
         onChange={onChange}
         autoFocus
-        placeholder={placeholder}
+        placeholder={'Search IAM roles...'}
         autoComplete="off"
       />
       <Box
@@ -193,8 +180,6 @@ type Props = {
   awsRoles: AwsRole[];
   getLaunchUrl(arn: string): string;
   onLaunchUrl?(arn: string): void;
-  width?: string;
-  isAwsIdentityCenterApp?: boolean;
 };
 
 const StyledMenuItem = styled(MenuItem)(
@@ -207,14 +192,14 @@ const StyledMenuItem = styled(MenuItem)(
     color: ${theme.colors.text.main};
   }
 
-  &:last-child {
+  :last-child {
     border-bottom: none;
     margin-bottom: 8px;
   }
 `
 );
 
-const StyledInput = styled.input<SpaceProps>(
+const StyledInput = styled.input(
   ({ theme }) => `
   background: transparent;
   border: 1px solid ${theme.colors.text.muted};
@@ -229,7 +214,7 @@ const StyledInput = styled.input<SpaceProps>(
     outline: none;
   }
 
-  &::placeholder {
+  ::placeholder {
     color: ${theme.colors.text.muted};
     opacity: 1;
   }

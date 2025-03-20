@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -128,11 +127,10 @@ func (s *EventHandlerSuite) SetupTest() {
 }
 
 func (s *EventHandlerSuite) startApp() {
-	s.T().Helper()
 	t := s.T()
 	t.Helper()
 
-	app, err := NewApp(&s.appConfig, slog.Default())
+	app, err := NewApp(&s.appConfig)
 	require.NoError(t, err)
 
 	integration.RunAndWaitReady(s.T(), app)

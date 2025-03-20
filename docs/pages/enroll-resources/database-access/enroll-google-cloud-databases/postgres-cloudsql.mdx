@@ -143,14 +143,11 @@ that you added as an IAM database user
 [above](#step-29-create-a-service-account-for-a-database-user),
 minus the ".gserviceaccount.com" suffix. The database user name is shown on
 the Users page of your Cloud SQL instance.
-Retrieve credentials for the "cloudsql" example database and connect to it,
-assigning <Var name="project-id" /> to your Google Cloud project ID:
+Retrieve credentials for the "cloudsql" example database and connect to it:
 
 ```code
 $ tsh db connect --db-user=cloudsql-user@<Var name="project-id"/>.iam --db-name=postgres cloudsql
 ```
-
-(!docs/pages/includes/database-access/pg-access-webui.mdx!)
 
 To log out of the database and remove credentials:
 

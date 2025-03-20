@@ -75,11 +75,14 @@ func UnmarshalTunnelConnection(data []byte, opts ...MarshalOption) (types.Tunnel
 		var r types.TunnelConnectionV2
 
 		if err := utils.FastUnmarshal(data, &r); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 
 		if err := r.CheckAndSetDefaults(); err != nil {
 			return nil, trace.Wrap(err)
+		}
+		if cfg.ID != 0 {
+			r.SetResourceID(cfg.ID)
 		}
 		if cfg.Revision != "" {
 			r.SetRevision(cfg.Revision)
@@ -105,7 +108,7 @@ func MarshalTunnelConnection(tunnelConnection types.TunnelConnection, opts ...Ma
 			return nil, trace.Wrap(err)
 		}
 
-		return utils.FastMarshal(maybeResetProtoRevision(cfg.PreserveRevision, tunnelConnection))
+		return utils.FastMarshal(maybeResetProtoResourceID(cfg.PreserveResourceID, tunnelConnection))
 	default:
 		return nil, trace.BadParameter("unrecognized tunnel connection version %T", tunnelConnection)
 	}

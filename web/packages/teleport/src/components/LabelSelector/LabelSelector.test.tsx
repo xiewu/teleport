@@ -16,7 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { fireEvent, render, screen } from 'design/utils/testing';
+import React from 'react';
+
+import { render, screen, fireEvent } from 'design/utils/testing';
 
 import { LabelSelector } from './LabelSelector';
 

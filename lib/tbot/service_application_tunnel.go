@@ -19,11 +19,11 @@
 package tbot
 
 import (
-	"cmp"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net"
 
 	"github.com/gravitational/trace"
 
@@ -147,17 +147,17 @@ func (s *ApplicationTunnelService) buildLocalProxyConfig(ctx context.Context) (l
 	s.log.DebugContext(ctx, "Issued initial certificate for local proxy.")
 
 	middleware := alpnProxyMiddleware{
-		onNewConnection: func(ctx context.Context, lp *alpnproxy.LocalProxy) error {
+		onNewConnection: func(ctx context.Context, lp *alpnproxy.LocalProxy, _ net.Conn) error {
 			ctx, span := tracer.Start(ctx, "ApplicationTunnelService/OnNewConnection")
 			defer span.End()
 
-			if err := lp.CheckCertExpiry(ctx); err != nil {
+			if err := lp.CheckCertExpiry(); err != nil {
 				s.log.InfoContext(ctx, "Certificate for tunnel needs reissuing.", "reason", err.Error())
 				cert, _, err := s.issueCert(ctx, roles)
 				if err != nil {
 					return trace.Wrap(err, "issuing cert")
 				}
-				lp.SetCert(*cert)
+				lp.SetCerts([]tls.Certificate{*cert})
 			}
 			return nil
 		},
@@ -169,7 +169,7 @@ func (s *ApplicationTunnelService) buildLocalProxyConfig(ctx context.Context) (l
 		RemoteProxyAddr:    proxyAddr,
 		ParentContext:      ctx,
 		Protocols:          []common.Protocol{alpnProtocolForApp(app)},
-		Cert:               *appCert,
+		Certs:              []tls.Certificate{*appCert},
 		InsecureSkipVerify: s.botCfg.Insecure,
 	}
 	if client.IsALPNConnUpgradeRequired(
@@ -202,7 +202,7 @@ func (s *ApplicationTunnelService) issueCert(
 		s.botClient,
 		s.getBotIdentity(),
 		roles,
-		cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+		s.botCfg.CertificateTTL,
 		nil,
 	)
 	if err != nil {
@@ -234,7 +234,7 @@ func (s *ApplicationTunnelService) issueCert(
 		s.botClient,
 		s.getBotIdentity(),
 		roles,
-		cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+		s.botCfg.CertificateTTL,
 		func(req *proto.UserCertsRequest) {
 			req.RouteToApp = route
 		})

@@ -16,9 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 
-import { fireEvent, render, screen } from 'design/utils/testing';
+import { render, screen, fireEvent } from 'design/utils/testing';
 
 import { useRefClickOutside } from './useRefClickOutside';
 

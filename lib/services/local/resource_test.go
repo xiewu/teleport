@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/gravitational/teleport/api/constants"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/services"
@@ -53,35 +52,7 @@ func TestCreateResourcesProvisionToken(t *testing.T) {
 	s := NewProvisioningService(tt.bk)
 	fetchedToken, err := s.GetToken(ctx, "foo")
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(token, fetchedToken, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
-}
-
-func TestCreateResource(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	tt := setupServicesContext(ctx, t)
-	cap, err := types.NewAuthPreference(types.AuthPreferenceSpecV2{
-		Type: constants.Local,
-	})
-	require.NoError(t, err)
-
-	// Check that the initial call to CreateResources creates the given resources.
-	s, err := NewClusterConfigurationService(tt.bk)
-	require.NoError(t, err)
-	err = CreateResources(ctx, tt.bk, cap)
-	require.NoError(t, err)
-	got, err := s.GetAuthPreference(ctx)
-	require.NoError(t, err)
-	require.Equal(t, cap.GetType(), got.GetType())
-
-	// Check that already exists errors are ignored and the resource is not
-	// updated.
-	cap.SetType(constants.SAML)
-	err = CreateResources(ctx, tt.bk, cap)
-	require.NoError(t, err)
-	got, err = s.GetAuthPreference(ctx)
-	require.NoError(t, err)
-	require.NotEqual(t, cap.GetType(), got.GetType())
+	require.Empty(t, cmp.Diff(token, fetchedToken, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision")))
 }
 
 func TestUserResource(t *testing.T) {
@@ -114,8 +85,7 @@ func runUserResourceTest(
 	require.NoError(t, err)
 
 	// Check that dynamically created item is compatible with service
-	s, err := NewTestIdentityService(tt.bk)
-	require.NoError(t, err)
+	s := NewTestIdentityService(tt.bk)
 	b, err := s.GetUser(ctx, "bob", withSecrets)
 	require.NoError(t, err)
 	require.True(t, services.UsersEquals(bob, b), "dynamically inserted user does not match")
@@ -134,7 +104,7 @@ func runUserResourceTest(
 	}
 
 	// Advance the clock to let the users to expire.
-	tt.bk.Clock().(*clockwork.FakeClock).Advance(2 * time.Minute)
+	tt.bk.Clock().(clockwork.FakeClock).Advance(2 * time.Minute)
 	allUsers, err = s.GetUsers(ctx, withSecrets)
 	require.NoError(t, err)
 	require.Empty(t, allUsers, "expected all users to expire")
@@ -226,8 +196,7 @@ func TestGithubConnectorResource(t *testing.T) {
 	err := CreateResources(ctx, tt.bk, connector)
 	require.NoError(t, err)
 
-	s, err := NewTestIdentityService(tt.bk)
-	require.NoError(t, err)
+	s := NewTestIdentityService(tt.bk)
 	_, err = s.GetGithubConnector(ctx, "github", true)
 	require.NoError(t, err)
 }
@@ -282,5 +251,5 @@ func TestBootstrapLock(t *testing.T) {
 
 	l, err := tt.suite.Access.GetLock(ctx, "test")
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(nl, l, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(nl, l, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision")))
 }

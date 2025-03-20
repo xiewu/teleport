@@ -24,7 +24,6 @@ import "teleport/access_graph/v1/authorized_key.proto";
 import "teleport/access_graph/v1/private_key.proto";
 import "teleport/accesslist/v1/accesslist.proto";
 import "teleport/crownjewel/v1/crownjewel.proto";
-import "teleport/dbobject/v1/dbobject.proto";
 import "teleport/devicetrust/v1/device.proto";
 import "teleport/legacy/types/types.proto";
 
@@ -80,8 +79,6 @@ message ResourceEntry {
     teleport.accesslist.v1.AccessList access_list = 9;
     // crown_jewel is a resource for crown jewels.
     teleport.crownjewel.v1.CrownJewel crown_jewel = 10;
-    // database_object is a resource for database objects.
-    teleport.dbobject.v1.DatabaseObject database_object = 11;
     // device is a device trust resource.
     teleport.devicetrust.v1.Device device = 12;
     // private_key represents a private key resource found in user's laptops.

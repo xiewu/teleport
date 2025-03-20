@@ -51,10 +51,6 @@ func TestNewUserACL(t *testing.T) {
 			Resources: []string{types.KindIntegration},
 			Verbs:     append(RW(), types.VerbUse),
 		},
-		{
-			Resources: []string{types.KindContact},
-			Verbs:     RW(),
-		},
 	})
 
 	// not setting the rule, or explicitly denying, both denies Access
@@ -108,8 +104,6 @@ func TestNewUserACL(t *testing.T) {
 	require.True(t, userContext.DesktopSessionRecording)
 	require.Empty(t, cmp.Diff(userContext.License, denied))
 	require.Empty(t, cmp.Diff(userContext.Download, denied))
-	require.Empty(t, cmp.Diff(userContext.Contact, allowedRW))
-	require.Empty(t, cmp.Diff(userContext.GitServers, denied))
 
 	// test enabling of the 'Use' verb
 	require.Empty(t, cmp.Diff(userContext.Integrations, ResourceAccess{true, true, true, true, true, true}))
@@ -120,8 +114,6 @@ func TestNewUserACL(t *testing.T) {
 	// test that desktopRecordingEnabled being false overrides the roleSet.RecordDesktopSession() returning true
 	userContext = NewUserACL(user, roleSet, proto.Features{}, false, false)
 	require.False(t, userContext.DesktopSessionRecording)
-
-	require.False(t, userContext.ReviewRequests)
 }
 
 func TestNewUserACLCloud(t *testing.T) {

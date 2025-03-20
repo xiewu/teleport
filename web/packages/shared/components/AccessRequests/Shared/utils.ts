@@ -1,6 +1,6 @@
 /**
  * Teleport
- * Copyright (C) 2024  Gravitational, Inc.
+ * Copyright (C) 2024 Gravitational, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -18,8 +18,6 @@
 
 import { formatDuration, intervalToDuration } from 'date-fns';
 
-import { ResourceMap } from '../NewRequest';
-
 export function getFormattedDurationTxt({
   start,
   end,
@@ -30,18 +28,4 @@ export function getFormattedDurationTxt({
   return formatDuration(intervalToDuration({ start, end }), {
     format: ['weeks', 'days', 'hours', 'minutes'],
   });
-}
-
-export function getNumAddedResources(addedResources: ResourceMap) {
-  return (
-    Object.keys(addedResources.node).length +
-    Object.keys(addedResources.db).length +
-    Object.keys(addedResources.app).length +
-    Object.keys(addedResources.kube_cluster).length +
-    Object.keys(addedResources.user_group).length +
-    Object.keys(addedResources.windows_desktop).length +
-    Object.keys(addedResources.saml_idp_service_provider).length +
-    Object.keys(addedResources.namespace).length +
-    Object.keys(addedResources.aws_ic_account_assignment).length
-  );
 }

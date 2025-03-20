@@ -21,7 +21,6 @@ package auth
 import (
 	"context"
 	"fmt"
-	"maps"
 	"math"
 	"path/filepath"
 	"slices"
@@ -40,16 +39,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
-	"google.golang.org/protobuf/proto"
 	kyaml "k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/constants"
-	dbobjectimportrulev1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/dbobjectimportrule/v1"
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/api/types/label"
 	apisshutils "github.com/gravitational/teleport/api/utils/sshutils"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib"
 	"github.com/gravitational/teleport/lib/auth/keystore"
 	"github.com/gravitational/teleport/lib/auth/state"
@@ -57,12 +52,10 @@ import (
 	"github.com/gravitational/teleport/lib/auth/testauthority"
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/backend/lite"
-	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/observability/tracing"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/services/suite"
-	"github.com/gravitational/teleport/lib/srv/db/common/databaseobjectimportrule"
 	"github.com/gravitational/teleport/lib/sshca"
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/utils"
@@ -180,243 +173,6 @@ func TestBadIdentity(t *testing.T) {
 
 	_, err = state.ReadSSHIdentityFromKeyPair(priv, cert)
 	require.IsType(t, trace.BadParameter(""), err)
-}
-
-func TestSignatureAlgorithmSuite(t *testing.T) {
-	ctx := context.Background()
-
-	suiteName := func(suite types.SignatureAlgorithmSuite) string {
-		suiteName, err := suite.MarshalText()
-		require.NoError(t, err)
-		return string(suiteName)
-	}
-
-	assertSuitesEqual := func(t *testing.T, expected, actual types.SignatureAlgorithmSuite) {
-		t.Helper()
-		assert.Equal(t, suiteName(expected), suiteName(actual))
-	}
-
-	modules.SetTestModules(t, &modules.TestModules{
-		TestFeatures: modules.Features{
-			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-				entitlements.HSM: {Enabled: true},
-			},
-		},
-	})
-
-	setupInitConfig := func(t *testing.T, capOrigin string, fips, hsm bool) InitConfig {
-		cfg := setupConfig(t)
-		cfg.FIPS = fips
-		if hsm {
-			cfg.KeyStoreConfig = keystore.HSMTestConfig(t)
-		}
-		cfg.AuthPreference.SetOrigin(capOrigin)
-		if capOrigin != types.OriginDefaults {
-			cfg.AuthPreference.SetSignatureAlgorithmSuite(types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_UNSPECIFIED)
-		}
-		// Pre-generate all CAs to keep tests fast esp. with SoftHSM.
-		for _, caType := range types.CertAuthTypes {
-			cfg.BootstrapResources = append(cfg.BootstrapResources, suite.NewTestCAWithConfig(suite.TestCAConfig{
-				Type:        caType,
-				ClusterName: cfg.ClusterName.GetClusterName(),
-				Clock:       cfg.Clock,
-			}))
-		}
-		return cfg
-	}
-
-	testCases := map[string]struct {
-		fips                  bool
-		hsm                   bool
-		cloud                 bool
-		expectDefaultSuite    types.SignatureAlgorithmSuite
-		expectUnallowedSuites []types.SignatureAlgorithmSuite
-	}{
-		"basic": {
-			expectDefaultSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
-		},
-		"fips": {
-			fips:               true,
-			expectDefaultSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_FIPS_V1,
-			expectUnallowedSuites: []types.SignatureAlgorithmSuite{
-				types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
-				types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_HSM_V1,
-			},
-		},
-		"hsm": {
-			hsm:                true,
-			expectDefaultSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_HSM_V1,
-			expectUnallowedSuites: []types.SignatureAlgorithmSuite{
-				types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
-			},
-		},
-		"fips and hsm": {
-			fips:               true,
-			hsm:                true,
-			expectDefaultSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_FIPS_V1,
-			expectUnallowedSuites: []types.SignatureAlgorithmSuite{
-				types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
-				types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_HSM_V1,
-			},
-		},
-		"cloud": {
-			cloud:              true,
-			expectDefaultSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_HSM_V1,
-			expectUnallowedSuites: []types.SignatureAlgorithmSuite{
-				types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
-			},
-		},
-	}
-
-	// Test the behavior of auth server init. A default signature algorithm
-	// suite should never overwrite a persisted signature algorithm suite for an
-	// existing cluster, even if that was also a default.
-	t.Run("init", func(t *testing.T) {
-		for _, origin := range []string{types.OriginDefaults, types.OriginConfigFile} {
-			t.Run(origin, func(t *testing.T) {
-				for desc, tc := range testCases {
-					t.Run(desc, func(t *testing.T) {
-						if tc.cloud {
-							modules.SetTestModules(t, &modules.TestModules{
-								TestFeatures: modules.Features{
-									Cloud: true,
-									Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-										entitlements.HSM: {Enabled: true},
-									},
-								},
-							})
-						}
-
-						// Assert that a fresh cluster with no signature_algorithm_suite
-						// configured gets the expected default suite, whether
-						// or not anything else in the cluster auth preference is set.
-						cfg := setupInitConfig(t, origin, tc.fips, tc.hsm)
-						auth1, err := Init(ctx, cfg)
-						require.NoError(t, err)
-						t.Cleanup(func() { auth1.Close() })
-						authPref, err := auth1.GetAuthPreference(ctx)
-						require.NoError(t, err)
-						assert.Equal(t, origin, authPref.GetMetadata().Labels[types.OriginLabel])
-						assertSuitesEqual(t, tc.expectDefaultSuite, authPref.GetSignatureAlgorithmSuite())
-
-						// Start a second auth server with the same backend and
-						// config, assert that the default suite remains.
-						auth2, err := Init(ctx, cfg)
-						require.NoError(t, err)
-						t.Cleanup(func() { auth2.Close() })
-						authPref, err = auth2.GetAuthPreference(ctx)
-						require.NoError(t, err)
-						assert.Equal(t, origin, authPref.GetMetadata().Labels[types.OriginLabel])
-						assertSuitesEqual(t, tc.expectDefaultSuite, authPref.GetSignatureAlgorithmSuite())
-
-						// In the stored cluster_auth_preference, reset the
-						// signature_algorithm_suite to unspecified (still with
-						// the same origin) to mimic an older cluster with the old
-						// defaults, in the next step it will be "upgraded".
-						authPref.SetSignatureAlgorithmSuite(types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_UNSPECIFIED)
-						_, err = auth2.UpsertAuthPreference(ctx, authPref)
-						require.NoError(t, err)
-						authPref, err = auth2.GetAuthPreference(ctx)
-						require.NoError(t, err)
-						// Sanity check it persisted.
-						assert.Equal(t, origin, authPref.GetMetadata().Labels[types.OriginLabel])
-						assertSuitesEqual(t, types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_UNSPECIFIED, authPref.GetSignatureAlgorithmSuite())
-
-						// Start a third brand new auth server sharing the same
-						// backend and config. The new auth starting up should
-						// apply the new default auth preference and persist it
-						// to the backend, but it should not modify the existing
-						// signature algorithm suite even though it's
-						// unspecified. This is meant to test that a v16 auth
-						// server upgraded to v17 will still have an unspecified
-						// signature algorithm suite and won't get a new one
-						// until explicitly opting in.
-						auth3, err := Init(ctx, cfg)
-						require.NoError(t, err)
-						t.Cleanup(func() { auth3.Close() })
-						authPref, err = auth3.GetAuthPreference(ctx)
-						require.NoError(t, err)
-						assert.Equal(t, origin, authPref.GetMetadata().Labels[types.OriginLabel])
-						assertSuitesEqual(t, types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_UNSPECIFIED, authPref.GetSignatureAlgorithmSuite())
-
-						// Assert that the selected algorithm is RSA2048 when the suite is
-						// unspecified.
-						alg, err := cryptosuites.AlgorithmForKey(ctx,
-							cryptosuites.GetCurrentSuiteFromAuthPreference(auth3),
-							cryptosuites.UserTLS)
-						require.NoError(t, err)
-						assert.Equal(t, cryptosuites.RSA2048.String(), alg.String())
-					})
-				}
-			})
-		}
-	})
-
-	// Test that the auth preference cannot be upserted with a signature
-	// algorithm suite incompatible with the cluster FIPS and HSM settings.
-	t.Run("upsert", func(t *testing.T) {
-		for desc, tc := range testCases {
-			t.Run(desc, func(t *testing.T) {
-				if tc.cloud {
-					modules.SetTestModules(t, &modules.TestModules{
-						TestFeatures: modules.Features{
-							Cloud: true,
-							Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-								entitlements.HSM: {Enabled: true},
-							},
-						},
-					})
-				}
-				cfg := TestAuthServerConfig{
-					Dir:  t.TempDir(),
-					FIPS: tc.fips,
-					AuthPreferenceSpec: &types.AuthPreferenceSpecV2{
-						// Cloud requires second factor enabled.
-						SecondFactor: constants.SecondFactorOn,
-						Webauthn: &types.Webauthn{
-							RPID: "teleport.example.com",
-						},
-					},
-				}
-				if tc.hsm {
-					cfg.KeystoreConfig = keystore.HSMTestConfig(t)
-				}
-				testAuthServer, err := NewTestAuthServer(cfg)
-				require.NoError(t, err)
-				tlsServer, err := testAuthServer.NewTestTLSServer()
-				require.NoError(t, err)
-				clt, err := tlsServer.NewClient(TestAdmin())
-				require.NoError(t, err)
-
-				for _, suiteValue := range types.SignatureAlgorithmSuite_value {
-					suite := types.SignatureAlgorithmSuite(suiteValue)
-					t.Run(suiteName(suite), func(t *testing.T) {
-						authPref, err := types.NewAuthPreference(types.AuthPreferenceSpecV2{
-							SignatureAlgorithmSuite: suite,
-						})
-						require.NoError(t, err)
-
-						_, err = clt.UpsertAuthPreference(ctx, authPref)
-						if slices.Contains(tc.expectUnallowedSuites, suite) {
-							var badParameterErr *trace.BadParameterError
-							assert.ErrorAs(t, err, &badParameterErr)
-							return
-						} else {
-							assert.NoError(t, err)
-						}
-
-						// Reset should go back to the default suite.
-						err = clt.ResetAuthPreference(ctx)
-						require.NoError(t, err)
-						authPref, err = clt.GetAuthPreference(ctx)
-						require.NoError(t, err)
-						assert.Equal(t, types.OriginDefaults, authPref.GetMetadata().Labels[types.OriginLabel])
-						assertSuitesEqual(t, tc.expectDefaultSuite, authPref.GetSignatureAlgorithmSuite())
-					})
-				}
-			})
-		}
-	})
 }
 
 type testDynamicallyConfigurableParams struct {
@@ -553,8 +309,7 @@ func TestAuthPreference(t *testing.T) {
 		},
 		withConfigFile: func(t *testing.T, conf *InitConfig) types.ResourceWithOrigin {
 			fromConfigFile, err := types.NewAuthPreferenceFromConfigFile(types.AuthPreferenceSpecV2{
-				Type:                    constants.OIDC,
-				SignatureAlgorithmSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
+				Type: constants.OIDC,
 			})
 			require.NoError(t, err)
 			conf.AuthPreference = fromConfigFile
@@ -562,7 +317,6 @@ func TestAuthPreference(t *testing.T) {
 		},
 		withAnotherConfigFile: func(t *testing.T, conf *InitConfig) types.ResourceWithOrigin {
 			conf.AuthPreference = newWebauthnAuthPreferenceConfigFromFile(t)
-			conf.AuthPreference.SetSignatureAlgorithmSuite(types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_HSM_V1)
 			return conf.AuthPreference
 		},
 		setDynamic: func(t *testing.T, authServer *Server) {
@@ -578,36 +332,6 @@ func TestAuthPreference(t *testing.T) {
 			require.NoError(t, err)
 			return authPref
 		},
-	})
-}
-
-func TestAuthPreferenceSecondFactorOnly(t *testing.T) {
-	modules.SetInsecureTestMode(false)
-	defer modules.SetInsecureTestMode(true)
-	ctx := context.Background()
-
-	t.Run("starting with second_factor disabled fails", func(t *testing.T) {
-		conf := setupConfig(t)
-		authPref, err := types.NewAuthPreferenceFromConfigFile(types.AuthPreferenceSpecV2{
-			SecondFactor: constants.SecondFactorOff,
-		})
-		require.NoError(t, err)
-
-		conf.AuthPreference = authPref
-		_, err = Init(ctx, conf)
-		require.Error(t, err)
-	})
-
-	t.Run("starting with defaults and dynamically updating to disable second factor fails", func(t *testing.T) {
-		conf := setupConfig(t)
-		s, err := Init(ctx, conf)
-		require.NoError(t, err)
-		authpref, err := types.NewAuthPreference(types.AuthPreferenceSpecV2{
-			SecondFactor: constants.SecondFactorOff,
-		})
-		require.NoError(t, err)
-		_, err = s.UpsertAuthPreference(ctx, authpref)
-		require.Error(t, err)
 	})
 }
 
@@ -698,22 +422,21 @@ func TestSessionRecordingConfig(t *testing.T) {
 
 func TestClusterID(t *testing.T) {
 	conf := setupConfig(t)
-	ctx := context.Background()
-	authServer, err := Init(ctx, conf)
+	authServer, err := Init(context.Background(), conf)
 	require.NoError(t, err)
 	defer authServer.Close()
 
-	cc, err := authServer.GetClusterName(ctx)
+	cc, err := authServer.GetClusterName()
 	require.NoError(t, err)
 	clusterID := cc.GetClusterID()
 	require.NotEmpty(t, clusterID)
 
 	// do it again and make sure cluster ID hasn't changed
-	authServer, err = Init(ctx, conf)
+	authServer, err = Init(context.Background(), conf)
 	require.NoError(t, err)
 	defer authServer.Close()
 
-	cc, err = authServer.GetClusterName(ctx)
+	cc, err = authServer.GetClusterName()
 	require.NoError(t, err)
 	require.Equal(t, clusterID, cc.GetClusterID())
 }
@@ -721,8 +444,7 @@ func TestClusterID(t *testing.T) {
 // TestClusterName ensures that a cluster can not be renamed.
 func TestClusterName(t *testing.T) {
 	conf := setupConfig(t)
-	ctx := context.Background()
-	authServer, err := Init(ctx, conf)
+	authServer, err := Init(context.Background(), conf)
 	require.NoError(t, err)
 	defer authServer.Close()
 
@@ -737,44 +459,18 @@ func TestClusterName(t *testing.T) {
 	require.NoError(t, err)
 	defer authServer.Close()
 
-	cn, err := authServer.GetClusterName(ctx)
+	cn, err := authServer.GetClusterName()
 	require.NoError(t, err)
 	require.NotEqual(t, newConfig.ClusterName.GetClusterName(), cn.GetClusterName())
 	require.Equal(t, conf.ClusterName.GetClusterName(), cn.GetClusterName())
 }
 
-type failingTrustInternal struct {
-	services.TrustInternal
-}
-
-func (t *failingTrustInternal) CreateCertAuthority(ctx context.Context, ca types.CertAuthority) error {
-	return trace.Errorf("error")
-}
-
-// TestInitCertFailureRecovery ensures the auth server is able to recover from
-// a failure in the cert creation process.
-func TestInitCertFailureRecovery(t *testing.T) {
-	ctx := context.Background()
-	cap, err := types.NewAuthPreference(types.AuthPreferenceSpecV2{
-		Type: constants.SAML,
-	})
-	require.NoError(t, err)
-
-	conf := setupConfig(t)
-
-	// BootstrapResources have lead to an unrecoverable state in the past.
-	// See https://github.com/gravitational/teleport/pull/49638.
-	conf.BootstrapResources = []types.Resource{cap}
-	_, err = Init(ctx, conf, func(s *Server) error {
-		s.TrustInternal = &failingTrustInternal{
-			TrustInternal: s.TrustInternal,
-		}
-		return nil
-	})
-	require.Error(t, err)
-
-	_, err = Init(ctx, conf)
-	require.NoError(t, err)
+func keysIn[K comparable, V any](m map[K]V) []K {
+	result := make([]K, 0, len(m))
+	for k := range m {
+		result = append(result, k)
+	}
+	return result
 }
 
 // TestPresets tests behavior of presets
@@ -785,8 +481,6 @@ func TestPresets(t *testing.T) {
 		teleport.PresetEditorRoleName,
 		teleport.PresetAccessRoleName,
 		teleport.PresetAuditorRoleName,
-		teleport.PresetTerraformProviderRoleName,
-		teleport.PresetWildcardWorkloadIdentityIssuerRoleName,
 	}
 
 	t.Run("EmptyCluster", func(t *testing.T) {
@@ -989,7 +683,7 @@ func TestPresets(t *testing.T) {
 				defer mu.Unlock()
 				require.True(t, types.IsSystemResource(r))
 				require.Contains(t, expectedSystemRoles, r.GetName())
-				require.NotContains(t, slices.Collect(maps.Keys(createdSystemRoles)), r.GetName())
+				require.NotContains(t, keysIn(createdSystemRoles), r.GetName())
 				createdSystemRoles[r.GetName()] = r
 			}).
 			Maybe().
@@ -999,8 +693,8 @@ func TestPresets(t *testing.T) {
 
 		err := createPresetRoles(ctx, roleManager)
 		require.NoError(t, err)
-		require.ElementsMatch(t, slices.Collect(maps.Keys(createdPresets)), expectedPresetRoles)
-		require.ElementsMatch(t, slices.Collect(maps.Keys(createdSystemRoles)), expectedSystemRoles)
+		require.ElementsMatch(t, keysIn(createdPresets), expectedPresetRoles)
+		require.ElementsMatch(t, keysIn(createdSystemRoles), expectedSystemRoles)
 		roleManager.AssertExpectations(t)
 
 		//
@@ -1122,7 +816,6 @@ func TestPresets(t *testing.T) {
 		enterpriseSystemRoleNames := []string{
 			teleport.SystemAutomaticAccessApprovalRoleName,
 			teleport.SystemOktaAccessRoleName,
-			teleport.SystemIdentityCenterAccessRoleName,
 		}
 
 		enterpriseUsers := []types.User{
@@ -1137,7 +830,7 @@ func TestPresets(t *testing.T) {
 			// Run multiple times to simulate starting auth on an
 			// existing cluster and asserting that everything still
 			// returns success
-			for range 2 {
+			for i := 0; i < 2; i++ {
 				err := createPresetRoles(ctx, as)
 				require.NoError(t, err)
 
@@ -1194,22 +887,6 @@ func TestPresets(t *testing.T) {
 			require.Contains(t, upsertedUsers, sysUser.Metadata.Name)
 		})
 	})
-}
-
-func TestGetPresetUsers(t *testing.T) {
-	// no preset users for OSS
-	modules.SetTestModules(t, &modules.TestModules{
-		TestBuildType: modules.BuildOSS,
-	})
-	require.Empty(t, getPresetUsers())
-
-	// preset user @teleport-access-approval-bot on enterprise
-	modules.SetTestModules(t, &modules.TestModules{
-		TestBuildType: modules.BuildEnterprise,
-	})
-	require.Equal(t, []types.User{
-		services.NewSystemAutomaticAccessBotUser(),
-	}, getPresetUsers())
 }
 
 type mockUserManager struct {
@@ -1349,7 +1026,12 @@ func setupConfig(t *testing.T) InitConfig {
 		StaticTokens:            types.DefaultStaticTokens(),
 		AuthPreference:          types.DefaultAuthPreference(),
 		SkipPeriodicOperations:  true,
-		Tracer:                  tracing.NoopTracer(teleport.ComponentAuth),
+		KeyStoreConfig: keystore.Config{
+			Software: keystore.SoftwareConfig{
+				RSAKeyPairSource: testauthority.New().GenerateKeyPair,
+			},
+		},
+		Tracer: tracing.NoopTracer(teleport.ComponentAuth),
 	}
 }
 
@@ -1369,16 +1051,17 @@ func newWebauthnAuthPreferenceConfigFromFile(t *testing.T) types.AuthPreference 
 const (
 	hostCAYAML = `kind: cert_authority
 metadata:
+  id: 1736815462679560000
   name: me.localhost
-  revision: 6cc380df-816d-4c6b-8fc8-c20af75eede2
+  revision: 1a206afd-01ab-4fb6-9bd4-8615e17d60e0
 spec:
   active_keys:
     ssh:
-    - private_key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1DNENBUUF3QlFZREsyVndCQ0lFSU5WTzBiNUxSOXk2Nm5SRGJHN3JJUzFRZ3dBcUVpSWtMZS9WVmFrd3pJZ2oKLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo=
-      public_key: c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUw2ZWtVSTg3U3VOYkFiWnhPbGxRUEJJWGdPVjFNcEt4UWVNQXB0MklpVlYK
+    - private_key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcFFJQkFBS0NBUUVBdlpkajF2dXdoUktJL3BFVjkxdllEVHJUOHBpVzVrQjBKVXU3UGxUa0tiVG9TbVRsClozQ1lSNk5xMkVNYUE2QTIrZDJUT0Vyb2R1Mlp2K2tjWlYxK055T2czKzhQcUtiWG1JampBV3YyYlVFZEtmZUMKTW9Rb3Q5Rk8yelI1SkNEVVBWOWduSS9PbHU4WUdYdWJqYnZQU3k2NFM5RmQ4ZjM5YzhMdGpYbkUzZXRLTUtRcgpUVkpFb0dxa05YVmJUd2x2RkFUbUdUcmZHSDJNdG5FdTZMMEozLzNmT1pmOG1SRXBWMXg4YkZjNUEydWxmUDZRCjFqOUJaOFBTRmFlV0pEWFV4dzJwSzl4c0pPaW9LNEREcHU1K0ZZcTRqQnpmS1ZyamF0ejJhVjBKWVRvWFpiY2oKK2wwVXpKemxQRUdjSjBzRmpkU3grV0RZdS9sbTljT29hdzEzSXdJREFRQUJBb0lCQVFDODB5TGs0eGdUOFRudwpFS0JJRkhsQjgrMVVHUlZ4alpBZjlTVXdGMnlHL1Y2OWVXL2hiZ3E4anMzRFJsR0tldTlHUEtCNzJGOWUwNVhsCnhVNDZ4cnNHUDczaVNqN1dRaFZJSGsyNUJNWVNXbCtwaEpGdnJxQy9Ndi9PNHB3a2wyM0xFa3N1b3l1bXQ4clEKMW9NK3ptYlBBbUViWWhLbkNjaDhtdy90Yi9IYTh0ckpyWWVDaGlMV0cvN0NSZU9uQlZubXlnN21tTnNYNHFTQgpFcFlYSUdIOXhRN0VoUXJ6UGxvTWRJQWtLTGdiZE5MM2tkdzFMRFBhaGhwanhEK09VTEJVYkx0a1JrTEM5ajYvCml2dnUxVXUyZjhhYklseTNaNWxQTUlINk12Unh4bS83d21FRVowY2JjM0dSb29ZSTJPOFdjamRYTjJpRFBWQmYKNDFmOGNvMUJBb0dCQU1RZTJQSTF5NE0rZnVpUll1N1dvbWNETVdGUm1CTGFKOWo1V3NYWXJLamtSS1owMk8wRAo5dHlZanpHT2VYZ2pSOHFGNHRJL0RaTHdZSWVPREtpWFN6RlplanpGdG9HK3pXNWFDM2MxOGswem5VeDhpQnpBClhic0wzRmN6ckw1OUVtbDVwVVNmRUhqWmJPUTU5bG9DaEhqSDl4cHVoVUo3YnBidFpPd1d0REFsQW9HQkFQZDYKTnBhZjdjWkN0TFlJQk5pSzhTV1RIZXZSUFBHRUI5Y055b3VxQ0svdS9Rb3JITkRNRWE2UTMyRHI4MnJ6V3Iwago5U3NIL1plNU5UWVlxZUdtRkZmS2RpWms4d2JpUWtCYWFNd1N5ZEprc01ocjZ3T0NXd0J2QjFUMmFodmU3Mm9qCitTa1lqMzFvOXVrY2trT3pBa0pwelZrQTdwb2g1V0hSZ25GSEtTT25Bb0dBSndhQVl3b2pXaFZvaVh6TXMvd1AKeXZIT3RLL1kwLytIS0Z6T0hFcDJhUkVyTy9oS1pqZUF1dnE4bTc3Zkd2SGlTa0dFRmhRbjdsSlkwd0NJTWxBUQp6VndodjlBVDloTnlxMy9OZ2taQTFlM3NZaGp4dU03cWw5clBXS2JXdS8wRldlbXo0a2pJclZPT29JZU1Kdk1UClN6bDNTVkl1d0VEeGk2VG5qVGNqV2VVQ2dZRUE3RWYzVHFDcmVKdS94ZnlxQThYRXI4ZGl6Z0FjVzh0ZllPaDkKOWhNRjhGUVJyRisxUjNWUGZJZzlmbUJKTEZma3pxbENMeStWNUFLazExMTg5VUNJTTduT1RLSWRsdmozb0ZHeAp0UVpMUTJGM21DUFJZcXhYRG5ielhSOVg5L3hHUWVUT3czbjdwaFZOaVF3S2FqRERlMzFnM2hXUnVmK2E3bVlHClVQbE1RZ2tDZ1lFQWx2ZVR5THVGK3JlQ0xZUjgyRllBYzZHV3o0bFNzMWE1RzB3NFBnQXI0ZFVuU1ZSRVpaeHAKTlZabVZvdW5weFJWdHNCVjV4dVp5YXpzQ2hCNVBsZE56d3ZRS0JXaTlvQWNyOEpKVkhvKzJHM3IwYURUK0xlSQpFUFVqRkJvMFZrZ0VvU05tazBBOXY2N0lBUzZvTk00UkY4cHJvRm1CWEliQTdXZ2V3c25kWHM0PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+      public_key: c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCQVFDOWwyUFcrN0NGRW9qK2tSWDNXOWdOT3RQeW1KYm1RSFFsUzdzK1ZPUXB0T2hLWk9WbmNKaEhvMnJZUXhvRG9EYjUzWk00U3VoMjdabS82UnhsWFg0M0k2RGY3dytvcHRlWWlPTUJhL1p0UVIwcDk0SXloQ2kzMFU3Yk5Ia2tJTlE5WDJDY2o4Nlc3eGdaZTV1TnU4OUxMcmhMMFYzeC9mMXp3dTJOZWNUZDYwb3dwQ3ROVWtTZ2FxUTFkVnRQQ1c4VUJPWVpPdDhZZll5MmNTN292UW5mL2Q4NWwveVpFU2xYWEh4c1Z6a0RhNlY4L3BEV1AwRm53OUlWcDVZa05kVEhEYWtyM0d3azZLZ3JnTU9tN240VmlyaU1ITjhwV3VOcTNQWnBYUWxoT2hkbHR5UDZYUlRNbk9VOFFad25Td1dOMUxINVlOaTcrV2IxdzZockRYY2oK
     tls:
-    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNBakNDQWFlZ0F3SUJBZ0lSQUpKYkRNWGtYN3ZOR0EreFRQeGlzYzR3Q2dZSUtvWkl6ajBFQXdJd1lERVYKTUJNR0ExVUVDaE1NYldVdWJHOWpZV3hvYjNOME1SVXdFd1lEVlFRREV3eHRaUzVzYjJOaGJHaHZjM1F4TURBdQpCZ05WQkFVVEp6RTVORFUwTURBME5UUTJOakkyTlRrMk1qazBOakkxTURNNU5UYzJNamM1TkRBNE1qYzJOakFlCkZ3MHlOREV5TXpFeE5ESTJNRFphRncwek5ERXlNamt4TkRJMk1EWmFNR0F4RlRBVEJnTlZCQW9UREcxbExteHYKWTJGc2FHOXpkREVWTUJNR0ExVUVBeE1NYldVdWJHOWpZV3hvYjNOME1UQXdMZ1lEVlFRRkV5Y3hPVFExTkRBdwpORFUwTmpZeU5qVTVOakk1TkRZeU5UQXpPVFUzTmpJM09UUXdPREkzTmpZd1dUQVRCZ2NxaGtqT1BRSUJCZ2dxCmhrak9QUU1CQndOQ0FBUzZTZE92WEdZV2wyY2FCRHFPcXRRN3RyNW1JWkdKR0JFYXJWUnMvSFFvYXpiZExKK0IKMExMUFhHemQvOTNxZ04wNXJVWGhyNHVXb3pEeTMxR2V4ZDZmbzBJd1FEQU9CZ05WSFE4QkFmOEVCQU1DQVlZdwpEd1lEVlIwVEFRSC9CQVV3QXdFQi96QWRCZ05WSFE0RUZnUVVLWmhpWVRwc3Z0NTkwTXc1OGhPY2xNcTBVYmN3CkNnWUlLb1pJemowRUF3SURTUUF3UmdJaEFLcFExNWt6MFZlQThmOEE5S3RKRS9LLytxVkkyNGFpMnM5dytmYTQKVFNFdkFpRUEwWWtNZGNFc1dqTjBFeFpzVmVsRU5EdS9hcWhtUkpua2FpakJDNjFBY0Q0PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
-      key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JR0hBZ0VBTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEJHMHdhd0lCQVFRZ3RTcVllSWhXeTZ3S3QxVDYKUVdVSitTVkF0SjRpNkppajhac0hmWkw2YzJXaFJBTkNBQVM2U2RPdlhHWVdsMmNhQkRxT3F0UTd0cjVtSVpHSgpHQkVhclZScy9IUW9hemJkTEorQjBMTFBYR3pkLzkzcWdOMDVyVVhocjR1V296RHkzMUdleGQ2ZgotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg==
+    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURpakNDQW5LZ0F3SUJBZ0lRSXoxQlR1aHZqUFBvWVk3M29UNUZTREFOQmdrcWhraUc5dzBCQVFzRkFEQmYKTVJVd0V3WURWUVFLRXd4dFpTNXNiMk5oYkdodmMzUXhGVEFUQmdOVkJBTVRERzFsTG14dlkyRnNhRzl6ZERFdgpNQzBHQTFVRUJSTW1ORFk0TkRFd016UTFOamt4T1RnNU56SXhPRE16TVRBd01EazNPREUzTURJeU5EYzNOVEl3CkhoY05NalV3TVRFME1EQTBOREl5V2hjTk16VXdNVEV5TURBME5ESXlXakJmTVJVd0V3WURWUVFLRXd4dFpTNXMKYjJOaGJHaHZjM1F4RlRBVEJnTlZCQU1UREcxbExteHZZMkZzYUc5emRERXZNQzBHQTFVRUJSTW1ORFk0TkRFdwpNelExTmpreE9UZzVOekl4T0RNek1UQXdNRGszT0RFM01ESXlORGMzTlRJd2dnRWlNQTBHQ1NxR1NJYjNEUUVCCkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDanVtZ3c3bDlkNUNMMGpxdHlPbCs5Y1hrMXZkSDhYL1R5RmhjQ0lWZnkKaDBJOFdlS2lWMGFzQnFIYnVJOWpDcnF5ck9wS0NieFlxV1k1QmpMb0YzNUVjblc2U3dLUEhGU0hwRWoyMEZLNwordGdyckxOdHVSM2Y2WUp6ZytML3M4SkF5Y0U3TTRIZDNQbnhYM3hiOE1mUlBRNHh3L2E1SE9tZ0dFcGhKZG82CnhqQm9KQ2dkNUVsL0MxSnBPVE5Fd1MraFpJSUxpcVZKUHV4T20xWkUzYnJUY3VYL0tHR0NndlVGSlpxV0g4ekwKQ011QVVkWG5WUTBxVUZXOUxGUnM1Z0Nkb1BjVzl2TGxLS1hyUW0yZXpHbms1NEJQbHR5L1V5RTNXNEo5WCtOTApQaXlEeEtZOTQ4eTlVazVIV2FlYWZsRWRQbkR6b3VKWmg0Nk9EelpmOWthdEFnTUJBQUdqUWpCQU1BNEdBMVVkCkR3RUIvd1FFQXdJQnBqQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCUm94bWZGSWNPSCsvckUKUzlQM1NncCsxenAvdnpBTkJna3Foa2lHOXcwQkFRc0ZBQU9DQVFFQUNTUEVRMU5UazZPWGp5ZHhYbEpqUThrYQpqbUlFcG44WUQzU1NHV3duSkRqbUVDbXU1NXFZYmFhY3pBM3NackZ6Q2lLMWpyY2lBNUEwVGhkNFkxa1N5eXJTCjlteGswZTNHQ3IzUVRVeWF4T2FjZVVWb1hhK2FGMmJrZi96SnN1ckdOL3ZHY1duUkpBWmZxUUdmVWphN2MyLzkKbEtGbE5PazkrbTZUd2VCbGZvUWYvR01OaTBDSTNpTDQ0RFBsMzVaN0hFSlFqYkdGNWMyYkhNM3I4TkhMTm5QYwp1YUJKNFZSRG02N3N6aHI0UERvMm9YSkFGVDFSSGxnd0UvbWZQQTlscklaRFBXRGlBckhoMFpqSTR3T2xDTDBpClFlRDBraDlkeXB6b3FwdS9LQXlTMm1wZ1lVU3huazRJTEhPNDdnZGc0MUVPTGk1ZE1PcDRNOTRFMTVLdTZnPT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+      key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBbzdwb01PNWZYZVFpOUk2cmNqcGZ2WEY1TmIzUi9GLzA4aFlYQWlGWDhvZENQRm5pCm9sZEdyQWFoMjdpUFl3cTZzcXpxU2dtOFdLbG1PUVl5NkJkK1JISjF1a3NDanh4VWg2Ukk5dEJTdS9yWUs2eXoKYmJrZDMrbUNjNFBpLzdQQ1FNbkJPek9CM2R6NThWOThXL0RIMFQwT01jUDJ1Unpwb0JoS1lTWGFPc1l3YUNRbwpIZVJKZnd0U2FUa3pSTUV2b1dTQ0M0cWxTVDdzVHB0V1JOMjYwM0xsL3loaGdvTDFCU1dhbGgvTXl3akxnRkhWCjUxVU5LbEJWdlN4VWJPWUFuYUQzRnZieTVTaWw2MEp0bnN4cDVPZUFUNWJjdjFNaE4xdUNmVi9qU3o0c2c4U20KUGVQTXZWSk9SMW1ubW41UkhUNXc4NkxpV1llT2pnODJYL1pHclFJREFRQUJBb0lCQUZEaUxjYStlKzV1WGJaagpKTjl4WndxM25DR29mS3dvMjJFYytKRGMyQTNBTkVDTVJ5SGI2OVhnRU9YeTd5TUdrZVRpOTN0TUEvZm85ODhECitQSWZhUWwzWWlGK0hPMkdHVnhKRktLWmw4VzF6a1VGTkQ3b1RKSHBVY0N2VHR6emVPdDR3RFQyNVJrdHFXeE0KdDZyVDhHSzF2dVZtNGVQaEhLa3lWc3hYWHMvWmZvTHhxa1BxWXFHRkd4NU1VelVJY0hnQmpyRVVIWXJVNHN1VAoycklzOFl4Vm5nYWdGdXdmSk1WdkN1aDVvNndyWHJvbHJKdDlFY1BtMzFVWFpGTXlhaTRVa3JVbk5qbkNMU3JsCmYxalEyQWRkYWp2UE5mYTk0ZFBsRVdOeHlRM29YNEVwOFRqUFhTc3NUdURXVFdZVUFURXFIb25MNEZUYytNVzkKTXh1SjJ5RUNnWUVBeHVjRDRwaW1TaDBkTGZPZTBVM0VmQ04zNll3UDVXdDVIMHJJTzBQQ2l5ZVNoSEZvaUVJMQp0eTZnWTk2UFFEYU1ycW5OZDN1Y3Q5WjYwVHlwUloxbUtNa01hV2hOVG41L1NqbWNxTTV4ZVZYSWVvV1QrRWkzCnQ4bmd3U1ZlZUQ1OExnQ3dFaFF6ZUJLM2l6UVVQN3ZPclRXcWlRNmxUZGNXa1JPRWhQL0lDdE1DZ1lFQTBycC8Kbnh4enh2MXEyUmY4ekZvVTRvMG5Mb1dvRFYwM1BTcGIwU0xUSzYwVndFZGNESVRqSnlmbTBQRFcyNXJobmVhOQpQeGw1R1NtakExMFpKNlprZVVIMkJwMlJjNDhraHd4Rit2bVkzSUZKeFlLMXBGWlEwOS9yYjkxendESWhtSGQrCk10b3JvbE5jb0srcC8zWXN4SkZFOXJxVzVjbmhLYnlwUFRzQ2VIOENnWUVBa2tuTWNMZEc3cEdWS1h2Wm5pVXQKVXdRZktKVk1CN2RRNFRQMktxaCtpQ3cxdGRWWFJZZzB5Nkt1Y21WNVJJZ2FWa2dyQnlyU0s5L0NldXU3cjZqQgpQMVFISGV1Sm1DYXZaaDhUV3BCam94TDFuUzlya2h1aGk3b2Q1TkNnTjUzMVpUdzZRMEc2VFNDdS8rSHcxcU5CCnNlRWJxU3d0WmgvQXlEanJxWW9hVGVNQ2dZQUZRZGZiUFZkNkdHcG8vaHMxY2UzaGRRb01OQk5zT2U0ZDNZZXEKNFFhSnFXaklnajgrcExZU0RRSEtKcWdGbElpYWF0NC95Ny9rcTlCQVRqdEpiUEpHd0NtR0lybzFPdFg3ZElmdQphZm14VHB4cmpBWkNFbEV6NS9zMHNENnFCZFltdXB4d1lsY0NWcmdSM2pBTWlvTTFhRFpqUFdaMFZ5UUI2WTREClZBeU11d0tCZ1FDdlA0RUVHOUcxSFYzQUpXVkVhSmpLai9paEhJTFdYTk1ZWVR4OVVHdjd1My93d1hiQ0tTRDgKTG4wdkp0UVFQNnpISGtSV05GM003U2RlU0VGSHQ4SWlXTThueXFTOUxOVkJtSW8vNVNUUWwyTlZYdmdYVlZNUwpLUU1lVlZHTkR0Ykd0REFhclo1VFZhTHFqMmNGaWF1U3h4SGdneVU0NUlrVzlHQkJqM3g3WGc9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
   additional_trusted_keys: {}
   cluster_name: me.localhost
   type: host
@@ -1386,16 +1069,17 @@ sub_kind: host
 version: v2`
 	userCAYAML = `kind: cert_authority
 metadata:
+  id: 1736815462679182000
   name: me.localhost
-  revision: b82425a2-dd10-49c6-9b8a-3f10e3ec8a41
+  revision: ea729b7f-99e0-4330-a46d-71c8dda9d3f7
 spec:
   active_keys:
     ssh:
-    - private_key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1DNENBUUF3QlFZREsyVndCQ0lFSU1tK2EyVlRqSHV2OVhrWG1UR2Roem5GSVJPK0pTaVEyWUF6eHNleEJFZGEKLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo=
-      public_key: c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUtZYU1pUWZTUWgyQVpqN2lNSEFBQUpxU0FQWWJLL0gzRFJ3NWtUSXBDRUMK
+    - private_key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcFFJQkFBS0NBUUVBbnBZd1JWUXhZS0VTWVJJZVdIQXhGRGtFNmRwM2R1MEFyUlNrSnlhRmlzVG9wRzlGCkV6SDRuRkpPU3prbW5rWVE2R2hJZ0ZxdFRURDhtVGt3bVJGZy9LQXViVTBrSmxNbldkQW54dHAreVkvRGNPUTIKV2dGN0o2MlVzSG85U2VDWnVCZG9WM3ZpaUw3cm9XVE1hTUYrZmhTMlN1bVZaUEl4U1l1aEtNcjlZK2dVVzhULwp2NUI4azA1MTVyTGxrVVU1aC81dm5YVEVWMVRmSTdFTmc0V3FZWVdOc2JDWkpjUEZ5RFMwU0pVdUtwbEt6RW9SCk80aDVTZzRkTnZDMFFoc1VvL0pUVmE1ZXQyUi9WQ0NXN1FjNHdhbklaQ2tGNXoxbHczcU9CQ0VSdlJRUW5zVk0KZm90eVh4VGY1M1hGdEk4ZE5yekJPeWVXeVlHNGFhR2doYytweVFJREFRQUJBb0lCQVFDQUVXK24vVWJtN3d6RgpvWGtxR0dnNkdaWHpPSDh6WmxBZWRrWGViQWg2T1d4YXBwVVUzRTBXQ0kyN3g4cDlGTDVBd1Q2VGtTYlU2Sk9GCk5aOGViZDl5QS9XYVJTckZYRyt4NHh6TVJOVVE5MjF3dEl1RUFpQXZ1Y2tTLzVTUkhiVmw2bGxVRlBLclZlczUKNmduOUt3MTR5a2N3bGhRVWNsWUZPNktKSyt5WGlhV3lpSXZLOU1RWlBEUUtEWG5sUitPeGw4VWsyTVk4NmdPYQo1a2l1M3lZbFZla0NiMjVETG5renhsRFVuQ0QvT2pSaW1uVDB2MjJnRzZ4Y3ZRdG8rSlBtYmxwaEZ0bk1hQTI2CkFSOW05YmVvWDVFRlArdDRNNzhEVEFRUFkvcW0rN29lTlMrRkRmL1N5YlJsWlBFaE43dTdTN3dZWmVUdGs4cGkKb2ZSWDRrd0JBb0dCQU1YcXZHbmQzZ3Y1WGljRjh3SU5ISnBzd04rS01YVWN1NHZZN0NlOWVycllvb3djNnI5TApadnVRbWN0amdmdG5HWDhrSVRmNXdsenRjQ1gvNVJmam5OeE50bGJubE5qM0pQNDYxZWVHMmRKYTJzWWd0VE5DCnBpNE1QZTJ4M1QyZFV1N21UMEcyUnJJMW9Kc294b2JCMEQyYkJnVlIvV0thR240OWJpLzd3eXVCQW9HQkFNMGcKbmQ2SURMR2NiYVlhV0xJYUwyWDRFckJJTmFGRU9URVBrSHNMTUYxVUJJZXRNcDl4WGNLaTZZWHJlRUZva2xqeApWY0RDM2hzQ2VQK3hQY29icDZ5UG9Sd29yREpGcnVWTU04Wm1HWEI5ditWakpSeHpYUGdUSURUN0U4WEEzb3pSClQvT28vV0s0blFGUTdqMnFaMUdOMm51TzZtQ3JTUzRGSGJZMmNVSkpBb0dCQUt5QVVPSXhCOVVGN3lNeUUwRUoKYnBIR0VrR0Q4R0Z6dnA5QVhXeXh3S1BVSjdEWmoxMVYraGR2VEN5eXVWc0czSGt0WTJxblhObWo5YWlaSmZNeApac201VGlEbXpaeGhwTE9WVWxUdSt6RldFUEs1RlZYdFZHdzBMVkhjUWNudk1wYVkxQ0doSG5NN1BKV2Y3NUVLCm9sYmZwRnJFd0lYTmJTUDBwUEpiakJ1QkFvR0FReXN2QnJOZUZMcTRYTys3bzNaWGx2aElobGplMXRQVU5uQjIKU3hRNjNoU285eFNMd3hJSU5iZks2QU5XK1hRWWwrOU91VFFXTHBuOHJSMklzaW1rR2lsZUJDNTlWR2psQUVpWAptNXZMTUw2OG00eC9sblZnT0F0clBHNEs1M0prYlpBTXNpamY3L2VyMGNhQ2ZNYlQxaXl4SWt5R0N1bUxxUG9iCjVKS25PNkVDZ1lFQW9JTi9vd3ZqbVNIczRRV1hGMEpacHhsYmp4QW1FdXdkNXBBOEpiUitlc2VwZE9MYVNRK2YKM2lyL2lIZXgxem5mcHhyMUdqRS9rQmNCM0lrRTA0emhwRk5xTFUvYTI2bTBZMWI1RkxmVEtMNHpvTklXU3BuUApFKzVmQnkrSkhVczc2dkJWM2ZaY09WRjZqc0RpMjUyV0NoK2VrbFNVVWpLQmdpa1dNVVpDMnA0PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+      public_key: c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCQVFDZWxqQkZWREZnb1JKaEVoNVljREVVT1FUcDJuZDI3UUN0RktRbkpvV0t4T2lrYjBVVE1maWNVazVMT1NhZVJoRG9hRWlBV3ExTk1QeVpPVENaRVdEOG9DNXRUU1FtVXlkWjBDZkcybjdKajhOdzVEWmFBWHNuclpTd2VqMUo0Sm00RjJoWGUrS0l2dXVoWk14b3dYNStGTFpLNlpWazhqRkppNkVveXYxajZCUmJ4UCsva0h5VFRuWG1zdVdSUlRtSC9tK2RkTVJYVk44anNRMkRoYXBoaFkyeHNKa2x3OFhJTkxSSWxTNHFtVXJNU2hFN2lIbEtEaDAyOExSQ0d4U2o4bE5Wcmw2M1pIOVVJSmJ0QnpqQnFjaGtLUVhuUFdYRGVvNEVJUkc5RkJDZXhVeCtpM0pmRk4vbmRjVzBqeDAydk1FN0o1YkpnYmhwb2FDRno2bkoK
     tls:
-    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNBakNDQWFlZ0F3SUJBZ0lSQUpsUkc4OFlqTURVUmZmOENYMnRpbkF3Q2dZSUtvWkl6ajBFQXdJd1lERVYKTUJNR0ExVUVDaE1NYldVdWJHOWpZV3hvYjNOME1SVXdFd1lEVlFRREV3eHRaUzVzYjJOaGJHaHZjM1F4TURBdQpCZ05WQkFVVEp6SXdNemM1TXpBeU16UXpNelV5TURFNE9URXdNRFU0TnpNek9EWXlNalkxT1RVMk1qQTVOakFlCkZ3MHlOREV5TXpFeE5ESTJNRFphRncwek5ERXlNamt4TkRJMk1EWmFNR0F4RlRBVEJnTlZCQW9UREcxbExteHYKWTJGc2FHOXpkREVWTUJNR0ExVUVBeE1NYldVdWJHOWpZV3hvYjNOME1UQXdMZ1lEVlFRRkV5Y3lNRE0zT1RNdwpNak0wTXpNMU1qQXhPRGt4TURBMU9EY3pNemcyTWpJMk5UazFOakl3T1RZd1dUQVRCZ2NxaGtqT1BRSUJCZ2dxCmhrak9QUU1CQndOQ0FBUlN0T0tLYklVeGppSTFIZEJGU2xVQW1LQW0wUXlxejljWVZEdlZEc0RNT1BqNFRTWGsKOHp5Q0FhYXloTlgra21lZlU3R2ZIeDBlVVMxbVhBYnl6UnNHbzBJd1FEQU9CZ05WSFE4QkFmOEVCQU1DQVlZdwpEd1lEVlIwVEFRSC9CQVV3QXdFQi96QWRCZ05WSFE0RUZnUVVKZi94RjBtMStZM1lIRlRubVJhcGJ1dVdqa293CkNnWUlLb1pJemowRUF3SURTUUF3UmdJaEFLZkU5bXpPdzcrcUx3bEFxdFFWUVBNODVFTGp2NlFSdmZrcUE3aWoKSEtCMUFpRUFoNjVJZmV4NFpwT0szYVVUVTZQWGFkODlDdmhVb3NFMzRzWU1FZHdxZk9zPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
-      key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JR0hBZ0VBTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEJHMHdhd0lCQVFRZzRXUVZQclNGTmR6bVFMRWcKQkMvTU5sb2JEL0dKekNGU01vOUZsV0pjZDY2aFJBTkNBQVJTdE9LS2JJVXhqaUkxSGRCRlNsVUFtS0FtMFF5cQp6OWNZVkR2VkRzRE1PUGo0VFNYazh6eUNBYWF5aE5YK2ttZWZVN0dmSHgwZVVTMW1YQWJ5elJzRwotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg==
+    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURqVENDQW5XZ0F3SUJBZ0lSQU1GY3prVVhnOFV4WnRBMkI1dStUUFV3RFFZSktvWklodmNOQVFFTEJRQXcKWURFVk1CTUdBMVVFQ2hNTWJXVXViRzlqWVd4b2IzTjBNUlV3RXdZRFZRUURFd3h0WlM1c2IyTmhiR2h2YzNReApNREF1QmdOVkJBVVRKekkxTnpBeU1qZzNPREUwTnpnM01qazRPVEEyTmpNMk1qY3hOREV4TWpRMU16a3lNakF6Ck56QWVGdzB5TlRBeE1UUXdNRFEwTWpKYUZ3MHpOVEF4TVRJd01EUTBNakphTUdBeEZUQVRCZ05WQkFvVERHMWwKTG14dlkyRnNhRzl6ZERFVk1CTUdBMVVFQXhNTWJXVXViRzlqWVd4b2IzTjBNVEF3TGdZRFZRUUZFeWN5TlRjdwpNakk0TnpneE5EYzROekk1T0Rrd05qWXpOakkzTVRReE1USTBOVE01TWpJd016Y3dnZ0VpTUEwR0NTcUdTSWIzCkRRRUJBUVVBQTRJQkR3QXdnZ0VLQW9JQkFRREdCK0c3UE1OR1FCYXUrQUJvL0xPNDdIMjQ5ZUpqeEhDRnlrWkEKeDMxYWphNWs3M1RLaWlFVmNBOXJxZ1FBWVJkcGZRdUU4cUR6SExPTGZFRTB5Nm9ERVhhNHJtV1hGam1wRjVlNApmTmYvdUZqMkJPMFI4N2JoQ2hOSHY3cUh5YU5vVjYxNXdKNStRMkVNblc4R2FoTEx5YnliZzRtZ2QwZEZkaHBrCnE2SXk5OFJTQlQ4WXk1aG5WT09YOTFJemFOWlpKQ2tHUWlkZ3d1R1lCRkdUcGNMQjhQVUVYOVZPNDVMYTFZYUkKTS96NDZ4TEdmcWVlWWdHZURObC96S3JDdVpZc0s2eHkrdERVek5ILzBWT3Jpb3c0aEhWbi9SdHV5eEJyZTRuNApwVHovVXRDWjVZQWVmTVBIWWo4UlBFWFlqTmg0MlY4bVpobkc4TWNVRFU2cWxUa3JBZ01CQUFHalFqQkFNQTRHCkExVWREd0VCL3dRRUF3SUJwakFQQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlQ3RTZrUEh2dFQKanMrUlRWSVVLclhBaDlKTmNEQU5CZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFRb01lRE1xVUt2VFE0OHEyemRpbApQc3p2dzFNdlhveUxHZWw3L01wclVEK0l6THl2cU1DUzZmbnhvV0NSRy9SbjAwaHorS1BIc3gva0RubHVjNVhKCnNqYjEzMjRhdDVhQlB0NmRibUpUR0lqK1NnenlUWmQxVVpSdTgxS0xCRWlxa0FMUE15aG1LYUEzSXhsYnk5S2kKNGpQNWwwK2JwanNTR3ZNTzNaK0thY1JGQlN0c21kbkJXZEdSMW5Hck9mVlBPRWUzSDg5NTFkbWpFNVdrTnNEUgpUNXNjVXRDYzlCdDduNVU0S0k3TE53SFA3cWppc0dpbXZuTWlOcVFOdjIxS2VEZ3E0eko3SkxrcENNRzlxRDB2CnFTQWlnYXhWL2o5bTVWcWF3d3k2VDlsUDh2WHhoZGV3dkhSY0hrSTdNc2VFYnYwdGlyelRLdDlzTVM1UGd3czgKQ0E9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBeGdmaHV6ekRSa0FXcnZnQWFQeXp1T3g5dVBYaVk4UndoY3BHUU1kOVdvMnVaTzkwCnlvb2hGWEFQYTZvRUFHRVhhWDBMaFBLZzh4eXppM3hCTk11cUF4RjJ1SzVsbHhZNXFSZVh1SHpYLzdoWTlnVHQKRWZPMjRRb1RSNys2aDhtamFGZXRlY0NlZmtOaERKMXZCbW9TeThtOG00T0pvSGRIUlhZYVpLdWlNdmZFVWdVLwpHTXVZWjFUamwvZFNNMmpXV1NRcEJrSW5ZTUxobUFSUms2WEN3ZkQxQkYvVlR1T1MydFdHaURQOCtPc1N4bjZuCm5tSUJuZ3paZjh5cXdybVdMQ3VzY3ZyUTFNelIvOUZUcTRxTU9JUjFaLzBiYnNzUWEzdUorS1U4LzFMUW1lV0EKSG56RHgySS9FVHhGMkl6WWVObGZKbVlaeHZESEZBMU9xcFU1S3dJREFRQUJBb0lCQVFDVUdFTGMxcFVtalRrcApnbmcwQzMrUU5QUFVoYlhYYkluRjFENXpwWHgrWXVSZndaL3k5QmZIdzNVVXpDR1A4d3dpTEl5WDBTZENpRjFSClhBd2Jvbyt6R2JWU2FjRzVtcnBtVlNsMm80NlpROURyczBWam5vSk9pMDFkNCtsb01RaE9PUHVYeU0vK2x2OFcKQXdxTG5ub09Bd0ZVdjZzRjRRM2d5WEQxaGxHWGtOZnlTWEI5QlkyQmZ0dGswREszMEVqeEd6NjJpVWRITEJObwpTUllEalpBRHZpeTZzamcxWVBFczc1UHc2Y0JSdzRteTF6MWRyRnlESHlMbVd1NWZlMzhMd3pWeXQ5SVc2N2tBCjgrRUVlZTU1c0RNdml5OUd1Zm1mMlNyV0J3L3BDSitNbkVTYkhNWDQ5U3U0Z01rTndPc3VlZjNrK1hHTmFrdU0KZFpsZko2MHhBb0dCQU8yMG9vcUxHS2hhUk15c2FEaWNESXNaWU5FTzRRc1FaME9iOVI5RTVqQmY4TmtnTkZIcApiWHF1aFJmSmNHN2pTZmN3NGRLOGx0aUVnek9sTVMzeUlJV2FSeEc3OXIxNTllaXB5ZDBtbTdTYXdtSkN6VmsvCmt1S1p3SE5wWnI3ckYvVWcrSkNQODMzSXBZS1YxWGNrZER5Q0RIY1J2aFVKT0VmZnlwWjR0bzNKQW9HQkFOVkYKandhOEdrcy8rUDRiRytXZExJOHZ6TFJxT3N4dEZ1bHNUNlBtcGxzYnF0OVZNK3hkd0RzMk5WeGNtK0g1TnhrZAo5bUVJMVljaDh2WFVyMTBiYllhTzNMU2lKYm1uK25vNDNOM3h2dEcvU2N4Umc5RjlQbm41NU54UzRrMGdKdWEwCjNUSmdidWt3UmtIbkpwZ2pUbERURjhrK0RmZytFRWtPSjk5ZTk3bFRBb0dBYkdpaWJLOE5XdEo0YUNRRkVEUlQKSUNrOTEzcUN0aW9QL215bE9WS1I3T1FFa3ZHMkN0bDd2YVRVUEVuNWhna1ExYlNzZVJEYmR2blFZSUJwVW53SAp5d2JXZk1jTnU5SmdqWERLQ0pzd0RnazZ0OWVoa1orRjNPU2tPYjZMUm0wdnF2TVRpZEt0Q09PMllEejNjdlBrCk15aFlpUUZGZ0pDSTQzYTBEVFlXZzhrQ2dZQlJvM25YaXlQSmtHaUE1T0d0NkplSkREUWhEOVVJTWU0bVZtYTYKQiszQVRId0JWNzB6aXNPdUp0Y1FUd2NBM29RLzRoOVJENitsTmRLcVZjcjNLaXVuNllJRXgxa0hrNHluUXFNUgpkcHVqOE1TUUtOZjcxaVNYVHBoVDJvcDBHWTJxbkt0YndGeFVlVDA3dHY4b0Y4Ty8zcjVwTTQ3bmF1S1RCSTh3CnkwcXFyd0tCZ0NHT251RjFGUU5LdW85b0g0YmhOVW1xbVhmYng5czMwQm1ZTmVHUWczZ1F5amVzYmh5MDdVV0YKWnkzQXZNYmdlL3pralpaSnZPcFN5QzlLWER2aVBGK2UwRG9WY0Z5VFI3TVlyLy9IcVBlVHcwVVVXZnlQb2FxWgp5QXI1cUU0MVR6NGsyR2FOYnN4R3hpU2J2cFdWa2gxMFdjdmpwdHRka1I3UW9RSlg2UU9xCi0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
   additional_trusted_keys: {}
   cluster_name: me.localhost
   type: user
@@ -1403,13 +1087,14 @@ sub_kind: user
 version: v2`
 	databaseClientCAYAML = `kind: cert_authority
 metadata:
+  id: 1736815462678741000
   name: me.localhost
-  revision: 797ca33f-e922-45db-b531-ab62af23963c
+  revision: 2ab94406-c75b-4894-bc63-04191d54c15a
 spec:
   active_keys:
     tls:
-    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURqRENDQW5TZ0F3SUJBZ0lRWGtnVThDZFo3TnkrbVJacG9GZUwzVEFOQmdrcWhraUc5dzBCQVFzRkFEQmcKTVJVd0V3WURWUVFLRXd4dFpTNXNiMk5oYkdodmMzUXhGVEFUQmdOVkJBTVRERzFsTG14dlkyRnNhRzl6ZERFdwpNQzRHQTFVRUJSTW5NVEkxTXpJeE56QXhOalV5TnpJMk16QTBORE13TlRRM05EQTNNVEE0TXpjM05qUXpPVGszCk1CNFhEVEkwTVRJek1URTBNall3TmxvWERUTTBNVEl5T1RFME1qWXdObG93WURFVk1CTUdBMVVFQ2hNTWJXVXUKYkc5allXeG9iM04wTVJVd0V3WURWUVFERXd4dFpTNXNiMk5oYkdodmMzUXhNREF1QmdOVkJBVVRKekV5TlRNeQpNVGN3TVRZMU1qY3lOak13TkRRek1EVTBOelF3TnpFd09ETTNOelkwTXprNU56Q0NBU0l3RFFZSktvWklodmNOCkFRRUJCUUFEZ2dFUEFEQ0NBUW9DZ2dFQkFMMDZCa0hXMTBpWm1NTHZ6Y01tNC9WNmk3M2EvWjNpM1hzN1IxamYKc0FDQlB5TkNJTkFCbnFoV0NHdWJPb0JWT3REemQyVUJTZ0JXYVVNcXhiUytmQjBLYllEVDVkaFN1YXd4Wk8zQwpmN0xaZWtlZk4vb1FZSjk2WlVoemVvL1g4dkZZNE5ocXBIbXJMV1VRTGpZUEZ5cVhIWGM1L3hTUkVPVm8ybnZyCjNOWXFnR2EwRUFvMTRvRUJsR20zMmNQUWNvTGRBUUhqaFJrampQYStNeXRGSmNzeFkxWTFDemM5V1hnYzZvK1AKRWp0U3dRMW9Fd3ZOVHhYbXp1UElOcTZxdVZjS1kwcDF0anBWT1R1dWpaZ1R5NGRIMkJIQ1I5d1ZxejlVRGJPWgpWVHVKWjVnRFdQQkpGcVRPNUhkbzh5QnVLOXM0RndYZDJoaC9oa1YrNitabXdJRUNBd0VBQWFOQ01FQXdEZ1lEClZSMFBBUUgvQkFRREFnR21NQThHQTFVZEV3RUIvd1FGTUFNQkFmOHdIUVlEVlIwT0JCWUVGRTZ4R09aSmFoTzUKc3FmQ3pZK0ZxTjQ3eGpWeE1BMEdDU3FHU0liM0RRRUJDd1VBQTRJQkFRQk41V2JLdVRzaWlvUlltS3BlcGtiTQppT2FCbGJ4ajZtOTZDVHZpczJSeXlmUU1qSXduT1dYbUtMMHpGQUtvZThDWVk0UEJFWEtuZzZBd0NNVXdzWnNPCkZPMFE2Q21JUzlwQXdVZURIZ3VrN2x2dWQyeGFvb0MrazY4OGtmUlZhRjVPTW5WaW4xajBJY1MwM1d1QlhSckwKVDVwODFza3JOaG9Gd1BtdnU0RkZmU1lHb1YrajQ4NC83Y0FOY3J2c0FFdFBFdk9EdzlUVG5vb05zdUoreVhaMAoyVW5LSG1rOTFCeGdZVDVHUE1CVkYwQWxzenhjcVN0S2hBMlhrdzBCY1pnTXVBa3BYSXJRbUZNNGh0RnIyY0NOCkpTTk1mVUpsZVlXLzJiNmJvbENZTUliTFoxeldaaDBVYTJ6QjlOME9wNE1aS25xRmhtc2JVWFFOa0xGd1FEYzAKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
-      key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcFFJQkFBS0NBUUVBdlRvR1FkYlhTSm1Zd3UvTnd5Ymo5WHFMdmRyOW5lTGRlenRIV04rd0FJRS9JMElnCjBBR2VxRllJYTVzNmdGVTYwUE4zWlFGS0FGWnBReXJGdEw1OEhRcHRnTlBsMkZLNXJERms3Y0ovc3RsNlI1ODMKK2hCZ24zcGxTSE42ajlmeThWamcyR3FrZWFzdFpSQXVOZzhYS3BjZGR6bi9GSkVRNVdqYWUrdmMxaXFBWnJRUQpDalhpZ1FHVWFiZlp3OUJ5Z3QwQkFlT0ZHU09NOXI0ekswVWx5ekZqVmpVTE56MVplQnpxajQ4U08xTEJEV2dUCkM4MVBGZWJPNDhnMnJxcTVWd3BqU25XMk9sVTVPNjZObUJQTGgwZllFY0pIM0JXclAxUU5zNWxWTzRsbm1BTlkKOEVrV3BNN2tkMmp6SUc0cjJ6Z1hCZDNhR0grR1JYN3I1bWJBZ1FJREFRQUJBb0lCQUM4MnF4a0NZZlRiWGlKRgpjekdlSW9LOWNPQ09JM21oZ1dHZUNNOUVBTVlmZVlGeW5uMUg2aTVXU1FPUVY2aHRtNTlISUNNemp5TkdiRDAyCkR0NXFLTTJXTEh4WVlxRDNBeHpUdGpzY3JJQVRnMDhiaXZ2NTJpSHdpQlRydTBqb3VOVS9OOXJId1FJYWs5a0QKa0lRc2Y3dEF1VGxtWHg3aWt6U3FWTmxXb0dOUENZek9Bb3FZcXlTaWhEc0pLZ3N1SVFOV0lPVzE1dGxmb0NsQgpTTkF0cGxlclBNbFl6T2FjaUZVWkJFbGVOWEp0VURwd0szOGU5N2RMclJrYWRLeXhSVTNVTTE4dFR5TDZrZ2hMCmVsT3JBWDE2K0RFdm1PeDhGQlgyS29tak9OL0pORVZUN2lkcndyVnh2OU1PTUFpQjRDMms0a25jbUxIVE5DTE0KelJmOHY0RUNnWUVBNVg1d0VXVlZ0WFhNek02VVZCZ1ZwMGZmNVlPTTNTV3FoOHE1OGQrLzVBS0ZZSjZ5U1BpLwpoaVJvZ2xXc2NheXV3UVhTaHVMV2ZQVHJxMmVQNFVlcGdEa0g0c3NiamFwODFTMFZnN2JJZ3ZrdGxOTjdFMkRJCnFhMS9pNzBBQW9GOFNNY20vRE00N3RiTGxxS0ZwT21GSjB3dk1zUkh5aTJGM3pRaDB1aTFTQThDZ1lFQTB4VDgKSFZISnl1VHEvMERBdi9kLy9RNEtFUW5CS3ZmaFV5K0FOd0NGNkFhRW5USnAzTTRmNkpmUkVRUytFd1ZVVFk5WAoxWkNBdTd5N2NoQmtORG5TMmZJR2ZiQnYramVGWm9SZDRkQ3RwUnB1bHJka21yNGFaZnZnaGZsanJkdVZrdEM3CmZtQjZORTl5TURMYVBWT3Z4VEZGd3ZYMHRRUFdmYVNpL0Z3NVhtOENnWUVBdUtJT201QkJjbXBCeUl4eXZXMWIKRG1nKzg3SHdoSU1uUFhTV1FNaFk0Nkk3bUU1VTlXeGEraHNVa2JkSHMzVFFhNjY1ZjVmRUpHZ1BxcWo1RXEvSwo2TVA1V2pjNkJiR2lHUWZhaFV0cTZpUjZ6WCtQUnpuWWR0cUZBUEdmcm1ScWowcmFUSkVSUHVaRWlQNWNNeDlFCjV5YmQyaVFiOWNiR0s1c1BrMVZ4YzNVQ2dZRUFybkVzUGNyRzJyKyttYjVZelF6c29DUkhHM2VWUlQ1ZjM5QmsKeEkvUkdrU3d1ZnpjMGhjaTlhVHBxWWZpMFhOWkRWUUdRYi9QTTlld2pYNlFZVHpjVFRPZ082VmhsVWJuSHljTApNMEN6RUx3OFlxQWpLMk1xQzloUjRFYVBJekpTZFdlOVc1Njl2NWRjaGdxd28zZ1N6Z04vWkxUQlRBdGs2cWJ4CjcxOEVKazhDZ1lFQXZGckFPc1VJdmh4T0FYYk5mMUxwbnlabXVORUg3ek9XZ1FNM1ZlNG9iT3hqenVHaGs2RFUKVGhFdDg0emhsMk5LeFVacHRwdEJLRkdxM3B2dGc2TElqbEtpWmNPUEovbHcrTVZPb0U0S1Y5U0F3Q1VPN3o4eApDbTlzM05ZQTV6RWZRdGg0OEt5NmdBZVhZUHlkMWZidjl2QXlwM3FQbEpxa281SG5peHNxamNvPQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURpakNDQW5LZ0F3SUJBZ0lRTjlDcHA4VkYzQUpuWGFnbk5kVHVkekFOQmdrcWhraUc5dzBCQVFzRkFEQmYKTVJVd0V3WURWUVFLRXd4dFpTNXNiMk5oYkdodmMzUXhGVEFUQmdOVkJBTVRERzFsTG14dlkyRnNhRzl6ZERFdgpNQzBHQTFVRUJSTW1OelF4T1RBNU56ZzFNelF4TWpRM056VTVOVEl5TVRZeE5UZzBNalUxTURjME9URTBORGN3CkhoY05NalV3TVRFME1EQTBOREl5V2hjTk16VXdNVEV5TURBME5ESXlXakJmTVJVd0V3WURWUVFLRXd4dFpTNXMKYjJOaGJHaHZjM1F4RlRBVEJnTlZCQU1UREcxbExteHZZMkZzYUc5emRERXZNQzBHQTFVRUJSTW1OelF4T1RBNQpOemcxTXpReE1qUTNOelU1TlRJeU1UWXhOVGcwTWpVMU1EYzBPVEUwTkRjd2dnRWlNQTBHQ1NxR1NJYjNEUUVCCkFRVUFBNElCRHdBd2dnRUtBb0lCQVFEQzMyUDdINUs2T2tYZE1Hb3NsWjhMMDR2eWRMSGxYRGhEcHEvMnVTYW8KcVA2MjMyaTd3MXE1VThPblVPWFA0Nm5OcWFpclFMUkpHczZuaGsxdGNwMEZkQVlvRGhGdkVuVnc1WmVxVzFZSQo3YlpGKzQvM00xTnk2VmU1cy84aTJXRkdkd04xaHhKTE9VcENIRm5jTmlkYkFzL3hFSzdVaWdWVnprMmx6bm5QCkIzeVU4Y1hneCtuZ3lIbncwcFRwcjdIdFJjdW9TbkROSkthN1I3YkwwenN3aVB6V1RXbGhYaE44LzJCMUJ4MnEKSkZVRVltS1Znc2lXK2ErUTBJbW1PVm9JNXF2QjRRdE11NHVzWWc0enovS3NhMExWQnVwUWVwL2lleXlka211cgp6K0p6ckIxU3BtTDRGY21YTnIvUHFBbWtENmNkQ2lWVHNkNDNBdGxSak9NUEFnTUJBQUdqUWpCQU1BNEdBMVVkCkR3RUIvd1FFQXdJQnBqQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCUVp6cGh0aHVQdjlLdUMKd0d6c1ZrKzU0NkRMN2pBTkJna3Foa2lHOXcwQkFRc0ZBQU9DQVFFQWlOM2lMeWdyZHVVU3MzYS90cS9NKzJmbwo4K0EyaWZYM2dOc0Yxa2l6NUhnczhvbnNOWmhSSDgrNU1ZSXVoSjNDYllGSHdCM29QNmdPSUdVWVlwbnExTTViCnR6WThycXZMaWpEZEpHUHR5YTRsVFhmY25saGljRE0yeE85WUpVT2xEVjZZdWNRV0VpdVpHajRnNUd5SVYwVkMKalhQV2puKzl0eG9yRG4yZWpqNkdwWnFGRlBkRjNwN3lGUCtaRFcrSDN6Y0lMNUxENDBoeHNGSlhRenYxR2N3UQpHd1hjMjBwekMvUGMrVzU1eEpTemp1ZXVnUUJVWVg4UDJVOUw0a3VZeU5qeXJMOXhGSGtFUVNQNEhhTDlpamdlCndVdkd6QnpnU2c5UFZVRldtMVVVTHdoN3BRQ1JlSFhBQnpLd3ArbTJpemxSRHRzUXdxeXhKbXJZeXNaUW9nPT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+      key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcGdJQkFBS0NBUUVBd3Q5ait4K1N1anBGM1RCcUxKV2ZDOU9MOG5TeDVWdzRRNmF2OXJrbXFLait0dDlvCnU4TmF1VlBEcDFEbHorT3B6YW1vcTBDMFNSck9wNFpOYlhLZEJYUUdLQTRSYnhKMWNPV1hxbHRXQ08yMlJmdVAKOXpOVGN1bFh1YlAvSXRsaFJuY0RkWWNTU3psS1FoeFozRFluV3dMUDhSQ3UxSW9GVmM1TnBjNTV6d2Q4bFBIRgo0TWZwNE1oNThOS1U2YSt4N1VYTHFFcHd6U1NtdTBlMnk5TTdNSWo4MWsxcFlWNFRmUDlnZFFjZHFpUlZCR0ppCmxZTElsdm12a05DSnBqbGFDT2Fyd2VFTFRMdUxyR0lPTTgveXJHdEMxUWJxVUhxZjRuc3NuWkpycTgvaWM2d2QKVXFaaStCWEpsemEvejZnSnBBK25IUW9sVTdIZU53TFpVWXpqRHdJREFRQUJBb0lCQVFDUHdqTEV3RDhEQ1JnZgpHNmRINnJ6aEFaZTlMbDlLUDZUMksxS21aV0ppakFFVU1XM1hEait3ZGwzZzRhb1htZkRiV3F5bVlWNWVpOXNsCjlNckwwZ0NLVkZSeVdpWjhWUmEwU1h1QVhrN3kyVUpkRUQ3ZGMweTllZXlRZjN2Wlhwb0hYS2I5bmI1ZUpnNWwKQlBzNW0rMmVrMDJKbmZBTHRTSkljYUFRa0dpRjA4bFNNU2NhaVNDMHJ2cmRkYzhvTlhJYUN2dVFTbFNSV2wxWAo2TzVjQ3R0YzVlc2xmUkJ0S3dhbHNaalVTeUd5c3BQMGpLd2JpY2tvQnhya2ZvRXcrVGgzYTM5ejI2dGFLeXhyClJCbTJNZVJUMVpCTEpkOUpmamx1NjAzY3dmSjk1TlZZTjZYZHRZV2pPc0szdWtYNTBaUnhBWVAyYkNzbTFSdUoKU1hKYmE5MkpBb0dCQU1iOWRuYkpFN0dWVktkcGRlMUlyMG03WGxuQVJvTDJXRnlUdWlQenAwSWM0dHRmWDFqSgpQOTdiYXNmTkRzSkFIM2FJQWdsRThQQ2VMckFuV3d2UERDZzByMkdDTG9ZWk9VM0RGM1NjZ0ZtVVRzQllWZGRqCkN6eFJTSDJEcm0wSmR2NnVSR1JSNHpHcDFMK1dzNWJqRWpkaHpkRUU2QzJDL08zbE5BeG5sbzE3QW9HQkFQcXoKOEtsa0MvNm5YWnRSOStSV0xJb21SKzc2dG5hUjB6SXVyY0FQSExNcTNjUC8yUzBneHBGd1oydmpGRHhQMkJjMApydXlNUXV3bS9GSlJtT3JKL3JaYkFjK0hYQ2JOUk9FdjhNa042cjJINldhelBZOWRWK2ZmdXZiR1VJRkEzOGVzCjM0dEVpQ1ZHMFZSZnJpOEtHaXQ2TmRKdUwrMlVkVkp2VVRiWG1RcDlBb0dCQUxvSE1yeVI5c3RKNDc0dXBZU1QKTXV3bk1tbU5pMTNibDNmVTAydlEyVWpCWUlQZGdYR3JrdjV3K2o2WHdYaHdJZm5aNUsxdHVpSDRmNFZIQmFMZwppV2o4K0FpY2Y0bjJBdEJqMW9XNTJYUGxaa29EU3h6MUJ3ZjRwV0JSdnJ0STRlbnVXUm5BUkRtbG43TU0zQS92CmNKUTk1di9GS3BtQm41dDNiMVU1Y2xJSkFvR0JBSUl1VStheDArU3RKZGRVYmdPOGw2NDVDSnRZeHN5MUZsVDEKbGpXbjQwQktIeFA2MDl3eUs4b3o4eEE3dnpNK1JyaHVHL01yTmtrSVNYZTVkVTFlREl6R254OFRhOCtlUVlrcAphc0FNSVB2QUNudlEwVU9UdGVUcThWdlpTTTZGVUc2UUh4aGpRc3NRaGZ4cEhyckFaU3gwYm1SUjRVTmVGcm55Cm9kcDNnN25GQW9HQkFJNnJxTHZtazI2dC9YSVdQWDJQdDVHanFqTm5zQlllb3QrNXU5a0c5S2RmZEtRWExFd1YKUlA1OFM1Y3N2RkhhZ0IvMnV3WUFaSU9GSXdhdTlmVnl4TU1ieFpvSWg0eThhOEpqbmp5QzhWQzhlelZvalJXRQpvamhnWlNHeGRjdWVVNDFBNWhXNXQ3OXVVT0x2d3hTajArY2Q1ZndqZGFRZ0VoM3cxMm8zYUQ0MAotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
   additional_trusted_keys: {}
   cluster_name: me.localhost
   type: db_client
@@ -1417,13 +1102,14 @@ sub_kind: db_client
 version: v2`
 	databaseCAYAML = `kind: cert_authority
 metadata:
+  id: 1736815462678282000
   name: me.localhost
-  revision: 3b019bb5-051c-461a-a7f4-e335fc031bf3
+  revision: fc0e88e6-8dac-458c-9dec-f8cac14a660d
 spec:
   active_keys:
     tls:
-    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURqVENDQW5XZ0F3SUJBZ0lSQUs5OUdYVGFmVEhNNWN2cEpzK0xhTkV3RFFZSktvWklodmNOQVFFTEJRQXcKWURFVk1CTUdBMVVFQ2hNTWJXVXViRzlqWVd4b2IzTjBNUlV3RXdZRFZRUURFd3h0WlM1c2IyTmhiR2h2YzNReApNREF1QmdOVkJBVVRKekl6TXpJMk5EUTFNalk0T0RBd016RTFOekl3TWpNeE16TTVOekl3T0RZMU5UVTFORGMyCk9UQWVGdzB5TkRFeU16RXhOREkyTURaYUZ3MHpOREV5TWpreE5ESTJNRFphTUdBeEZUQVRCZ05WQkFvVERHMWwKTG14dlkyRnNhRzl6ZERFVk1CTUdBMVVFQXhNTWJXVXViRzlqWVd4b2IzTjBNVEF3TGdZRFZRUUZFeWN5TXpNeQpOalEwTlRJMk9EZ3dNRE14TlRjeU1ESXpNVE16T1RjeU1EZzJOVFUxTlRRM05qa3dnZ0VpTUEwR0NTcUdTSWIzCkRRRUJBUVVBQTRJQkR3QXdnZ0VLQW9JQkFRRE8ybGRZbjhIc3ZNWTkzZVFMSWRoMUk5WmJtWWFlZm80UHJJRTgKNXA0bUpSUnVMMDg2Y0xlbFZNZDc0K1h3RmlSOUpLNlY1ZHBYVGw1cFoxTVBEbjh1cUkvMjAwWnlvVHlad1ZWUgpISUdwSjFqTVRZbjBQcDE0TC81Uk9MbXAwVTEzL3hRVDd4a2QxZnA4QVdzVzFYYnloc1hYaEhkMUpraTRFY0djCkJtSjc0Nml3aGxyUVNZcTNvSFpXNzZjdVVaM0g2bU9QVzVZenl1cUVYR3J3SUxneExZSVZNNXlxTUpEbHdiTU8KMzlBTGE4bzl1U1ZiaGJ1QjlaeG9BT1h4ck9ERGJSN0RuVTc0cEFTQm5pV2g5aTFEMTBBK2NlMEQySVNjTFcvWAo4MXpKSzVGSXRZSldSVDQvZUo3MmNMUGUycFRlSTMreEFCNW9tZVBCQjlrZjlLanRBZ01CQUFHalFqQkFNQTRHCkExVWREd0VCL3dRRUF3SUJwakFQQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlFacW9pb3paYVoKMTVOcFMrVjVUV1RUNnY0S0V6QU5CZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFPZFhnYk1XWUM0TFdmMnRtNUtyZQoyM2J5MlgxWHZYQ2U4L1RGdFVsMUNhdHVrV2MwY205cXUxckxiRy84ZUxCWjA2cUZSc1VTSEUxamEyRUtkREU0CjU5Y0p3bE5DN1hCMjRTQ2s1QTcxNGtpSDZMQjAxRk00WGEzWjg4YnZCSHV2ak01Q1ErN1lSSjlGZFd6YjFKK3UKREF3czI1V0haWTFGV0ovUGt5eTVycjJNTWVvS3dWMGRNSjJJWlZVMmpGZkVhYXhLWml4Y29EbG5KclIzWThEMwovUVZRckY5d0xkQWVENkExTlpjbnd3Q2F0MWFoOVA1cWhQdGlnc2lsOVM5dkd3T0JyQUEwNE9iZXQrVFNjd0tnCkVQQWhFWVlkRWUvRzV6MVZUQXBCUCtzeXRWcHdRZXQxZDRlV2VvVW04QU8yZEVuQWhhM0FvU1pmQjFTVVgxTmEKb3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
-      key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBenRwWFdKL0I3THpHUGQza0N5SFlkU1BXVzVtR25uNk9ENnlCUE9hZUppVVViaTlQCk9uQzNwVlRIZStQbDhCWWtmU1N1bGVYYVYwNWVhV2RURHc1L0xxaVA5dE5HY3FFOG1jRlZVUnlCcVNkWXpFMkoKOUQ2ZGVDLytVVGk1cWRGTmQvOFVFKzhaSGRYNmZBRnJGdFYyOG9iRjE0UjNkU1pJdUJIQm5BWmllK09vc0laYQowRW1LdDZCMlZ1K25MbEdkeCtwamoxdVdNOHJxaEZ4cThDQzRNUzJDRlRPY3FqQ1E1Y0d6RHQvUUMydktQYmtsClc0VzdnZldjYUFEbDhhemd3MjBldzUxTytLUUVnWjRsb2ZZdFE5ZEFQbkh0QTlpRW5DMXYxL05jeVN1UlNMV0MKVmtVK1AzaWU5bkN6M3RxVTNpTi9zUUFlYUpuandRZlpIL1NvN1FJREFRQUJBb0lCQUgxbTZ2c2taeG1SWEJHWAptcStSQmp3RnpPZGRUTHA3ZUw1UjAwdkxkK2NpSloraStNSXlJWE9PMFJ6dmphK2VqT0o5UVlaSWdiVGFJdXg5Cm9tSUhaTjB4ZlkyaWlodm1XZW5ReGx0VkQ5b3ZxMnE0TzBFaVVLN1RVYmVGenpEL1hacTR2a0JUZklPVS9MVCsKMnlCTnF6M2VyTVE2WDMxYkIwem9IdHJyRi91SWNzNHNnZXFOTWFtU2JUY2I1ODRSbHhUNDA0MUdlWWdtNlZCRQpHWnpRSjJESXlQbEExZFhGUW5lcHpaaWRqQmdJMWJKS3lTMzVsekdjWVc0aGgvbVFhUVp5ZmRuS3Z4QmlsdUlBCjBxcnAvTEQ4QVp6RWxONVNMb2JtMXVEZEIrRW1RNllKbDEvdm5iWEY1QWFXSDN6b3U1OHJDcGFudDcraVJ6OGwKNFhuWjl0VUNnWUVBN1dPajhMSDBYVnFMcDMyTnNrK2xnNmYwRSttVUZnMU93eWZGSEJPdlpsRDQ1T3ZQNWx6ZgpsLzNoaUJiZEMzNHNhWU1HdW9GZlRhMjJiVHpwTXl6eXFhZVRhdy9HS3psR2Jlc0dIRk9Xd3F2U2Ivd2tWTEUvCkZocTZGSE1vWGp0aTE4eFhjRXdJQmVQaHhVZVkrZkd3V0RTREV1c3NZdFFxQjh1ajBXaDlYUDhDZ1lFQTN4SFgKbUhpdjFWLytPMkNPZDdWUkFWaThKTS9JZ0NQTk84L0o2SWRYTkNwKy8wNW10dEh0QnpyVFN0cXBGMlBSUWJEaApjYmpuYk05TGJTTVNKTHNtYndTOEhtT3MwSGQwSzU1aXdqRmFxNUdOT0xBQmlrOGMrU2Naa0d5YitxRHlGRU9UCkMzMThFSEg5SlZ6L24zYWxHZmRGWG9xWkZ1RXJvQWJCTkFEZlBoTUNnWUJsZHkxZmQvQ201a2pDOGx0YVY4aTcKR1ZLdUlDeDNzSUIxMGMzaVRsZXVOL1hxZ3hCOXVqeW56cEJUaHRJOFUxWFFVM3pRd3ZObFZGYWhJbVBheDkrQQp2R3U2V3llczJmSk1rU1F2ZjFyMUlsUDBJYVcxdlh6bGljNzNackZlZGF1dDZWMkdWamtucTF1WTR4MXoxK1kwCkRWM28vRFFnbWViTkpqR0RGRkpoS1FLQmdEaG1VSFp5ZlRLYjFMRzZsZ3JhUXlMdUJwUGdIVGVZMWJrN3JqY20Ka1B2VmlzcU9UaFlIT2NETU5NUUdTUjVxMUd1aGh6NnptMys5WWJxMFZWQUlLWTJFU3ZQOEM2T2hzRE9mRmlVMwpTVTk3dTVNTG5UZ1ZES1JLS0lLRmsySm84d3dBa2RzajNReGpaYmZlclpycDZwQ0lIbmZxM3c0VDNHM1hoMTNZCm9wa1ZBb0dCQU5USGlsZHVuWXBCTXNFVks5TFRWSm95TlNOTVdBbGFGaWlwZllmWm82M3RyQzgxK0FtMHFDQW4KZTF1V2NwRFFkQlZzbGRnTWV2TEcwOUNBU05rRjN0ZUJqWEsranNzWTRWMllTU1Bwd0dyWWhjZHpFMFBIZEVROApiMGllSGJUMGRZZ3hjWmczbW9pN1BDZi90d3Joa2lDdllIMlBMR2hzMkduV1JzSEQzcHY1Ci0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
+    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURpakNDQW5LZ0F3SUJBZ0lRS09YVVNuWDVDVTI1TStsY25wKy9QekFOQmdrcWhraUc5dzBCQVFzRkFEQmYKTVJVd0V3WURWUVFLRXd4dFpTNXNiMk5oYkdodmMzUXhGVEFUQmdOVkJBTVRERzFsTG14dlkyRnNhRzl6ZERFdgpNQzBHQTFVRUJSTW1OVFF6TmpJME5qRTFPREl5TXpFNU1qTXlOall3TURBNU5EWTNNakkzTVRBeU1EZ3pNVGt3CkhoY05NalV3TVRFME1EQTBOREl5V2hjTk16VXdNVEV5TURBME5ESXlXakJmTVJVd0V3WURWUVFLRXd4dFpTNXMKYjJOaGJHaHZjM1F4RlRBVEJnTlZCQU1UREcxbExteHZZMkZzYUc5emRERXZNQzBHQTFVRUJSTW1OVFF6TmpJMApOakUxT0RJeU16RTVNak15TmpZd01EQTVORFkzTWpJM01UQXlNRGd6TVRrd2dnRWlNQTBHQ1NxR1NJYjNEUUVCCkFRVUFBNElCRHdBd2dnRUtBb0lCQVFEY1VCcEQxSkY1TC8xbmZ6YkF0Q2kvLzVvUDREQ2tNaFlhTlVSbXlWYnYKOEc3Z2Q5YitVVm5xaHVDcmdhRGM5a3pYbE5aZnBEczR6WWpTSlM2bk5BK1RaTXplcmdNbjlhMnFmZEVwZnNXcApPRkxBVzFqODFGZVh3dCswTy9aM0Q0cXVGdHIyRHp0R1plektkVWhsaXNQUGRXejJqUW1kMGJXNUZUTG5JSE1yCnhHRVcrN0E2YUdVbnh3b2M3aEdtKy9VOS9wMDNXN1FMQ3JEbWdjYVkxeEozaGpMWnN3WUhwd0UxbFlqWm9sc0IKNlRyVkxCZkJ3UXd3TXlxeWdDVXZvQldyMWRia01BV0h1dFpXWmdhL0ppdDAzT1J2Mit4Mm1GRUo0R3NIZWJrSgpHZUlXclRjbmxxRThwU2tjUWxmNWh1a25Ob0thamE5MkcrL1AzaitTanpuVEFnTUJBQUdqUWpCQU1BNEdBMVVkCkR3RUIvd1FFQXdJQnBqQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCUTNVakNxb1crYUhFYS8KNjNQdXBUeGJONHBFSVRBTkJna3Foa2lHOXcwQkFRc0ZBQU9DQVFFQXFvWmo4QXphOFRsUEo4dTJZY2RSYnVscwpZSHFxaEd6bEpwMFNtUTlMR3diVjZVeGI0UHNBSEw4WmRWOUxyN2RNems4bWFwSC9FRURhRmpzQnB3N254TGNwCjhwVHkwbXJ6Wll0elRQYUw2dnQ3M2JHdnZ1bUsyVkxmTmh2OHBLNXBVS09UdXRHNVNPN1pzUVdJakVuQkpvMnkKcVN1MFNCTzM4SlkzNkNtRjVpckhFdG5HVHBMZVd1dWdyT25kRmVUdURYakMveUd1MkNsSzBnRWpIdVlVOUIwNgpMSUxzaU1iSHJqY0ZiQ1hiVjRCVXNPaXlMSFluV2Zna1NKRzk1VnNZRkRUNUxKdm82cUY5TE1kdzlEVW9SL3o0CkVzYktMT0I4b2dOVm92NWEvSFlhVkNIYjJSeTU3TDhWNEJLRXJoNzdJT1pZQ2RCZ25yRStmS1hZQ05JT0NRPT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+      key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBM0ZBYVE5U1JlUy85WjM4MndMUW92LythRCtBd3BESVdHalZFWnNsVzcvQnU0SGZXCi9sRlo2b2JncTRHZzNQWk0xNVRXWDZRN09NMkkwaVV1cHpRUGsyVE0zcTRESi9XdHFuM1JLWDdGcVRoU3dGdFkKL05SWGw4TGZ0RHYyZHcrS3JoYmE5Zzg3Um1Yc3luVklaWXJEejNWczlvMEpuZEcxdVJVeTV5QnpLOFJoRnZ1dwpPbWhsSjhjS0hPNFJwdnYxUGY2ZE4xdTBDd3F3NW9IR21OY1NkNFl5MmJNR0I2Y0JOWldJMmFKYkFlazYxU3dYCndjRU1NRE1xc29BbEw2QVZxOVhXNURBRmg3cldWbVlHdnlZcmROemtiOXZzZHBoUkNlQnJCM201Q1JuaUZxMDMKSjVhaFBLVXBIRUpYK1licEp6YUNtbzJ2ZGh2dno5NC9rbzg1MHdJREFRQUJBb0lCQURaeTRacmovVFFMUlVCLwo4ME03QTFzNFM1WWkzVUtuVWtrVjR4cllKZEZWQmNJYVBCdE1kY0Y5cGljYytXbkN3WWtDTXQwZVZMaWNLM1ZzClZSUmp6SG1zRHVuMTdiZkJnek5BdHlIZlAvQ3JoK0FjYzJqQS9najIwNXpTdVA0QjdFOU1QTDlWVWx2NnNzUHkKcW5yV0NjRExENnY3ZldYd3YwM0h6SFhNMGtuOVlGUEpwU2JlMDR3aExMV3QrdFYyaGxzZytoSjA5RkFDdjVibAp0TWxwcG4zVjBSNS9CeC9ic2V1MXh2NGZ6Rm1aRGlkbnFjUUNyakFRQUV4aHYxNTVzZGhKbDFldnVYUGYzZWg2CnVSdVhGMGxnMnRyVnBOQ1h3TFVSRDNXWGpxdm5XUzdqTEd3SEFKTEpnVGFnMGk4SEM0YWRkcVdLK3R0U3dwU1IKdjd4aUhPRUNnWUVBK0dOeTIzdHZSRzFlRVRNeCs1MnZNRHFZRDduM2NpaXRzQWpJTlYxa0Uva2ZhRSthYk5VcApKZUZXNzN2Qkc0RU5SbitLRWphdGdDMzJyd05jK0xwd2RkNUM5bVpLVFdqcjJQa1dCNEFmeTVQVVFIVm1DTjRRClQvRUVsM2k1cWdmbGhvWm1nQlVjMFl6dWpGcW9PVXpMZ21lampNR2YzZlhOc3JGSmtZeUxrTU1DZ1lFQTR4Qm8KVGZNTllqNENtbkpNV1lDb0ZJa2ovalVBbzd4cDRCTlZCTFJlanlzdVpmTHVVekpxV3p4Wi9wb1I4K3Bxd3BadwpHd01jZlZocmk4Q040VHlCd29NUGFkb2k5b0sxbkJPcVNMUm9qMEdXTUtLdmJSMWw5R2lCZVhUZ1pHenpHSWQzCmpJVlh2YndhZ0o3Y2VVNG1JRjlOdG5lM1JJTWtEa0JSOGMrTkliRUNnWUJWSDkveEVEQmx4d1dCNTRXdHNiQ2sKV3JCYVUyVldIbExJRFhwdnIzM295bXZWRjlMWWtZVDBrbkYweVhpNHNGV1lYNFUyRUw4Tk9yTmI3MDhoZnVPagp3WFE1ZFh6cFlwZlJXQ3dRamZ4WGpHWWxZUmFDMjNmRHJkbmcvMkxCdnNzT2Uya05aQzdvTWVCZkFZSzlnSEFPClZPNWNBcytEQmdaa3d4VnZhRGM4ZVFLQmdRRFVUOEFudXE3MkFHTnd4SlR0VDJaYUpVMVpZWGZpb2NjaHRSSFcKMzB4WGRCbmpTNzVhWHBhaURwRmJoZlpwYXZRK1ZHb29aOFZZMHJka3Fqdy9zZExtN0tNWjU5U3ZTTkxGU0lIOQpqMnNCSUdOdHdJQmxkNHFnZUtNdnpRQVFCdXRiTVRld1ZmSVB2L1hMOUQ3VTBpVEdPamF3K2NtTUwwOGtZREgrCjk0SFFVUUtCZ1FDb1dQb281TkhXU2IxbEpRcjBWR1VUemtKQmp4RnpxTDNxbWxyMEVUanpzdEVDSy9EejFvU2oKYW1leG8rd0RTb2ZHTEUxZHBMYkVPS3BnaE84QllvZUxFdW1LNGh6dm5CaEJOQUpYTzNqZkFTK0NISW1BZmN4bgpMQnpEZzJlR0JrNUpUcHM5bjNkcjVvSzZPNU8rc3VlSDN0TTN3RW5Vckx2VGEwcDBzQStmcVE9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
   additional_trusted_keys: {}
   cluster_name: me.localhost
   type: db
@@ -1431,13 +1117,14 @@ sub_kind: db
 version: v2`
 	jwtCAYAML = `kind: cert_authority
 metadata:
+  id: 1736815462676799000
   name: me.localhost
-  revision: a3f0310c-80fe-4c43-95d5-ba3f3cf9aedc
+  revision: 01d66f36-8bc8-4991-8731-35c961f6bccd
 spec:
   active_keys:
     jwt:
-    - private_key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JR0hBZ0VBTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEJHMHdhd0lCQVFRZ3dFaDQ2empZTHltT0ZqNWIKSVZDNXBkMUxSbWU1clAzTmRVN3hKQ0plMDJ1aFJBTkNBQVRYQXA5MFRRTmowaDhCNHllR0dnNFJWQStsbVV4MwpRN3EzdFBLbEJaSVpiMWtXSHdSRmFXdUJmYUQ3Sis0MnUwSjRvVGxqYU5zUUg2Vm8wRXRLTkI4ZwotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg==
-      public_key: LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFMXdLZmRFMERZOUlmQWVNbmhob09FVlFQcFpsTQpkME82dDdUeXBRV1NHVzlaRmg4RVJXbHJnWDJnK3lmdU5ydENlS0U1WTJqYkVCK2xhTkJMU2pRZklBPT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==
+    - private_key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb2dJQkFBS0NBUUVBdjc4Y3pqZjgyVEtFczN4VGJOU1djWU53S0p3ZUVZakF1M2RVNldGSC9yQ0ZoOW9ECmRRSVhKdTU2UmE4Uk5xenNpcTl5WGtDKzR3K2pyS2dXRFVtWWgxejJaS2lnVDZEVnFBVzNYVzdlL2pUZmdRbkIKYzl1dENINlVJYUxUYnQ2RmlUM2dCZ2NnK282aG82bjNVT0dXTDBIMXQwWm9sTE9OWDBrWHMwSTZvQmw4UEl3eQpzVzdzeGpKQXplc3ZDeFJCV2VoK1doOTRIa3ZTWGZuL2pVRUJSNFFCY2VSQmxxOE1nWjNkRTNWOWVHRzBEdDFhCkpQSUx3RHpyTlJLZ1d6RnhHeUJMQllDcUh2Vjl0aUtOeTIzcW5weS9SQ1FoVkpJM0pHRGdteEhZTmtuZ0NJL1EKL2VKMEFWc0tkdm45NTY5YVllUndCSFVmdXg2WW9EZGg2aDc3RlFJREFRQUJBb0lCQURIR3RmNmVzQ2ZlSW03Sgpwb3FKQVdrRVd2aGYxcnBzaXNQZnJZNU1MN2xoTDdqZGtxb3NXY0JFaGo5U3ZDQTZjY2xxMUVDOWhCQkR2aFNUCktlNVhIWjUrTm9SWTlnelZ6c0VvZ3JwaGpzZmxCK1JpbVBLdm8xS2lNV2d0OGI5RlN0c2UwZW9lcmFQOXBONXMKd0FRaUc2KzI2c2VpSW9IL3ZvSnU0aFVwNnpnbUVoR0l4RW1iNHpaN2NzM2RVZDN2dTJ1UlNmRnljUDFGRmphNApXZVlZK3RGUHBmVzRqSjdFSkRucWlIRmFXQlRRTEdIQ2hYZFdpQVBWM1kvZGl3RVAydm5lYjhLVHBzbGU5SlA2CktoWjAzYVljdHdsWVEzbXV2NU1FMkNVTW5nUXRHam5iYVFWTE1POUV1UzdJekxUQ2V5d1piL09sYW1HaVhjbEgKSkFtWlNnRUNnWUVBeXpvWUJ1TzhUZjBCdFJ1L3RvOXVCQ0QrdncwUmExVjhXQWxJMGpiL2FPRkUzM3o3K2RrKwpHaWZ1MDU2aWMvd1JaVjgySXpiMEdZemh1MC93YmpKQmdRVFJpMHJub0wvQ1JBd0p6c09tZ3lMK2JReXdOUXdUCmZqenVnV25HalRWQ0RwTW8rcXlxQ2RETXNEVDlMTmJBZjRFL2oyWWNGb2NhMmV0UmN3a1dMb0VDZ1lFQThZblcKUkdwT3ZTVlVWc1VWR1d6ZEtBK3dGQWxTTlN6K2piclBTdUlUNWR2TjVjTUlhb29wM1A5UUxGcFFiMUxQTXMzeAo1Qmltc2tvRTdnMVN5U0sxdEVOZVBQdUpLOWhPQm5sM3RYZExsK1B6ZU1CNzlnRXEyRHh4V0o1VW53KzY0QTRiCmUyZmt1N1dJeXhjSEdnV3N3TTZNU2hHaWd2Y2ZOd3VkOFNlMDZwVUNnWUJKb1FLVGZHNzgwbTJMOEVIRklySDUKVFByK3ZQMVNwZVltL3pZaTgwb1Y5WWUrY01uWis1dEVYck5vZUZEak5MQVl5aVlUSEJYVUsvYWNwcG0xVXYvbwpmcFpzb1BiS2hxOGJlRUVWYUUwcnRjSDRRR0NXMTRrNGMxcjJDQnluakdRaVk2NjFJMWwzdE81ejZMN1JQL3orCk5SV1NIcXlPZk9SOWo0UXk2VmZnQVFLQmdDTUt3RTlFclErNzdyUjMrMHVwQTV6Z1NjZGVZdExjS0VJZnJCdE4KR1YzcnViOXZ3RFRVdnFZVlZHaGE0ZmlFcHhMVDFoZ2xpMm1xVzNTOThoakVOR0JtdGJGYlBOZGpsazVTS1EvbQpzc3ppZ1Z3dmNNeUw5czlRVlpGcHh4VWNqeHdhYjlwRGhHZkhPb1ZjWGVka2sxK1ZsN3pYT2lDT0FiVld0aDlhCmgyRFJBb0dBRzFCUFdZeGE5ZFFIUnhhVEhFSHFyaUpvN1hTNUxRbUdQN3p3NUE4ck1seldKTFJQbXhZZjAyZmUKNGhoNG0xSEQxVzUzSmRpYWlHZlFxUUZJSGplelVNSFJEN2lMcURJemNYUnppWmZiaXF3dzYxUGt3bi9JRE1vWgpOTjJnekFhb2ZnM0F6UGFXZHZNV3Zka0RnZThuVy9VWUtGanJZZjMrR01wSG4zWjZUdlk9Ci0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
+      public_key: LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0tCk1JSUJDZ0tDQVFFQXY3OGN6amY4MlRLRXMzeFRiTlNXY1lOd0tKd2VFWWpBdTNkVTZXRkgvckNGaDlvRGRRSVgKSnU1NlJhOFJOcXpzaXE5eVhrQys0dytqcktnV0RVbVloMXoyWktpZ1Q2RFZxQVczWFc3ZS9qVGZnUW5CYzl1dApDSDZVSWFMVGJ0NkZpVDNnQmdjZytvNmhvNm4zVU9HV0wwSDF0MFpvbExPTlgwa1hzMEk2b0JsOFBJd3lzVzdzCnhqSkF6ZXN2Q3hSQldlaCtXaDk0SGt2U1hmbi9qVUVCUjRRQmNlUkJscThNZ1ozZEUzVjllR0cwRHQxYUpQSUwKd0R6ck5SS2dXekZ4R3lCTEJZQ3FIdlY5dGlLTnkyM3FucHkvUkNRaFZKSTNKR0RnbXhIWU5rbmdDSS9RL2VKMApBVnNLZHZuOTU2OWFZZVJ3QkhVZnV4NllvRGRoNmg3N0ZRSURBUUFCCi0tLS0tRU5EIFJTQSBQVUJMSUMgS0VZLS0tLS0K
   additional_trusted_keys: {}
   cluster_name: me.localhost
   type: jwt
@@ -1445,13 +1132,14 @@ sub_kind: jwt
 version: v2`
 	openSSHCAYAML = `kind: cert_authority
 metadata:
+  id: 1736815462675350000
   name: me.localhost
-  revision: 2c49b2de-7529-4e8f-9442-dec2357f2e93
+  revision: 64116dbb-d9b4-4765-961f-e126750732f6
 spec:
   active_keys:
     ssh:
-    - private_key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1DNENBUUF3QlFZREsyVndCQ0lFSUhoT0o3KzZlek4raTZ5dVVhVDBPT01rVm1NK0pIZm41Sm5ONzJFNmduWTgKLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo=
-      public_key: c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSVBuQ0ZocHk3TUdBZTNBSDBjTDBkMmVUK20xNVF1dmptMUU2QXlubm1uSkYK
+    - private_key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBNUhGRlVSYWg5QWpqRzBqakJIKzhybFlNaUN2M3Q3TDdPRVdhNEljTHUvWDdqSTF1ClN0YmsyVHVtSkhqU3ZwREY3U3VIYW5hK0UzbFdIMXM4ZzJPTXM3cHA3VWc2eWI3ekxwRTRSMFlGM1RnSkVidlYKeFU0L2JVa3NvZ1QyMDJwZVd1VkZaYUI1b3NVeFhZWUJWaFVFREM1b3NBd2wxSlNGaXQ5SmgzRWhXeXRJMnlMdwpZTUwwTUlWZVZ4M2lyZnNTT1BKdXhXSkcxVmVST1VUUC9sV3A1N3hqZStEc3dnZVFLVnhxSlNJeGtvU2ZpN0pBCk1HZTlSZGk3MXZnSnhOQWJhYmphQ2lpQWdZMU9Td3FoWnNIVGZ3eGpTSDZ6aG9OZE5lTEdGRks1WXB6UVROZzkKekp2dkRpalpJbHkxSmUzbm5CZVN0U2V0YWlGc3J0L0JCSVN4Z3dJREFRQUJBb0lCQURKTGtnUlpaRXpUVEJVcwp4ZmF1blA4UktPOHVKdnNGNS9PcXQzK3BtL2JGSUo0QVlZRU9zUkgyNVF4d29ZMmRXRVp3Wi84VHA2T24ra01yCkZqYWpTMDRpdzhHZlBubytsVkh5WFI2c0Z3eHVrdWlabjJZeVpScU5tc3NOSnI3RFU0VFZwNkxKWXg1b0pnYysKUXJzT0kzYi9ITU50MlVKbGRNVnZoY1BSTDVQZm1EOWpsalZqSTk5dEgyU2RINzYwWG5wZDFqNUlBQjJ6RnBWNQo4YkhLTzJpMmM5Q1pleGZkSENrazdLOVpIcE1PdFBCOTRZMHBoT3NGTTUwbzROa0twb1BRMTRKRjg4U2RzbGg2CmVLQm1PazhQVExKUjE4K0wybEtIa1E1OXFpelFxdnZNclpuNVFYUXJTRkJFd3k5cE9xTm5wVGJpcHI1UlpHWFcKY2p3STFVa0NnWUVBK2FxUWlObVdzNDc0eUxUaEczYmNDSU03bjVzUWhXM1lDMm1Rdnd0d1NMQ2p4YTIxVExERwptRVBDWitYb3dDNGRYcThvYWtKRTRkZU9mSHg5NmJLbmZGZXJHU1BHdmdCWldiNmVZV0sveThsV0svd2lhOVJjClB6TEI5NGZVRmJQVHo5N0pyRldBeHpsWkRRdUJKc09hZEF4S09KNng2Uk9KRVRLdkVDYU1MNjBDZ1lFQTZqemUKdk9LdUhxQ1N6Q1JaTWRBRktySnRIWjVaRi9rYWZwU1BUVGtuNUNLQUJvU2JUSlcvYnVmeEtTYURZQnU2RjA1YgpXY25SSXNlZWZrS2tDQ2YwYnFCZnhPemlrUG9BRkFVU2NCM2NWVnlWS3JuV1NqRE5MMlNFSnVLc09ZRitGS0U3CklRN05tUGI4MFdieG94RjMxdWZyLzhuK2d2RU9GTFZBV3hmdXkrOENnWUVBeEMwcDlONUVkRUxiYVpuM1o4VTEKajlyT2R0TTVZQjYzcS8vL0pKNndVKzI0UWhRRWFZWmVCamI0QXZ1OHI0V012bUdUdUNycVJTdERZcjNQa2xvMwpFSlV5ZEVhUVc2dWFpZEltVVE5dTlZbjJsQWxDWXNneTA5WG1ZOEh1L0Q2WktMVStjcE9jNU81Qzh1VWZUbjVVClZ1dHhScHdyMzZEaUN3bHdWWmgwZnVFQ2dZQVNlSnBYNnNnd1FobFJYOHhvMFM2WEgxcmJheEU3Z3JsRUloTHEKMUFjQlJuY3lER0x5dHh4UmNwamgxZGVtVElsd0xRMm5Gdk1XK3diVWpnekJWK1UrbEFiNVVIVE5XZW1IcXA2NQptS0UzV2dXcFNONU5HMndTd0twckpwVE9OQmZ0S0lteElhbTAxa1U1ZmhTdjkwQ3NBYjNxZmRORUlCNHNJOTdmClVCUFVvUUtCZ0VFR3pIL3hsdk1UQzBlNnhjd0pQNGIyWXNxY2FKVzB6VFRLbmUvRFVLSkQyZ04wMnJGRUp2STEKU3hxYkVHWkorSjlkQUlUdFBXeE5yN0xwNzNsRnpJZWlxSllOS0lzMXVaWXBuRElTZGcvVEg0Rm1rZU9zclVLUQpQbGwwdVpSbWUydVNrSVBGbmhUaXNVc0phK3kvVlhFQndGNmY2cVY0NmZGcDVoSmVPNUpHCi0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
+      public_key: c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCQVFEa2NVVlJGcUgwQ09NYlNPTUVmN3l1Vmd5SUsvZTNzdnM0UlpyZ2h3dTc5ZnVNalc1SzF1VFpPNllrZU5LK2tNWHRLNGRxZHI0VGVWWWZXenlEWTR5enVtbnRTRHJKdnZNdWtUaEhSZ1hkT0FrUnU5WEZUajl0U1N5aUJQYlRhbDVhNVVWbG9IbWl4VEZkaGdGV0ZRUU1MbWl3RENYVWxJV0szMG1IY1NGYkswamJJdkJnd3ZRd2hWNVhIZUt0K3hJNDhtN0ZZa2JWVjVFNVJNLytWYW5udkdONzRPekNCNUFwWEdvbElqR1NoSitMc2tBd1o3MUYyTHZXK0FuRTBCdHB1Tm9LS0lDQmpVNUxDcUZtd2ROL0RHTklmck9HZzEwMTRzWVVVcmxpbk5CTTJEM01tKzhPS05raVhMVWw3ZWVjRjVLMUo2MXFJV3l1MzhFRWhMR0QK
   additional_trusted_keys: {}
   cluster_name: me.localhost
   type: openssh
@@ -1459,13 +1147,14 @@ sub_kind: openssh
 version: v2`
 	samlCAYAML = `kind: cert_authority
 metadata:
+  id: 1736815462677271000
   name: me.localhost
-  revision: 252e2c73-6805-48d4-8491-dde615ff8c47
+  revision: 4416cb52-14b9-4197-bae0-1c272906db18
 spec:
   active_keys:
     tls:
-    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURqVENDQW5XZ0F3SUJBZ0lSQUtDdHRGNGZ1V0ZTSzJaNm1mb3VPcmt3RFFZSktvWklodmNOQVFFTEJRQXcKWURFVk1CTUdBMVVFQ2hNTWJXVXViRzlqWVd4b2IzTjBNUlV3RXdZRFZRUURFd3h0WlM1c2IyTmhiR2h2YzNReApNREF1QmdOVkJBVVRKekl4TXpVM09EUXdORGszTXpFd056RTBORFkxTWpJMk9EVXlOelV5T0Rjek1qRTBOak0yCk1UQWVGdzB5TkRFeU16RXhOREkyTURaYUZ3MHpOREV5TWpreE5ESTJNRFphTUdBeEZUQVRCZ05WQkFvVERHMWwKTG14dlkyRnNhRzl6ZERFVk1CTUdBMVVFQXhNTWJXVXViRzlqWVd4b2IzTjBNVEF3TGdZRFZRUUZFeWN5TVRNMQpOemcwTURRNU56TXhNRGN4TkRRMk5USXlOamcxTWpjMU1qZzNNekl4TkRZek5qRXdnZ0VpTUEwR0NTcUdTSWIzCkRRRUJBUVVBQTRJQkR3QXdnZ0VLQW9JQkFRREVBQTFtbG1jeU5uK3BiYzVtRkxVRWNFN3JSWWtxNlEydnNKdnYKd0F3dDRpbjhGSmoxdVJVenU1YUJqYUs5bERDN1cyd2JwSjI4SGZuZmtkb2ttOHN4T0xqTTh5YUlaSzBYNG9ZcwpTTDFhdFVPMUsrUkt5citJNGc0dzJBd05QUURsUE5xU0t3dlNzRXhsQzhSSXpUTllZYXVpQVUxaWdoVW5zZTUxCm5jMVRTbzJ0NStuemNoVEt2SU1qV0U5TUpmZ2lBRDRjVXlHVU5DQXV1dTRndWJEZVBFdStYZmVhUjNCcXJoNUwKaTRiWGdQanF3NnBLMTZzY1h5QlYwL1RzdGsxYXhpekh3M2h4SG5INDNFeUtsUVNneXBPNnNLTFFmR0VEVTZ6UgpjdlFIOHNOc0g0YmVNL2Zzb0RoeXFZQVZKbDVNT011UG0zTHBpdHJ1YktEOXA4S1ZBZ01CQUFHalFqQkFNQTRHCkExVWREd0VCL3dRRUF3SUJwakFQQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlJqNytSM3pabEoKRlpPU05pM2xsOHhUclNQNVREQU5CZ2txaGtpRzl3MEJBUXNGQUFPQ0FRRUFwZmJHWXA5Q1hoNksvL1FKY3kyUQpqVjF0RDk1akZYcVVyZ0JrZ1g0cmplaEVqQjd0N3k1SnNXZlJIK25DL2UxaGRqL3dlZWMxenR1MFJNazUxRThlCmJCNWFaLzV1eVhMWXlMVGJWaVpZQzEzV0EyTlZpY200d08yWDQvK29NNzVQTzFwUmRvTm4weGRlcDFPa2o2VDcKQlA3WVM3SUhYRlMwUE00bUQxRDRsTHRIQmhqcjdJQnNlK2ZSRXBaZEJZMktqOTZ3NjZzT0c1RlNNMVY0NWRiNQoyY1lhTHFEcGR3aFVEY0xDZWVIVnYzaTB4UGk2TUJmWTFoVGd1MjRTMFpHZnhpR2F5Qk5FWEpKL1dtNk5kQkFUClhVckV2YkU3Z2tORWRkeXJPUW9sWDA5R3lYU0dNbDVXMTVtMHNVaythNk5RanlVQTVxZU1sTTNWN1Q1REVLcWgKV0E9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
-      key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBeEFBTlpwWm5NalovcVczT1poUzFCSEJPNjBXSkt1a05yN0NiNzhBTUxlSXAvQlNZCjlia1ZNN3VXZ1kyaXZaUXd1MXRzRzZTZHZCMzUzNUhhSkp2TE1UaTR6UE1taUdTdEYrS0dMRWk5V3JWRHRTdmsKU3NxL2lPSU9NTmdNRFQwQTVUemFraXNMMHJCTVpRdkVTTTB6V0dHcm9nRk5Zb0lWSjdIdWRaM05VMHFOcmVmcAo4M0lVeXJ5REkxaFBUQ1g0SWdBK0hGTWhsRFFnTHJydUlMbXczanhMdmwzM21rZHdhcTRlUzR1RzE0RDQ2c09xClN0ZXJIRjhnVmRQMDdMWk5Xc1lzeDhONGNSNXgrTnhNaXBVRW9NcVR1ckNpMEh4aEExT3MwWEwwQi9MRGJCK0cKM2pQMzdLQTRjcW1BRlNaZVREakxqNXR5NllyYTdteWcvYWZDbFFJREFRQUJBb0lCQUZtSU1KYnBJM0REaG1OdAozbmV4QTlOb1BoU282ZlNwQ3ZCemUzZjBRVndBVU85dXRVU2g3RFo2ZlZEbTB5MUljVTVVZjdqTTVLVFhDSnFBCjlLWCthTDR1Uy9TTEtkSHFNMHVTMVhtTExMd3Z5eU1LVHJsL2ppaklJblZiYTMzc25Pa2FlRG1HNGxxMjM5N1UKbGpBdlZFSU9NNm5JY0lJTUsvKzYvdFBKWnM2aGxXZXAzcGRuOWMwUXBUWGExbGpiZ1FVMHVNN2NwanRLRE4rcwpYRGRzb2N3VGpUV2MwNGY0aDBtS3NkdmlxeG80bVBSK0tyV3Brb1pFdFhiUGQ4THg5OVNkQjJ0aEs2enBiNEErCmZKOFlXYjhZTWp3SGpXRW5OYVpiM2FocGVuRkVyVWZFb1hlRGc4ajltak1VSGFSUURIK3ZGN0RINlI3U3lRb1QKOWo2dFBXRUNnWUVBemptNCtKamswbEd3SmVDMzAyN01Fd2lQMlNwcG0yRlNLY1MzVnM0cmE3TGhFR1pSZEpBcQpYSDNpdEVjZWViZTg4aU1RcDJXam1DMktEN1ZLOTBTN2pVUUpLbEw2eTM5WDh0RGlJRHQ4Y3l2OVd6TTJEK0p2Cm0vc3BFc1A4aURJTEVYZDJYUk1JNHhja2tXRml0TkE0SDNnODNtYWRPVWkzOEsyN0xyR3Q0b2tDZ1lFQTgwNkgKbWJOY1hKSTRML09FdTdHd2hVSk1uOGdLaWpvWStMdmZvQlN5Ym9SdzFIWkNvYnRZM2NLd0xNSnAvNkdQVG1lbwpucWlXNWs0YjJLVlpuczl0elNSRWhZa1NNTWRyZllhTis3bGZKTEozS3BhenNXMGlWbk5HaFlidzZVSnY0TmpnCjMzYnQvemh4bkp5ckhzS3B0VndiWm9lWmN2RDFkcVB5cm5kOVRLMENnWUVBdDkvYnZ6eUQrY3NBSmlYQmdmR3UKWCtJb2NGZFNwa29WK2t2OXRKWkxQTkhYdnNtY0l6UlBzUHhGWUx4d3ZkSkgxQlhUeVkza1dkRnc0aVNoWE91WgoxcEV0SXVHdDREZ0E4TzJ5VVU3NDNiQUJUSW5TMEVMemhMNWlsdXJNaFpzcEp6Kys5Nm43S0kvLytPZytIRDN6CmJJdkdxZjRRZlgwTEZMdXl4Q1dFaHhFQ2dZQVk2eG9JSzg1eHpLZmtnVlEreE53SFNkci9Ja1d5RW5Fc1NGR0cKMjVmS3FkWEViTGcyU0RHNXhJNjJodExFVTQrUndCd000OGRRbnY5TEdPUXMxNkd2T04rcnJYWW5lTVVSZmc1YwprWWVsQW9JaDRuMVUxcENGdWhpbTVFTVlJSzNFb1hHbWNVKytxOUUyOFBTMW1jbzN3TTh0bVFXbU4vZHJ4eTY3Cm41RTlvUUtCZ0R4VmptWGpCd1hkY3RhQm8ra3JHT1JWV2hJUzVWUFQrVkgwQ1F2MTUxcCtvT2EyMldQNSttbSsKUjJrcEhWNXRVTmUyUE9VZU5oMVE5U3JKQ1NLWmQ2K0JsT0U4bjQvc0kyNDJvbmRnelhrL21LRnc4NjBMQmdUbApkWTRvTC9mUU1mQ242aU4vMXBGZmFhWDZSV1lVMUplSTduK3VFZ0hDTFE4Z2x3eU1JcFdmCi0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
+    - cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURpakNDQW5LZ0F3SUJBZ0lRSjZkczBCMXFjVWF6R3c3L2IrRFlzekFOQmdrcWhraUc5dzBCQVFzRkFEQmYKTVJVd0V3WURWUVFLRXd4dFpTNXNiMk5oYkdodmMzUXhGVEFUQmdOVkJBTVRERzFsTG14dlkyRnNhRzl6ZERFdgpNQzBHQTFVRUJSTW1OVEkzTURreU1USXpPVGszT0RVM056ZzVOVGM0T0RrNE1EWTNOakEzTWpVM05qUXlOelV3CkhoY05NalV3TVRFME1EQTBOREl5V2hjTk16VXdNVEV5TURBME5ESXlXakJmTVJVd0V3WURWUVFLRXd4dFpTNXMKYjJOaGJHaHZjM1F4RlRBVEJnTlZCQU1UREcxbExteHZZMkZzYUc5emRERXZNQzBHQTFVRUJSTW1OVEkzTURreQpNVEl6T1RrM09EVTNOemc1TlRjNE9EazRNRFkzTmpBM01qVTNOalF5TnpVd2dnRWlNQTBHQ1NxR1NJYjNEUUVCCkFRVUFBNElCRHdBd2dnRUtBb0lCQVFENGlaUXVTc3M5RlJyWjZVNGFSc3hWWGd1UzlNVlJKRDhrcHBXbFJUSU0KTXY3RXpFQmRVcGtaNWdyU1RUQ1M4TFdodEQ4THJ1NUFJZDFVTldvRkFra1NNdlJPd1hWZFJTT0ZOejZSVkJvUApPTjZBdWlrSW5lUkpGZTBCMXc2QUxlNE01RGx6ZnJMamc4MmtqamRZSnRzaFdHS1NKY2RybTQ2TVFaWE0vLzBZCk05YlFMeDU1eVJCY1FNR25wVmxCQ0pmajZDd1F0cjVZOGxVeFZscHNMbGwrSjBMR2pvTHJtcncxZU8zVGNEelMKbzdlODdFQ0dqbGYyTGk1ei9Pb3dGcWE4RVhMaW9RRjRsRWh6U1FsRDRJdGhUMGlDL3pqR0NmcThxMDF4TjY2UAp1QTk0cm9pYU5mMDNtZWJJL2IvSW9qMEgxNTNCTGZydWlZYnFoRHlHQ0JQcEFnTUJBQUdqUWpCQU1BNEdBMVVkCkR3RUIvd1FFQXdJQnBqQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVFM5Q25hZEFMdFJQNkkKb0ZwRWtUZVRISGhGV2pBTkJna3Foa2lHOXcwQkFRc0ZBQU9DQVFFQVJOcjg2QnJXS2E5b3NOMmFJRTBoUVNtRwpiZ2FFY1I3WVF3aW8zWUplYXoyc3RTMHQ4VXVON3FKdkU4dnYxd2F0eCtTMXhhdGdBRWlXRER1WUYzUWhaZUE3CmJMZCtELzc5YlFnNXBmb0E4UDA1UGR5cmtzalZ2SjcrWlY0SFFoaTJOUE9PbkExL3ZMNGI3SG40UXFnRDZsbHcKeFRDS3RJOVoxTVlWN1I5dUthNllpVDlCNWVDR1NCZWdQdnNlbzV6Y2p5aGdJeklTRkp6N09MR0dQT3JyUWpLUworOWJ6bjlnOHM0dHBwd0lEWUh6UFRiOFovR0YycmV3MlM5cDBQUGlnTGIyT1dKc1M5eDcvQVVOa1NHQWxiNER4CmdVc3dsWEhtSXErWUZaeDFZL21DeWlndWdQNnR0MDJjSm0vQTUrNC8vRVMrUGRpK2xqL3o2WitJLzIra1d3PT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+      key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcFFJQkFBS0NBUUVBK0ltVUxrckxQUlVhMmVsT0drYk1WVjRMa3ZURlVTUS9KS2FWcFVVeURETCt4TXhBClhWS1pHZVlLMGswd2t2QzFvYlEvQzY3dVFDSGRWRFZxQlFKSkVqTDBUc0YxWFVVamhUYytrVlFhRHpqZWdMb3AKQ0oza1NSWHRBZGNPZ0MzdURPUTVjMzZ5NDRQTnBJNDNXQ2JiSVZoaWtpWEhhNXVPakVHVnpQLzlHRFBXMEM4ZQplY2tRWEVEQnA2VlpRUWlYNCtnc0VMYStXUEpWTVZaYWJDNVpmaWRDeG82QzY1cThOWGp0MDNBODBxTzN2T3hBCmhvNVg5aTR1Yy96cU1CYW12QkZ5NHFFQmVKUkljMGtKUStDTFlVOUlndjg0eGduNnZLdE5jVGV1ajdnUGVLNkkKbWpYOU41bm15UDIveUtJOUI5ZWR3UzM2N29tRzZvUThoZ2dUNlFJREFRQUJBb0lCQVFESGtURjdPbk9YeUtxVwo3OC9YS2FKSnFncUJKaXFLelNBbXZkekxxSlJYVjF0Yml1YmtDTDhISE1EenZTZVQxZFVDMDBrTWlKcW14SXFFClk1K09CaGZHbFVPM09ZQ1VORUFoYUFyRmgxS2xoblNqeU5mS0kzNTdjUyt1bXBENk8rYzZVc2dQQlYxL2N3WmQKYkJUa284NnhKOWQrb3ZkT1lNcEZ0U1FrU0NsaWxDaDlFZCszZlFMTmZ3dzJqOEpheVpQcE1BMkZKU1k1ZFFLbAp0OWhoM3dLa2pvV3dOTU9yMWZ5TzRzSXc3UnNGdURGNHdaejlZSmhGQ1Q5aFZhejUyQkVQTEdnSWxKS0F2bFdRCndMT0JqSzcyZncyTUZ5SzM3NElYc3YwZVk3RU54NW40eWNxREl2NnBmVEFvTDIrSk9NbkxqY3FaeEJuaG44VmsKdmQrTlZFdEJBb0dCQVBtYy9mOGw3NGlKVitxVy9iU1MwTmtHUHVoYzhBQWVzU1NQdHpENC9UNW16SUxPWXR5aQpUTlR5UkpUR3NJU1UvSEliOUpqYVdBWllDd0ZZektDREZtOG9FQnBiQTZPcDZhOGlGVzRkYUU2ODlzamJMbTBtCjc0TWhFaE9PR2grSkVLUkx5dCsxaGFKUzB0d2g5TGdiVmJuRU1jZkxhNzNNZHNqYWNqU2lGRkUvQW9HQkFQN2wKaWk1MXVWV2xtYlpZMCtOZFNmY2dsSWNWRHE5eUZlNjdCZFgybnBrV3pkRjlEK3ZlTytIeUxtMVl6QjE5bmtrMApYMDJ6T3FadVF1bFdqV01OYWdVYkQ4bkJkbmtHRkx4RkIxLzhERzdBbkFvNXo4b1J2bXJPeWhWTVJGTEdQZjM0CmZPYTFuRmU0TXJmM0lUTDlNZlRPQUh2ZUxsV0xwZ3pqVEo2dU9palhBb0dCQUk5TXlhVEpLcExBQm5EdTdnZlUKb1lGMlRIY3BvNzd0MzlTVmpSM1lVOHFYU2FGdXl1TFBhangyT1ZrUUdCYUZVY2hRdEVOc1ZreU9Ed05lNzFyVwo1dkk1bGNVTHF6TXlRSzRDYXpza050VzlOaEJwaEdXMWpKdERTUlZnNXk1amllSklnTmVkWm5LaUNkdkd3cTlQClFnKzd5cmhnMkNIR1dBdEhIWG1KOHhBUkFvR0JBSVZnclJhMGlUOVV3UU1XcGdGQ0RuTWUvRGxXL25FMXZGNUkKUkx4NktQRW9hcGhrM1pEcG4rSVNMTk1ROVBXMWhyNzloYVVOMVBIRG5vV2t3YVVFSHViL0N4cmlmZERFS3ROOQpOMmUxWnZnSkYxMk9kTGxpNFlYWUlReFY5U1p2RDM4MnFIeThxVXVKV2hqRFd2N29XRnlsOHNEZU9OYVFsVm9ICkVrK3lFVUxQQW9HQUJCNmFzWC95QzVvK2FiMTgvckdkZHNLd3JIbUJqTU5zZ3B4RHU5eVBxMHVGQmVxa0xuakMKSHBwRmlEbHNtdVl6TnZqMzAzR2ZJQ0oyMnFIajd3VE1xNmRtVTZoTTRuZ0dlVU05SGtrbjEwZnVXR1dwdWd0RgpNbHBSeHU3VFBpRDZvQ1JkQ0RnN1NlZnZ2SnptWGRIRDduWDI4R0R0bDdMTmxBbkJCTHRTVFM4PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
   additional_trusted_keys: {}
   cluster_name: me.localhost
   type: saml_idp
@@ -1813,7 +1502,7 @@ func resourceFromYAML(t *testing.T, value string) types.Resource {
 
 func resourceDiff(res1, res2 types.Resource) string {
 	return cmp.Diff(res1, res2,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision", "Namespace"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision", "Namespace"),
 		cmpopts.EquateEmpty())
 }
 
@@ -2069,6 +1758,29 @@ func TestInitCreatesCertsIfMissing(t *testing.T) {
 	}
 }
 
+func TestMigrateDatabaseClientCA(t *testing.T) {
+	ctx := context.Background()
+	conf := setupConfig(t)
+
+	hostCA := suite.NewTestCA(types.HostCA, "me.localhost")
+	userCA := suite.NewTestCA(types.UserCA, "me.localhost")
+	dbServerCA := suite.NewTestCA(types.DatabaseCA, "me.localhost")
+
+	conf.Authorities = []types.CertAuthority{hostCA, userCA, dbServerCA}
+	auth, err := Init(ctx, conf)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		err = auth.Close()
+		require.NoError(t, err)
+	})
+
+	dbClientCAs, err := auth.GetCertAuthorities(ctx, types.DatabaseClientCA, true)
+	require.NoError(t, err)
+	require.Len(t, dbClientCAs, 1)
+	require.Equal(t, dbServerCA.Spec.ActiveKeys.TLS[0].Cert, dbClientCAs[0].GetActiveKeys().TLS[0].Cert)
+	require.Equal(t, dbServerCA.Spec.ActiveKeys.TLS[0].Key, dbClientCAs[0].GetActiveKeys().TLS[0].Key)
+}
+
 func TestTeleportProcessAuthVersionUpgradeCheck(t *testing.T) {
 	lib.SetInsecureDevMode(true)
 	defer lib.SetInsecureDevMode(false)
@@ -2144,110 +1856,6 @@ func TestTeleportProcessAuthVersionUpgradeCheck(t *testing.T) {
 			lastKnownVersion, err := authCfg.VersionStorage.GetTeleportVersion(ctx)
 			require.NoError(t, err)
 			require.Equal(t, test.expectedVersion, lastKnownVersion.String())
-		})
-	}
-}
-
-type mockDatabaseObjectImportRules struct {
-	services.DatabaseObjectImportRules
-	listRules []*dbobjectimportrulev1.DatabaseObjectImportRule
-	created   *dbobjectimportrulev1.DatabaseObjectImportRule
-	upserted  *dbobjectimportrulev1.DatabaseObjectImportRule
-}
-
-func (m *mockDatabaseObjectImportRules) ListDatabaseObjectImportRules(context.Context, int, string) ([]*dbobjectimportrulev1.DatabaseObjectImportRule, string, error) {
-	return m.listRules, "", nil
-}
-func (m *mockDatabaseObjectImportRules) CreateDatabaseObjectImportRule(ctx context.Context, rule *dbobjectimportrulev1.DatabaseObjectImportRule) (*dbobjectimportrulev1.DatabaseObjectImportRule, error) {
-	m.created = rule
-	return rule, nil
-}
-func (m *mockDatabaseObjectImportRules) UpsertDatabaseObjectImportRule(ctx context.Context, rule *dbobjectimportrulev1.DatabaseObjectImportRule) (*dbobjectimportrulev1.DatabaseObjectImportRule, error) {
-	m.upserted = rule
-	return rule, nil
-}
-
-func Test_createPresetDatabaseObjectImportRule(t *testing.T) {
-	presetRule := databaseobjectimportrule.NewPresetImportAllObjectsRule()
-	require.NotNil(t, presetRule)
-
-	customRule, err := databaseobjectimportrule.NewDatabaseObjectImportRule("dev_rule", &dbobjectimportrulev1.DatabaseObjectImportRuleSpec{
-		Priority:       100,
-		DatabaseLabels: label.FromMap(map[string][]string{"env": {"dev"}}),
-		Mappings: []*dbobjectimportrulev1.DatabaseObjectImportRuleMapping{{
-			Match: &dbobjectimportrulev1.DatabaseObjectImportMatch{
-				TableNames: []string{"*"},
-			},
-			AddLabels: map[string]string{
-				"env": "dev",
-			},
-			Scope: &dbobjectimportrulev1.DatabaseObjectImportScope{
-				SchemaNames: []string{"public"},
-			},
-		}},
-	})
-	require.NoError(t, err)
-
-	oldPresetRule, err := databaseobjectimportrule.NewDatabaseObjectImportRule("import_all_objects", &dbobjectimportrulev1.DatabaseObjectImportRuleSpec{
-		DatabaseLabels: label.FromMap(map[string][]string{"*": {"*"}}),
-		Mappings: []*dbobjectimportrulev1.DatabaseObjectImportRuleMapping{
-			{
-				Match:     &dbobjectimportrulev1.DatabaseObjectImportMatch{TableNames: []string{"*"}},
-				AddLabels: map[string]string{"kind": "table"},
-			},
-			{
-				Match:     &dbobjectimportrulev1.DatabaseObjectImportMatch{ViewNames: []string{"*"}},
-				AddLabels: map[string]string{"kind": "view"},
-			},
-			{
-				Match:     &dbobjectimportrulev1.DatabaseObjectImportMatch{ProcedureNames: []string{"*"}},
-				AddLabels: map[string]string{"kind": "procedure"},
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	tests := []struct {
-		name          string
-		existingRules []*dbobjectimportrulev1.DatabaseObjectImportRule
-		expectCreate  *dbobjectimportrulev1.DatabaseObjectImportRule
-		expectUpsert  *dbobjectimportrulev1.DatabaseObjectImportRule
-	}{
-		{
-			name:         "create preset in new cluster",
-			expectCreate: presetRule,
-		},
-		{
-			name:          "no action with custom rule",
-			existingRules: []*dbobjectimportrulev1.DatabaseObjectImportRule{customRule},
-		},
-		{
-			name:          "no action with old preset and custom rule",
-			existingRules: []*dbobjectimportrulev1.DatabaseObjectImportRule{oldPresetRule, customRule},
-		},
-		{
-			name:          "no action with preset rule",
-			existingRules: []*dbobjectimportrulev1.DatabaseObjectImportRule{presetRule},
-		},
-		{
-			name:          "migrate old preset to new",
-			existingRules: []*dbobjectimportrulev1.DatabaseObjectImportRule{oldPresetRule},
-			expectUpsert:  presetRule,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			m := &mockDatabaseObjectImportRules{
-				listRules: test.existingRules,
-			}
-
-			err := createPresetDatabaseObjectImportRule(context.Background(), m)
-			require.NoError(t, err)
-			require.True(t, proto.Equal(test.expectCreate, m.created))
-			require.True(t, proto.Equal(test.expectUpsert, m.upserted))
 		})
 	}
 }

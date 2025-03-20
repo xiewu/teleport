@@ -16,21 +16,22 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-
-import { Alert, OutlineDanger } from 'design/Alert/Alert';
-import Box from 'design/Box';
+import { OutlineDanger } from 'design/Alert/Alert';
 import { ButtonSecondary, ButtonWarning } from 'design/Button';
 import Dialog from 'design/Dialog';
 import Flex from 'design/Flex';
-import Indicator from 'design/Indicator';
-import { StepComponentProps, StepHeader, StepSlider } from 'design/StepSlider';
+import { StepComponentProps, StepSlider } from 'design/StepSlider';
+import React, { useState } from 'react';
 import useAttempt from 'shared/hooks/useAttemptNext';
+import { Auth2faType } from 'shared/services';
 
-import useReAuthenticate from 'teleport/components/ReAuthenticate/useReAuthenticate';
-import auth, { MfaChallengeScope } from 'teleport/services/auth/auth';
-import { MfaDevice } from 'teleport/services/mfa';
+import Box from 'design/Box';
+
+import { StepHeader } from 'design/StepSlider';
+
 import useTeleport from 'teleport/useTeleport';
+
+import { MfaDevice } from 'teleport/services/mfa';
 
 import {
   ReauthenticateStep,
@@ -38,6 +39,13 @@ import {
 } from './ReauthenticateStep';
 
 interface DeleteAuthDeviceWizardProps {
+  /** MFA type setting, as configured in the cluster's configuration. */
+  auth2faType: Auth2faType;
+  /**
+   * A list of user's devices, used for computing the list of available identity
+   * verification options.
+   */
+  devices: MfaDevice[];
   /** Device to be removed. */
   deviceToDelete: MfaDevice;
   onClose(): void;
@@ -46,38 +54,13 @@ interface DeleteAuthDeviceWizardProps {
 
 /** A wizard for deleting MFA and passkey devices. */
 export function DeleteAuthDeviceWizard({
+  auth2faType,
+  devices,
   deviceToDelete,
   onClose,
   onSuccess,
 }: DeleteAuthDeviceWizardProps) {
   const [privilegeToken, setPrivilegeToken] = useState('');
-
-  const reauthState = useReAuthenticate({
-    challengeScope: MfaChallengeScope.MANAGE_DEVICES,
-    onMfaResponse: mfaResponse =>
-      // TODO(Joerger): v19.0.0
-      // Devices can be deleted with an MFA response, so exchanging it for a
-      // privilege token adds an unnecessary API call. The device deletion
-      // endpoint requires a token, but the new endpoint "DELETE: /webapi/mfa/devices"
-      // does not and can be used in v19 backwards compatibly.
-      auth.createPrivilegeToken(mfaResponse).then(setPrivilegeToken),
-  });
-
-  // Handle potential error states first.
-  switch (reauthState.initAttempt.status) {
-    case 'processing':
-      return (
-        <Box textAlign="center" m={10}>
-          <Indicator />
-        </Box>
-      );
-    case 'error':
-      return <Alert children={reauthState.initAttempt.statusText} />;
-    case 'success':
-      break;
-    default:
-      return null;
-  }
 
   return (
     <Dialog
@@ -90,10 +73,12 @@ export function DeleteAuthDeviceWizard({
         flows={wizardFlows}
         currFlow="default"
         // Step properties
-        reauthState={reauthState}
+        devices={devices}
         deviceToDelete={deviceToDelete}
+        auth2faType={auth2faType}
         privilegeToken={privilegeToken}
         onClose={onClose}
+        onAuthenticated={setPrivilegeToken}
         onSuccess={onSuccess}
       />
     </Dialog>

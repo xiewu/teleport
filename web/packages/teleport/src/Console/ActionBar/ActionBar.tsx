@@ -16,8 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Flex } from 'design';
+import React from 'react';
+
 import { LatencyDiagnostic } from 'shared/components/LatencyDiagnostic';
+
+import { Flex } from 'design';
 
 import { DocumentSsh } from 'teleport/Console/stores';
 

@@ -41,15 +41,9 @@ func NewStorage(cfg Config) (*Storage, error) {
 	return &Storage{Config: cfg}, nil
 }
 
-// ListProfileNames returns just the names of profiles in s.Dir.
-func (s *Storage) ListProfileNames() ([]string, error) {
+// ReadAll reads clusters from profiles
+func (s *Storage) ReadAll() ([]*Cluster, error) {
 	pfNames, err := profile.ListProfileNames(s.Dir)
-	return pfNames, trace.Wrap(err)
-}
-
-// ListRootClusters reads root clusters from profiles.
-func (s *Storage) ListRootClusters() ([]*Cluster, error) {
-	pfNames, err := s.ListProfileNames()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -57,7 +51,7 @@ func (s *Storage) ListRootClusters() ([]*Cluster, error) {
 	clusters := make([]*Cluster, 0, len(pfNames))
 	for _, name := range pfNames {
 		cluster, _, err := s.fromProfile(name, "")
-		if cluster == nil {
+		if err != nil {
 			return nil, trace.Wrap(err)
 		}
 
@@ -161,12 +155,11 @@ func (s *Storage) addCluster(ctx context.Context, dir, webProxyAddress string) (
 		return nil, nil, trace.BadParameter("cluster directory is missing")
 	}
 
-	profileName := parseName(webProxyAddress)
-	clusterURI := uri.NewClusterURI(profileName)
-
-	cfg := s.makeDefaultClientConfig(clusterURI)
+	cfg := s.makeDefaultClientConfig()
 	cfg.WebProxyAddr = webProxyAddress
 
+	profileName := parseName(webProxyAddress)
+	clusterURI := uri.NewClusterURI(profileName)
 	clusterClient, err := client.NewClient(cfg)
 	if err != nil {
 		return nil, nil, trace.Wrap(err)
@@ -179,13 +172,13 @@ func (s *Storage) addCluster(ctx context.Context, dir, webProxyAddress string) (
 		return nil, nil, trace.Wrap(err)
 	}
 
-	clusterLog := s.Logger.With("cluster", clusterURI)
+	clusterLog := s.Log.WithField("cluster", clusterURI)
 
 	pingResponseJSON, err := json.Marshal(pingResponse)
 	if err != nil {
-		clusterLog.DebugContext(ctx, "Could not marshal ping response to JSON", "error", err)
+		clusterLog.WithError(err).Debugln("Could not marshal ping response to JSON")
 	} else {
-		clusterLog.DebugContext(ctx, "Got ping response", "response", string(pingResponseJSON))
+		clusterLog.WithField("response", string(pingResponseJSON)).Debugln("Got ping response")
 	}
 
 	if err := clusterClient.SaveProfile(false); err != nil {
@@ -201,7 +194,7 @@ func (s *Storage) addCluster(ctx context.Context, dir, webProxyAddress string) (
 		clusterClient: clusterClient,
 		dir:           s.Dir,
 		clock:         s.Clock,
-		Logger:        clusterLog,
+		Log:           clusterLog,
 	}, clusterClient, nil
 }
 
@@ -216,7 +209,7 @@ func (s *Storage) fromProfile(profileName, leafClusterName string) (*Cluster, *c
 
 	profileStore := client.NewFSProfileStore(s.Dir)
 
-	cfg := s.makeDefaultClientConfig(clusterURI)
+	cfg := s.makeDefaultClientConfig()
 	if err := cfg.LoadProfile(profileStore, profileName); err != nil {
 		return nil, nil, trace.Wrap(err)
 	}
@@ -233,32 +226,30 @@ func (s *Storage) fromProfile(profileName, leafClusterName string) (*Cluster, *c
 	}
 
 	status, err := s.loadProfileStatusAndClusterKey(clusterClient, clusterNameForKey)
-	cluster := &Cluster{
+	if err != nil {
+		return nil, nil, trace.Wrap(err)
+	}
+
+	return &Cluster{
 		URI:           clusterURI,
 		Name:          clusterClient.SiteName,
 		ProfileName:   profileName,
 		clusterClient: clusterClient,
 		dir:           s.Dir,
 		clock:         s.Clock,
-		statusError:   err,
-		Logger:        s.Logger.With("cluster", clusterURI),
-	}
-	if status != nil {
-		cluster.status = *status
-		cluster.SSOHost = status.SSOHost
-	}
-
-	return cluster, clusterClient, trace.Wrap(err)
+		status:        *status,
+		Log:           s.Log.WithField("cluster", clusterURI),
+	}, clusterClient, nil
 }
 
 func (s *Storage) loadProfileStatusAndClusterKey(clusterClient *client.TeleportClient, clusterNameForKey string) (*client.ProfileStatus, error) {
 	status := &client.ProfileStatus{}
 
 	// load profile status if key exists
-	_, err := clusterClient.LocalAgent().GetKeyRing(clusterNameForKey)
+	_, err := clusterClient.LocalAgent().GetKey(clusterNameForKey)
 	if err != nil {
 		if trace.IsNotFound(err) {
-			s.Logger.InfoContext(context.Background(), "No keys found for cluster", "cluster", clusterNameForKey)
+			s.Log.Infof("No keys found for cluster %v.", clusterNameForKey)
 		} else {
 			return nil, trace.Wrap(err)
 		}
@@ -278,7 +269,7 @@ func (s *Storage) loadProfileStatusAndClusterKey(clusterClient *client.TeleportC
 	return status, nil
 }
 
-func (s *Storage) makeDefaultClientConfig(rootClusterURI uri.ResourceURI) *client.Config {
+func (s *Storage) makeDefaultClientConfig() *client.Config {
 	cfg := client.MakeDefaultConfig()
 
 	cfg.HomePath = s.Dir
@@ -286,7 +277,17 @@ func (s *Storage) makeDefaultClientConfig(rootClusterURI uri.ResourceURI) *clien
 	cfg.InsecureSkipVerify = s.InsecureSkipVerify
 	cfg.AddKeysToAgent = s.AddKeysToAgent
 	cfg.WebauthnLogin = s.WebauthnLogin
-	cfg.CustomHardwareKeyPrompt = s.HardwareKeyPromptConstructor(rootClusterURI)
+	// Set AllowStdinHijack to true to enable daemon.mfaPrompt to ask for both TOTP and Webauthn at
+	// the same time if available.
+	//
+	// tsh sets AllowStdinHijack to true only during tsh login to avoid input swallowing bugs where
+	// calling a command would prompt for MFA and then expect some further data through stdin. tsh
+	// login does not ask for any further input after the MFA prompt.
+	//
+	// Since tsh daemon ran by Connect never expects data over stdin, it can always set this flag to
+	// true.
+	cfg.AllowStdinHijack = true
+
 	cfg.DTAuthnRunCeremony = dtauthn.NewCeremony().Run
 	cfg.DTAutoEnroll = dtenroll.AutoEnroll
 	return cfg

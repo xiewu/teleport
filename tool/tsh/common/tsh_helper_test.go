@@ -37,19 +37,13 @@ import (
 
 	"github.com/gravitational/teleport/api/breaker"
 	apiclient "github.com/gravitational/teleport/api/client"
-	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/integration/helpers"
 	"github.com/gravitational/teleport/lib/auth"
-	"github.com/gravitational/teleport/lib/auth/authclient"
-	"github.com/gravitational/teleport/lib/auth/mocku2f"
-	wancli "github.com/gravitational/teleport/lib/auth/webauthncli"
-	wantypes "github.com/gravitational/teleport/lib/auth/webauthntypes"
 	"github.com/gravitational/teleport/lib/cloud/imds"
 	"github.com/gravitational/teleport/lib/config"
 	"github.com/gravitational/teleport/lib/service"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
-	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/utils"
 )
 
@@ -90,15 +84,12 @@ func (s *suite) setupRootCluster(t *testing.T, options testSuiteOptions) {
 			},
 			ClusterName:      "root",
 			SessionRecording: "node-sync",
-			Authentication: &config.AuthenticationConfig{
-				SignatureAlgorithmSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
-			},
 		},
 	}
 
 	cfg := servicecfg.MakeDefaultConfig()
 	cfg.CircuitBreakerConfig = breaker.NoopBreakerConfig()
-	cfg.Logger = utils.NewSlogLoggerForTests()
+	cfg.Log = utils.NewLoggerForTests()
 	err := config.ApplyFileConfig(fileConfig, cfg)
 	require.NoError(t, err)
 	cfg.FileDescriptors = dynAddr.Descriptors
@@ -187,15 +178,12 @@ func (s *suite) setupLeafCluster(t *testing.T, options testSuiteOptions) {
 			ClusterName:       "leaf1",
 			ProxyListenerMode: types.ProxyListenerMode_Multiplex,
 			SessionRecording:  "node-sync",
-			Authentication: &config.AuthenticationConfig{
-				SignatureAlgorithmSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
-			},
 		},
 	}
 
 	cfg := servicecfg.MakeDefaultConfig()
 	cfg.CircuitBreakerConfig = breaker.NoopBreakerConfig()
-	cfg.Logger = utils.NewSlogLoggerForTests()
+	cfg.Log = utils.NewLoggerForTests()
 	err := config.ApplyFileConfig(fileConfig, cfg)
 	require.NoError(t, err)
 	cfg.FileDescriptors = dynAddr.Descriptors
@@ -231,7 +219,7 @@ func (s *suite) setupLeafCluster(t *testing.T, options testSuiteOptions) {
 		tunnelAddr = s.root.Config.Proxy.ReverseTunnelListenAddr.String()
 	}
 
-	tc, err := types.NewTrustedCluster(s.root.Config.Auth.ClusterName.GetClusterName(), types.TrustedClusterSpecV2{
+	tc, err := types.NewTrustedCluster("root-cluster", types.TrustedClusterSpecV2{
 		Enabled:              true,
 		Token:                staticToken,
 		ProxyAddress:         s.root.Config.Proxy.WebAddr.String(),
@@ -250,7 +238,7 @@ func (s *suite) setupLeafCluster(t *testing.T, options testSuiteOptions) {
 	}
 	s.leaf = runTeleport(t, cfg)
 
-	_, err = s.leaf.GetAuthServer().UpsertTrustedClusterV2(s.leaf.ExitContext(), tc)
+	_, err = s.leaf.GetAuthServer().UpsertTrustedCluster(s.leaf.ExitContext(), tc)
 	require.NoError(t, err)
 }
 
@@ -483,66 +471,16 @@ func mustRegisterKubeClusters(t *testing.T, ctx context.Context, authSrv *auth.S
 	require.NoError(t, wg.Wait())
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		servers, err := authSrv.UnifiedResourceCache.GetKubernetesServers(ctx)
+		assert.NoError(c, err)
 		gotNames := map[string]struct{}{}
-		for ks := range authSrv.UnifiedResourceCache.KubernetesServers(ctx, services.UnifiedResourcesIterateParams{}) {
+		for _, ks := range servers {
 			gotNames[ks.GetName()] = struct{}{}
 		}
 		for _, name := range wantNames {
 			assert.Contains(c, gotNames, name, "missing kube cluster")
 		}
 	}, time.Second*10, time.Millisecond*500, "dynamically created kube clusters failed to register")
-}
-
-func setupWebAuthnChallengeSolver(device *mocku2f.Key, success bool) CliOption {
-	return func(c *CLIConf) error {
-		c.WebauthnLogin = func(ctx context.Context, origin string, assertion *wantypes.CredentialAssertion, prompt wancli.LoginPrompt, opts *wancli.LoginOpts) (*proto.MFAAuthenticateResponse, string, error) {
-			car, err := device.SignAssertion(origin, assertion)
-			if err != nil {
-				return nil, "", err
-			}
-
-			carProto := wantypes.CredentialAssertionResponseToProto(car)
-			if !success {
-				carProto.Type = "NOT A VALID TYPE" // set to an invalid type so the ceremony fails
-			}
-
-			return &proto.MFAAuthenticateResponse{
-				Response: &proto.MFAAuthenticateResponse_Webauthn{
-					Webauthn: carProto,
-				},
-			}, "", nil
-		}
-		return nil
-	}
-}
-
-func registerDeviceForUser(t *testing.T, authServer *auth.Server, device *mocku2f.Key, username string, origin string) {
-	ctx := context.Background()
-	token, err := authServer.CreateResetPasswordToken(ctx, authclient.CreateUserTokenRequest{
-		Name: username,
-	})
-	require.NoError(t, err)
-
-	tokenID := token.GetName()
-	res, err := authServer.CreateRegisterChallenge(ctx, &proto.CreateRegisterChallengeRequest{
-		TokenID:     tokenID,
-		DeviceType:  proto.DeviceType_DEVICE_TYPE_WEBAUTHN,
-		DeviceUsage: proto.DeviceUsage_DEVICE_USAGE_PASSWORDLESS,
-	})
-	require.NoError(t, err)
-	cc := wantypes.CredentialCreationFromProto(res.GetWebauthn())
-
-	ccr, err := device.SignCredentialCreation(origin, cc)
-	require.NoError(t, err)
-	_, err = authServer.ChangeUserAuthentication(ctx, &proto.ChangeUserAuthenticationRequest{
-		TokenID: tokenID,
-		NewMFARegisterResponse: &proto.MFARegisterResponse{
-			Response: &proto.MFARegisterResponse_Webauthn{
-				Webauthn: wantypes.CredentialCreationResponseToProto(ccr),
-			},
-		},
-	})
-	require.NoError(t, err)
 }
 
 func mustWriteFileConfig(t *testing.T, fc *config.FileConfig) string {

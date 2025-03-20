@@ -16,16 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
-
-import { Box, ButtonIcon } from 'design';
-import * as Icons from 'design/Icon';
 import { typography } from 'design/system';
-import { TypographyProps } from 'design/system/typography';
+
+import * as Icons from 'design/Icon';
+import { Box, ButtonIcon } from 'design';
+
 import { useStore } from 'shared/libs/stores';
 
-import { useConsoleContext } from 'teleport/Console/consoleContextProvider';
 import * as stores from 'teleport/Console/stores';
+import { useConsoleContext } from 'teleport/Console/consoleContextProvider';
 
 import TabItem from './TabItem';
 
@@ -75,7 +76,13 @@ export function Tabs(props: Props & { parties: stores.Parties }) {
     });
 
   return (
-    <StyledTabs as="nav" color="text.slightlyMuted" bold {...styledProps}>
+    <StyledTabs
+      as="nav"
+      typography="h5"
+      color="text.slightlyMuted"
+      bold
+      {...styledProps}
+    >
       {$items}
       {$items.length > 0 && (
         <ButtonIcon
@@ -101,7 +108,7 @@ type Props = {
   [index: string]: any;
 };
 
-const StyledTabs = styled(Box)<TypographyProps>`
+const StyledTabs = styled(Box)`
   background: ${props => props.theme.colors.levels.surface};
   min-height: 32px;
   border-radius: 4px;

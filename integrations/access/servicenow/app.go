@@ -21,7 +21,6 @@ package servicenow
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"slices"
 	"strings"
@@ -34,7 +33,6 @@ import (
 	"github.com/gravitational/teleport/api/accessrequest"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/integrations/access/accessmonitoring"
 	"github.com/gravitational/teleport/integrations/access/common"
 	"github.com/gravitational/teleport/integrations/access/common/teleport"
 	"github.com/gravitational/teleport/integrations/lib"
@@ -42,7 +40,6 @@ import (
 	"github.com/gravitational/teleport/integrations/lib/logger"
 	"github.com/gravitational/teleport/integrations/lib/watcherjob"
 	"github.com/gravitational/teleport/lib/utils"
-	logutils "github.com/gravitational/teleport/lib/utils/log"
 )
 
 const (
@@ -52,6 +49,8 @@ const (
 	minServerVersion = "13.0.0"
 	// initTimeout is used to bound execution time of health check and teleport version check.
 	initTimeout = time.Second * 10
+	// handlerTimeout is used to bound the execution time of watcher event handler.
+	handlerTimeout = time.Second * 30
 	// modifyPluginDataBackoffBase is an initial (minimum) backoff value.
 	modifyPluginDataBackoffBase = time.Millisecond
 	// modifyPluginDataBackoffMax is a backoff threshold
@@ -63,12 +62,11 @@ type App struct {
 	*lib.Process
 	common.BaseApp
 
-	PluginName            string
-	teleport              teleport.Client
-	serviceNow            ServiceNowClient
-	mainJob               lib.ServiceJob
-	conf                  Config
-	accessMonitoringRules *accessmonitoring.RuleHandler
+	PluginName string
+	teleport   teleport.Client
+	serviceNow *Client
+	mainJob    lib.ServiceJob
+	conf       Config
 }
 
 // NewServicenowApp initializes a new teleport-servicenow app and returns it.
@@ -77,22 +75,6 @@ func NewServiceNowApp(ctx context.Context, conf *Config) (*App, error) {
 		PluginName: pluginName,
 		conf:       *conf,
 	}
-	teleClient, err := conf.GetTeleportClient(ctx)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	serviceNowApp.accessMonitoringRules = accessmonitoring.NewRuleHandler(accessmonitoring.RuleHandlerConfig{
-		Client:     teleClient,
-		PluginType: string(conf.PluginType),
-		PluginName: pluginName,
-		FetchRecipientCallback: func(_ context.Context, name string) (*common.Recipient, error) {
-			return &common.Recipient{
-				Name: name,
-				ID:   name,
-				Kind: common.RecipientKindSchedule,
-			}, nil
-		},
-	})
 	serviceNowApp.mainJob = lib.NewServiceJob(serviceNowApp.run)
 	return serviceNowApp, nil
 }
@@ -118,46 +100,34 @@ func (a *App) WaitReady(ctx context.Context) (bool, error) {
 
 func (a *App) run(ctx context.Context) error {
 	log := logger.Get(ctx)
-	log.InfoContext(ctx, "Starting Teleport Access Servicenow Plugin")
+	log.Infof("Starting Teleport Access Servicenow Plugin")
 
 	if err := a.init(ctx); err != nil {
 		return trace.Wrap(err)
 	}
-	watchKinds := []types.WatchKind{
-		{Kind: types.KindAccessRequest},
-		{Kind: types.KindAccessMonitoringRule},
-	}
 
-	acceptedWatchKinds := make([]string, 0, len(watchKinds))
-	watcherJob, err := watcherjob.NewJobWithConfirmedWatchKinds(
+	watcherJob, err := watcherjob.NewJob(
 		a.teleport,
 		watcherjob.Config{
-			Watch: types.Watch{Kinds: watchKinds, AllowPartialSuccess: true},
+			Watch:            types.Watch{Kinds: []types.WatchKind{{Kind: types.KindAccessRequest}}},
+			EventFuncTimeout: handlerTimeout,
 		},
 		a.onWatcherEvent,
-		func(ws types.WatchStatus) {
-			for _, watchKind := range ws.GetKinds() {
-				acceptedWatchKinds = append(acceptedWatchKinds, watchKind.Kind)
-			}
-		},
 	)
 	if err != nil {
 		return trace.Wrap(err)
 	}
-
 	a.SpawnCriticalJob(watcherJob)
 	ok, err := watcherJob.WaitReady(ctx)
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	if err := a.accessMonitoringRules.InitAccessMonitoringRulesCache(ctx); err != nil {
-		return trace.Wrap(err)
-	}
+
 	a.mainJob.SetReady(ok)
 	if ok {
-		log.InfoContext(ctx, "ServiceNow plugin is ready")
+		log.Info("ServiceNow plugin is ready")
 	} else {
-		log.ErrorContext(ctx, "ServiceNow plugin is not ready")
+		log.Error("ServiceNow plugin is not ready")
 	}
 
 	<-watcherJob.Done()
@@ -192,59 +162,47 @@ func (a *App) init(ctx context.Context) error {
 		return trace.Wrap(err)
 	}
 
-	log.DebugContext(ctx, "Starting API health check")
+	log.Debug("Starting API health check...")
 	if err = a.serviceNow.CheckHealth(ctx); err != nil {
 		return trace.Wrap(err, "API health check failed")
 	}
-	log.DebugContext(ctx, "API health check finished ok")
+	log.Debug("API health check finished ok")
 
 	return nil
 }
 
 func (a *App) checkTeleportVersion(ctx context.Context) (proto.PingResponse, error) {
 	log := logger.Get(ctx)
-	log.DebugContext(ctx, "Checking Teleport server version")
+	log.Debug("Checking Teleport server version")
 
 	pong, err := a.teleport.Ping(ctx)
 	if err != nil {
 		if trace.IsNotImplemented(err) {
 			return pong, trace.Wrap(err, "server version must be at least %s", minServerVersion)
 		}
-		log.ErrorContext(ctx, "Unable to get Teleport server version")
+		log.Error("Unable to get Teleport server version")
 		return pong, trace.Wrap(err)
 	}
-	err = utils.CheckMinVersion(pong.ServerVersion, minServerVersion)
+	err = utils.CheckVersion(pong.ServerVersion, minServerVersion)
 	return pong, trace.Wrap(err)
 }
 
-// onWatcherEvent is called for every cluster Event. It will filter out non-access-request events and
-// call onPendingRequest, onResolvedRequest and on DeletedRequest depending on the event.
 func (a *App) onWatcherEvent(ctx context.Context, event types.Event) error {
-	switch event.Resource.GetKind() {
-	case types.KindAccessMonitoringRule:
-		return trace.Wrap(a.accessMonitoringRules.HandleAccessMonitoringRule(ctx, event))
-	case types.KindAccessRequest:
-		return trace.Wrap(a.handleAccessRequest(ctx, event))
-	}
-	return trace.BadParameter("unexpected kind %s", event.Resource.GetKind())
-}
-
-func (a *App) handleAccessRequest(ctx context.Context, event types.Event) error {
 	if kind := event.Resource.GetKind(); kind != types.KindAccessRequest {
 		return trace.Errorf("unexpected kind %s", kind)
 	}
 	op := event.Type
 	reqID := event.Resource.GetName()
-	ctx, _ = logger.With(ctx, "request_id", reqID)
+	ctx, _ = logger.WithField(ctx, "request_id", reqID)
 
 	switch op {
 	case types.OpPut:
-		ctx, _ = logger.With(ctx, "request_op", "put")
+		ctx, _ = logger.WithField(ctx, "request_op", "put")
 		req, ok := event.Resource.(types.AccessRequest)
 		if !ok {
 			return trace.Errorf("unexpected resource type %T", event.Resource)
 		}
-		ctx, log := logger.With(ctx, "request_state", req.GetState().String())
+		ctx, log := logger.WithField(ctx, "request_state", req.GetState().String())
 
 		var err error
 		switch {
@@ -253,29 +211,21 @@ func (a *App) handleAccessRequest(ctx context.Context, event types.Event) error 
 		case req.GetState().IsResolved():
 			err = a.onResolvedRequest(ctx, req)
 		default:
-			log.WarnContext(ctx, "Unknown request state",
-				slog.Group("event",
-					slog.Any("type", logutils.StringerAttr(event.Type)),
-					slog.Group("resource",
-						"kind", event.Resource.GetKind(),
-						"name", event.Resource.GetName(),
-					),
-				),
-			)
+			log.WithField("event", event).Warnf("Unknown request state: %q", req.GetState())
 			return nil
 		}
 
 		if err != nil {
-			log.ErrorContext(ctx, "Failed to process request", "error", err)
+			log.WithError(err).Error("Failed to process request")
 			return trace.Wrap(err)
 		}
 
 		return nil
 	case types.OpDelete:
-		ctx, log := logger.With(ctx, "request_op", "delete")
+		ctx, log := logger.WithField(ctx, "request_op", "delete")
 
 		if err := a.onDeletedRequest(ctx, reqID); err != nil {
-			log.ErrorContext(ctx, "Failed to process deleted request", "error", err)
+			log.WithError(err).Error("Failed to process deleted request")
 			return trace.Wrap(err)
 		}
 		return nil
@@ -286,7 +236,7 @@ func (a *App) handleAccessRequest(ctx context.Context, event types.Event) error 
 
 func (a *App) onPendingRequest(ctx context.Context, req types.AccessRequest) error {
 	reqID := req.GetName()
-	log := logger.Get(ctx).With("req_id", reqID)
+	log := logger.Get(ctx).WithField("reqId", reqID)
 
 	resourceNames, err := a.getResourceNames(ctx, req)
 	if err != nil {
@@ -313,15 +263,7 @@ func (a *App) onPendingRequest(ctx context.Context, req types.AccessRequest) err
 	}
 
 	if isNew {
-		log.InfoContext(ctx, "Creating servicenow incident")
-		recipientAssignee := a.accessMonitoringRules.RecipientsFromAccessMonitoringRules(ctx, req)
-		assignees := []string{}
-		recipientAssignee.ForEach(func(r common.Recipient) {
-			assignees = append(assignees, r.Name)
-		})
-		if len(assignees) > 0 {
-			reqData.SuggestedReviewers = assignees
-		}
+		log.Infof("Creating servicenow incident")
 		if err = a.createIncident(ctx, reqID, reqData); err != nil {
 			// Even if we failed to create the incident we try to auto-approve
 			return trace.NewAggregate(
@@ -376,7 +318,7 @@ func (a *App) onDeletedRequest(ctx context.Context, reqID string) error {
 
 func (a *App) getOnCallServiceNames(req types.AccessRequest) ([]string, error) {
 	annotationKey := types.TeleportNamespace + types.ReqAnnotationApproveSchedulesLabel
-	return common.GetNamesFromAnnotations(req, annotationKey)
+	return common.GetServiceNamesFromAnnotations(req, annotationKey)
 }
 
 // createIncident posts an incident with request information.
@@ -385,8 +327,8 @@ func (a *App) createIncident(ctx context.Context, reqID string, reqData RequestD
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	ctx, log := logger.With(ctx, "servicenow_incident_id", data.IncidentID)
-	log.InfoContext(ctx, "Successfully created Servicenow incident")
+	ctx, log := logger.WithField(ctx, "servicenow_incident_id", data.IncidentID)
+	log.Info("Successfully created Servicenow incident")
 
 	// Save servicenow incident info in plugin data.
 	_, err = a.modifyPluginData(ctx, reqID, func(existing *PluginData) (PluginData, bool) {
@@ -430,10 +372,10 @@ func (a *App) postReviewNotes(ctx context.Context, reqID string, reqReviews []ty
 		return trace.Wrap(err)
 	}
 	if !ok {
-		logger.Get(ctx).DebugContext(ctx, "Failed to post the note: plugin data is missing")
+		logger.Get(ctx).Debug("Failed to post the note: plugin data is missing")
 		return nil
 	}
-	ctx, _ = logger.With(ctx, "servicenow_incident_id", data.IncidentID)
+	ctx, _ = logger.WithField(ctx, "servicenow_incident_id", data.IncidentID)
 
 	slice := reqReviews[oldCount:]
 	if len(slice) == 0 {
@@ -455,28 +397,22 @@ func (a *App) tryApproveRequest(ctx context.Context, req types.AccessRequest) er
 
 	serviceNames, err := a.getOnCallServiceNames(req)
 	if err != nil {
-		logger.Get(ctx).DebugContext(ctx, "Skipping the approval", "error", err)
+		logger.Get(ctx).Debugf("Skipping the approval: %s", err)
 		return nil
 	}
-	log.DebugContext(ctx, "Checking the shifts to see if the requester is on-call", "shifts", serviceNames)
+	log.Debugf("Checking the following shifts to see if the requester is on-call: %s", serviceNames)
 
 	onCallUsers, err := a.getOnCallUsers(ctx, serviceNames)
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	log.DebugContext(ctx, "Users on-call are", "on_call_users", onCallUsers)
+	log.Debugf("Users on-call are: %s", onCallUsers)
 
 	if userIsOnCall := slices.Contains(onCallUsers, req.GetUser()); !userIsOnCall {
-		log.DebugContext(ctx, "User is not on-call, not approving the request",
-			"user", req.GetUser(),
-			"request", req.GetName(),
-		)
+		log.Debugf("User %q is not on-call, not approving the request %q.", req.GetUser(), req.GetName())
 		return nil
 	}
-	log.DebugContext(ctx, "User is on-call, auto-approving the request",
-		"user", req.GetUser(),
-		"request", req.GetName(),
-	)
+	log.Debugf("User %q is on-call. Auto-approving the request %q.", req.GetUser(), req.GetName())
 	if _, err := a.teleport.SubmitAccessReview(ctx, types.AccessReviewSubmission{
 		RequestID: req.GetName(),
 		Review: types.AccessReview{
@@ -490,25 +426,20 @@ func (a *App) tryApproveRequest(ctx context.Context, req types.AccessRequest) er
 		},
 	}); err != nil {
 		if strings.HasSuffix(err.Error(), "has already reviewed this request") {
-			log.DebugContext(ctx, "Already reviewed the request")
+			log.Debug("Already reviewed the request")
 			return nil
 		}
 		return trace.Wrap(err, "submitting access request")
 	}
-	log.InfoContext(ctx, "Successfully submitted a request approval")
+	log.Info("Successfully submitted a request approval")
 	return nil
 }
 
 func (a *App) getOnCallUsers(ctx context.Context, serviceNames []string) ([]string, error) {
-	log := logger.Get(ctx)
 	onCallUsers := []string{}
 	for _, scheduleName := range serviceNames {
 		respondersResult, err := a.serviceNow.GetOnCall(ctx, scheduleName)
 		if err != nil {
-			if trace.IsNotFound(err) {
-				log.ErrorContext(ctx, "Failed to retrieve responder from schedule", "error", err)
-				continue
-			}
 			return nil, trace.Wrap(err)
 		}
 		onCallUsers = append(onCallUsers, respondersResult...)
@@ -544,15 +475,15 @@ func (a *App) resolveIncident(ctx context.Context, reqID string, resolution Reso
 		return trace.Wrap(err)
 	}
 	if !ok {
-		logger.Get(ctx).DebugContext(ctx, "Failed to resolve the incident: plugin data is missing")
+		logger.Get(ctx).Debug("Failed to resolve the incident: plugin data is missing")
 		return nil
 	}
 
-	ctx, log := logger.With(ctx, "servicenow_incident_id", incidentID)
+	ctx, log := logger.WithField(ctx, "servicenow_incident_id", incidentID)
 	if err := a.serviceNow.ResolveIncident(ctx, incidentID, resolution); err != nil {
 		return trace.Wrap(err)
 	}
-	log.InfoContext(ctx, "Successfully resolved the incident")
+	log.Info("Successfully resolved the incident")
 
 	return nil
 }

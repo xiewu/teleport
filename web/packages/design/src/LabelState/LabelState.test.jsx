@@ -16,13 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+
 import { render, theme } from 'design/utils/testing';
 
 import LabelState, {
   StateDanger,
   StateInfo,
-  StateSuccess,
   StateWarning,
+  StateSuccess,
 } from './LabelState';
 
 const colors = {

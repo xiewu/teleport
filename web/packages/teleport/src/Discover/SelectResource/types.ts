@@ -18,17 +18,19 @@
 
 import { Platform } from 'design/platform';
 import { ResourceIconName } from 'design/ResourceIcon';
+
 import { Resource } from 'gen-proto-ts/teleport/userpreferences/v1/onboard_pb';
 
-import { RdsEngineIdentifier } from 'teleport/services/integrations';
-import type { SamlServiceProviderPreset } from 'teleport/services/samlidp/types';
 import { AuthType } from 'teleport/services/user';
+
+import { ResourceKind } from '../Shared/ResourceKind';
+
+import type { SamlServiceProviderPreset } from 'teleport/services/samlidp/types';
+
 import type {
   DiscoverDiscoveryConfigMethod,
   DiscoverEventResource,
 } from 'teleport/services/userEvent';
-
-import { ResourceKind } from '../Shared/ResourceKind';
 
 export enum DatabaseLocation {
   Aws,
@@ -85,7 +87,7 @@ export interface ResourceSpec {
    * keywords are filter words that user may use to search for
    * this resource.
    */
-  keywords: string[];
+  keywords: string;
   /**
    * hasAccess is a flag to mean that user has
    * the preliminary permissions to add this resource.
@@ -143,18 +145,3 @@ export type PrioritizedResources = {
   preferredResources: Resource[];
   hasPreferredResources: boolean;
 };
-
-export function getRdsEngineIdentifier(
-  engine: DatabaseEngine
-): RdsEngineIdentifier {
-  switch (engine) {
-    case DatabaseEngine.MySql:
-      return 'mysql';
-    case DatabaseEngine.Postgres:
-      return 'postgres';
-    case DatabaseEngine.AuroraMysql:
-      return 'aurora-mysql';
-    case DatabaseEngine.AuroraPostgres:
-      return 'aurora-postgres';
-  }
-}

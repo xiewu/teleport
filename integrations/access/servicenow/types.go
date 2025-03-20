@@ -96,7 +96,6 @@ type RequestData struct {
 	SuggestedReviewers []string
 }
 
-// OnCallResult represents the response returned from a whoisoncall request to ServiceNow.
 type OnCallResult struct {
 	Result []struct {
 		// UserID is the ID of the on-call user.
@@ -104,7 +103,6 @@ type OnCallResult struct {
 	} `json:"result"`
 }
 
-// UserResult represents the response returned when retieving a user from ServiceNow.
 type UserResult struct {
 	Result struct {
 		// UserName is the username in servicenow of the requested user.
@@ -113,7 +111,6 @@ type UserResult struct {
 	} `json:"result"`
 }
 
-// IncidentResult represents the response returned when retieving an incident from ServiceNow.
 type IncidentResult struct {
 	Result struct {
 		// IncidentID is the sys_id of the incident
@@ -131,11 +128,4 @@ type IncidentResult struct {
 		// WorkNotes contains comments on the progress of the incident.
 		WorkNotes string `json:"work_notes,omitempty"`
 	} `json:"result"`
-}
-
-// errorResult represents the error response returned from ServiceNow.
-type errorResult struct {
-	Error struct {
-		Message string `json:"message"`
-	} `json:"error"`
 }

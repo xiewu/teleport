@@ -22,6 +22,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -80,7 +82,7 @@ func TestServerKeyAuth(t *testing.T) {
 	leafUserCA, leafUserCASigner := newCAAndSigner(t, types.UserCA, "leaf")
 
 	s := &server{
-		logger: utils.NewSlogLoggerForTests(),
+		log:    utils.NewLoggerForTests(),
 		Config: Config{Clock: clockwork.NewRealClock(), ClusterName: "root"},
 		localAccessPoint: mockAccessPoint{
 			cas: []types.CertAuthority{hostCA, userCA, leafHostCA, leafUserCA},
@@ -307,6 +309,86 @@ func (ap mockAccessPoint) GetCertAuthority(ctx context.Context, id types.CertAut
 	return nil, trace.NotFound("no cert authority matching %+v", id)
 }
 
+func TestCreateRemoteAccessPoint(t *testing.T) {
+	cases := []struct {
+		name           string
+		version        string
+		assertion      require.ErrorAssertionFunc
+		oldRemoteProxy bool
+	}{
+		{
+			name:      "invalid version",
+			assertion: require.Error,
+		},
+		{
+			name:      "remote running 13.0.0",
+			assertion: require.NoError,
+			version:   "13.0.0",
+		},
+		{
+			name:           "remote running 12.0.0",
+			assertion:      require.NoError,
+			version:        "12.0.0",
+			oldRemoteProxy: true,
+		},
+		{
+			name:           "remote running 11.0.0",
+			assertion:      require.NoError,
+			version:        "11.0.0",
+			oldRemoteProxy: true,
+		},
+		{
+			name:           "remote running 10.0.0",
+			assertion:      require.NoError,
+			version:        "10.0.0",
+			oldRemoteProxy: true,
+		},
+		{
+			name:           "remote running 9.0.0",
+			assertion:      require.NoError,
+			version:        "9.0.0",
+			oldRemoteProxy: true,
+		},
+		{
+			name:           "remote running 6.0.0",
+			assertion:      require.NoError,
+			version:        "6.0.0",
+			oldRemoteProxy: true,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			newProxyFn := func(clt authclient.ClientI, cacheName []string) (authclient.RemoteProxyAccessPoint, error) {
+				if tt.oldRemoteProxy {
+					return nil, errors.New("expected to create an old remote proxy")
+				}
+
+				return nil, nil
+			}
+
+			oldProxyFn := func(clt authclient.ClientI, cacheName []string) (authclient.RemoteProxyAccessPoint, error) {
+				if !tt.oldRemoteProxy {
+					return nil, errors.New("expected to create an new remote proxy")
+				}
+
+				return nil, nil
+			}
+
+			clt := &mockAuthClient{}
+			srv := &server{
+				log: utils.NewLoggerForTests(),
+				Config: Config{
+					NewCachingAccessPoint:         newProxyFn,
+					NewCachingAccessPointOldProxy: oldProxyFn,
+				},
+			}
+			_, err := createRemoteAccessPoint(srv, clt, tt.version, "test")
+			tt.assertion(t, err)
+		})
+	}
+}
+
 func Test_ParseDialReq(t *testing.T) {
 	testCases := []sshutils.DialReq{
 		{
@@ -346,8 +428,8 @@ func TestOnlyAuthDial(t *testing.T) {
 	badListenerAddr := acceptAndCloseListener(t, true)
 
 	srv := &server{
-		logger: utils.NewSlogLoggerForTests(),
-		ctx:    ctx,
+		log: logrus.StandardLogger(),
+		ctx: ctx,
 		Config: Config{
 			LocalAuthAddresses: []string{goodListenerAddr},
 		},

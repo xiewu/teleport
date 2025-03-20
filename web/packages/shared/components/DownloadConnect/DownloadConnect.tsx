@@ -18,6 +18,7 @@
 
 import { ButtonSecondary } from 'design/Button';
 import { Platform } from 'design/platform';
+
 import { MenuButton, MenuItem } from 'shared/components/MenuAction';
 
 export type DownloadLink = { text: string; url: string };

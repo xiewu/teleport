@@ -32,7 +32,6 @@ import (
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/constants"
 	"github.com/gravitational/teleport/api/types"
-	apievents "github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/api/types/wrappers"
 	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/lib/utils"
@@ -113,9 +112,6 @@ type Identity struct {
 	// BotName is set to the name of the bot, if the user is a Machine ID bot user.
 	// Empty for human users.
 	BotName string
-	// BotInstanceID is the unique identifier for the bot instance, if this is a
-	// Machine ID bot. It is empty for human users.
-	BotInstanceID string
 	// AllowedResourceIDs lists the resources the user should be able to access.
 	AllowedResourceIDs []types.ResourceID
 	// ConnectionDiagnosticID references the ConnectionDiagnostic that we should use to append traces when testing a Connection.
@@ -129,12 +125,6 @@ type Identity struct {
 	// DeviceCredentialID is the identifier for the credential used by the device
 	// to authenticate itself.
 	DeviceCredentialID string
-	// GitHubUserID indicates the GitHub user ID identified by the GitHub
-	// connector.
-	GitHubUserID string
-	// GitHubUsername indicates the GitHub username identified by the GitHub
-	// connector.
-	GitHubUsername string
 }
 
 // Encode encodes the identity into an ssh certificate. Note that the returned certificate is incomplete
@@ -213,9 +203,6 @@ func (i *Identity) Encode(certFormat string) (*ssh.Certificate, error) {
 	if i.BotName != "" {
 		cert.Permissions.Extensions[teleport.CertExtensionBotName] = i.BotName
 	}
-	if i.BotInstanceID != "" {
-		cert.Permissions.Extensions[teleport.CertExtensionBotInstanceID] = i.BotInstanceID
-	}
 	if len(i.AllowedResourceIDs) != 0 {
 		requestedResourcesStr, err := types.ResourceIDsToString(i.AllowedResourceIDs)
 		if err != nil {
@@ -237,12 +224,6 @@ func (i *Identity) Encode(certFormat string) (*ssh.Certificate, error) {
 	}
 	if credID := i.DeviceCredentialID; credID != "" {
 		cert.Permissions.Extensions[teleport.CertExtensionDeviceCredentialID] = credID
-	}
-	if i.GitHubUserID != "" {
-		cert.Permissions.Extensions[teleport.CertExtensionGitHubUserID] = i.GitHubUserID
-	}
-	if i.GitHubUsername != "" {
-		cert.Permissions.Extensions[teleport.CertExtensionGitHubUsername] = i.GitHubUsername
 	}
 
 	if i.PinnedIP != "" {
@@ -305,22 +286,6 @@ func (i *Identity) Encode(certFormat string) (*ssh.Certificate, error) {
 	}
 
 	return cert, nil
-}
-
-// GetDeviceMetadata returns information about user's trusted device.
-func (i *Identity) GetDeviceMetadata() *apievents.DeviceMetadata {
-	if i == nil {
-		return nil
-	}
-	if i.DeviceID == "" && i.DeviceAssetTag == "" && i.DeviceCredentialID == "" {
-		return nil
-	}
-
-	return &apievents.DeviceMetadata{
-		DeviceId:     i.DeviceID,
-		AssetTag:     i.DeviceAssetTag,
-		CredentialId: i.DeviceCredentialID,
-	}
 }
 
 // DecodeIdentity decodes an ssh certificate into an identity.
@@ -396,7 +361,6 @@ func DecodeIdentity(cert *ssh.Certificate) (*Identity, error) {
 	}
 
 	ident.BotName = takeValue(teleport.CertExtensionBotName)
-	ident.BotInstanceID = takeValue(teleport.CertExtensionBotInstanceID)
 
 	if v, ok := takeExtension(teleport.CertExtensionAllowedResources); ok {
 		resourceIDs, err := types.ResourceIDsFromString(v)
@@ -411,8 +375,6 @@ func DecodeIdentity(cert *ssh.Certificate) (*Identity, error) {
 	ident.DeviceID = takeValue(teleport.CertExtensionDeviceID)
 	ident.DeviceAssetTag = takeValue(teleport.CertExtensionDeviceAssetTag)
 	ident.DeviceCredentialID = takeValue(teleport.CertExtensionDeviceCredentialID)
-	ident.GitHubUserID = takeValue(teleport.CertExtensionGitHubUserID)
-	ident.GitHubUsername = takeValue(teleport.CertExtensionGitHubUsername)
 
 	if v, ok := cert.CriticalOptions[teleport.CertCriticalOptionSourceAddress]; ok {
 		parts := strings.Split(v, "/")

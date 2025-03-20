@@ -26,7 +26,7 @@ per the instructions in this guide. Do not run the SSH Service as a Kubernetes
 pod, as there is no guarantee that the SSH Service pod is running on a server
 that a user intends to access.
 
-  ![Teleport Bastion](../../../img/server-access/getting-started-diagram.png)
+![Teleport Bastion](../../../img/server-access/getting-started-diagram.svg)
 
 ## Prerequisites
 
@@ -61,10 +61,24 @@ that a user intends to access.
 On your local workstation, create a join token so you can add the server to your
 Teleport cluster:
 
+<Tabs>
+<TabItem label="Linux">
+
 ```code
 Let's save the token to a file
 $ tctl tokens add --type=node --format=text > token.file
 ```
+
+</TabItem>
+<TabItem label="macOS">
+
+```code
+Let's save the token to a file
+$ tctl tokens add --type=node --format=text > token.file
+```
+
+</TabItem>
+</Tabs>
 
 `--type=node` specifies that the Teleport process will act and join as an SSH
 server.
@@ -176,7 +190,7 @@ $ tsh login --proxy=mytenant.teleport.sh:443 --user=myuser
 
 </Tabs>
 
-You'll be prompted to supply the password and authentication factor we set up
+You'll be prompted to supply the password and second factor we set up
 previously.
 
 `myuser` will now see something similar to:

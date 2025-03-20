@@ -20,7 +20,8 @@ package githubactions
 
 import (
 	"context"
-	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -31,22 +32,19 @@ import (
 	"github.com/go-jose/go-jose/v3/jwt"
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
-
-	"github.com/gravitational/teleport/lib/cryptosuites"
 )
 
 type fakeIDP struct {
 	t             *testing.T
 	signer        jose.Signer
-	publicKey     crypto.PublicKey
+	privateKey    *rsa.PrivateKey
 	server        *httptest.Server
 	entepriseSlug string
 	ghesMode      bool
 }
 
 func newFakeIDP(t *testing.T, ghesMode bool, enterpriseSlug string) *fakeIDP {
-	// Github uses RSA2048, prefer to test with it.
-	privateKey, err := cryptosuites.GenerateKeyWithAlgorithm(cryptosuites.RSA2048)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
 	signer, err := jose.NewSigner(
@@ -58,7 +56,7 @@ func newFakeIDP(t *testing.T, ghesMode bool, enterpriseSlug string) *fakeIDP {
 	f := &fakeIDP{
 		signer:        signer,
 		ghesMode:      ghesMode,
-		publicKey:     privateKey.Public(),
+		privateKey:    privateKey,
 		t:             t,
 		entepriseSlug: enterpriseSlug,
 	}
@@ -144,7 +142,7 @@ func (f *fakeIDP) handleJWKSEndpoint(w http.ResponseWriter, r *http.Request) {
 	jwks := jose.JSONWebKeySet{
 		Keys: []jose.JSONWebKey{
 			{
-				Key: f.publicKey,
+				Key: &f.privateKey.PublicKey,
 			},
 		},
 	}
@@ -350,147 +348,6 @@ func TestIDTokenValidator_Validate(t *testing.T) {
 			)
 			tt.assertError(t, err)
 			require.Equal(t, tt.want, claims)
-		})
-	}
-}
-
-func testSigner(t *testing.T) ([]byte, jose.Signer) {
-	key, err := cryptosuites.GenerateKeyWithAlgorithm(cryptosuites.ECDSAP256)
-	require.NoError(t, err)
-	signer, err := jose.NewSigner(
-		jose.SigningKey{Algorithm: jose.ES256, Key: key},
-		(&jose.SignerOptions{}).
-			WithType("JWT").
-			WithHeader("kid", "foo"),
-	)
-	require.NoError(t, err)
-
-	jwks := jose.JSONWebKeySet{Keys: []jose.JSONWebKey{
-		{
-			Key:       key.Public(),
-			Use:       "sig",
-			Algorithm: string(jose.ES256),
-			KeyID:     "foo",
-		},
-	}}
-	jwksData, err := json.Marshal(jwks)
-	require.NoError(t, err)
-	return jwksData, signer
-}
-
-//nolint:govet // there's some weird json struct tag overlap here
-type claims struct {
-	jwt.Claims
-	IDTokenClaims
-	Subject string `json:"sub"`
-}
-
-func TestValidateTokenWithJWKS(t *testing.T) {
-	jwks, signer := testSigner(t)
-	_, wrongSigner := testSigner(t)
-
-	now := time.Now()
-	clusterName := "teleport.cluster.local"
-
-	tests := []struct {
-		name   string
-		signer jose.Signer
-		claims claims
-
-		wantResult *IDTokenClaims
-		wantErr    string
-	}{
-		{
-			name:   "valid token",
-			signer: signer,
-			claims: claims{
-				IDTokenClaims: IDTokenClaims{
-					Repository: "123",
-				},
-				Subject: "foo",
-				Claims: jwt.Claims{
-					Audience:  jwt.Audience{clusterName},
-					IssuedAt:  jwt.NewNumericDate(now.Add(-1 * time.Minute)),
-					NotBefore: jwt.NewNumericDate(now.Add(-1 * time.Minute)),
-					Expiry:    jwt.NewNumericDate(now.Add(10 * time.Minute)),
-				},
-			},
-			wantResult: &IDTokenClaims{
-				Sub:        "foo",
-				Repository: "123",
-			},
-		},
-		{
-			name:   "signed by wrong signer",
-			signer: wrongSigner,
-			claims: claims{
-				IDTokenClaims: IDTokenClaims{
-					Repository: "123",
-				},
-				Subject: "foo",
-				Claims: jwt.Claims{
-					Audience:  jwt.Audience{clusterName},
-					IssuedAt:  jwt.NewNumericDate(now.Add(-1 * time.Minute)),
-					NotBefore: jwt.NewNumericDate(now.Add(-1 * time.Minute)),
-					Expiry:    jwt.NewNumericDate(now.Add(10 * time.Minute)),
-				},
-			},
-			wantResult: &IDTokenClaims{
-				Sub:        "foo",
-				Repository: "123",
-			},
-			wantErr: "validating jwt signature",
-		},
-		{
-			name:   "expired",
-			signer: signer,
-			claims: claims{
-				IDTokenClaims: IDTokenClaims{
-					Repository: "123",
-				},
-				Subject: "foo",
-				Claims: jwt.Claims{
-					Audience:  jwt.Audience{clusterName},
-					IssuedAt:  jwt.NewNumericDate(now.Add(-2 * time.Minute)),
-					NotBefore: jwt.NewNumericDate(now.Add(-2 * time.Minute)),
-					Expiry:    jwt.NewNumericDate(now.Add(-1 * time.Minute)),
-				},
-			},
-			wantErr: "token is expired",
-		},
-		{
-			name:   "not yet valid",
-			signer: signer,
-			claims: claims{
-				IDTokenClaims: IDTokenClaims{
-					Repository: "123",
-				},
-				Subject: "foo",
-				Claims: jwt.Claims{
-					Audience:  jwt.Audience{clusterName},
-					IssuedAt:  jwt.NewNumericDate(now.Add(2 * time.Minute)),
-					NotBefore: jwt.NewNumericDate(now.Add(2 * time.Minute)),
-					Expiry:    jwt.NewNumericDate(now.Add(4 * time.Minute)),
-				},
-			},
-			wantErr: "token not valid yet",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			token, err := jwt.Signed(tt.signer).
-				Claims(tt.claims).
-				CompactSerialize()
-			require.NoError(t, err)
-
-			result, err := ValidateTokenWithJWKS(now, jwks, token)
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tt.wantResult, result)
 		})
 	}
 }

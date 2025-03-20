@@ -16,14 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+import { render, waitFor, screen } from 'design/utils/testing';
 import { createMemoryHistory } from 'history';
 import { Router } from 'react-router';
 
-import { render, screen, waitFor } from 'design/utils/testing';
-
 import { Route } from 'teleport/components/Router';
-import cfg from 'teleport/config';
 import api from 'teleport/services/api';
+import cfg from 'teleport/config';
 import service from 'teleport/services/apps';
 
 import { AppLauncher } from './AppLauncher';
@@ -83,7 +83,7 @@ describe('app launcher path is properly formed', () => {
     global.fetch = jest.fn(() => Promise.resolve({})) as jest.Mock;
     jest.spyOn(api, 'get').mockResolvedValue({});
     jest.spyOn(api, 'post').mockResolvedValue({});
-    jest.spyOn(service, 'getAppDetails').mockResolvedValue({
+    jest.spyOn(service, 'getAppFqdn').mockResolvedValue({
       fqdn: 'grafana.localhost',
     });
     jest.spyOn(service, 'createAppSession').mockResolvedValue({
@@ -93,17 +93,11 @@ describe('app launcher path is properly formed', () => {
     });
 
     delete window.location;
-    window.location = {
-      ...realLocation,
-      replace: assignMock,
-    } as unknown as string & Location;
+    window.location = { ...realLocation, replace: assignMock };
   });
 
   afterEach(() => {
-    window.location = {
-      ...realLocation,
-      replace: assignMock,
-    } as unknown as string & Location;
+    window.location = realLocation;
     assignMock.mockClear();
   });
 
@@ -268,17 +262,11 @@ describe('fqdn is matched', () => {
     jest.spyOn(api, 'post').mockResolvedValue({});
 
     delete window.location;
-    window.location = {
-      ...realLocation,
-      replace: assignMock,
-    } as unknown as string & Location;
+    window.location = { ...realLocation, replace: assignMock };
   });
 
   afterEach(() => {
-    window.location = {
-      ...realLocation,
-      replace: assignMock,
-    } as unknown as string & Location;
+    window.location = realLocation;
     assignMock.mockClear();
   });
 
@@ -291,7 +279,7 @@ describe('fqdn is matched', () => {
       expectedPublicAddr,
       expectedArn,
     }) => {
-      jest.spyOn(service, 'getAppDetails').mockResolvedValue({
+      jest.spyOn(service, 'getAppFqdn').mockResolvedValue({
         fqdn: returnedFqdn,
       });
       jest.spyOn(service, 'createAppSession');
@@ -307,8 +295,8 @@ describe('fqdn is matched', () => {
       await waitFor(() => {
         expect(service.createAppSession).toHaveBeenCalledWith({
           fqdn: expectedFqdn,
-          cluster_name: 'test.teleport',
-          public_addr: expectedPublicAddr,
+          clusterId: 'test.teleport',
+          publicAddr: expectedPublicAddr,
           arn: expectedArn,
         });
       });
@@ -319,7 +307,7 @@ describe('fqdn is matched', () => {
   );
 
   test('not matching FQDN throws error', async () => {
-    jest.spyOn(service, 'getAppDetails').mockResolvedValue({
+    jest.spyOn(service, 'getAppFqdn').mockResolvedValue({
       fqdn: 'different.fqdn',
     });
 
@@ -345,7 +333,7 @@ describe('fqdn is matched', () => {
   });
 
   test('invalid URL when constructing a new URL with a malformed FQDN', async () => {
-    jest.spyOn(service, 'getAppDetails').mockResolvedValue({
+    jest.spyOn(service, 'getAppFqdn').mockResolvedValue({
       fqdn: 'invalid.fqdn:3080:3090',
     });
 

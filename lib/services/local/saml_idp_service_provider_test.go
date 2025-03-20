@@ -36,7 +36,6 @@ import (
 
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/backend/memory"
-	"github.com/gravitational/teleport/lib/fixtures"
 	"github.com/gravitational/teleport/lib/services"
 )
 
@@ -116,7 +115,7 @@ func TestSAMLIdPServiceProviderCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, nextToken)
 	require.Empty(t, cmp.Diff([]types.SAMLIdPServiceProvider{sp1, sp2}, out,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision"),
 	))
 
 	// Fetch a paginated list of service providers
@@ -135,14 +134,14 @@ func TestSAMLIdPServiceProviderCRUD(t *testing.T) {
 
 	require.Equal(t, 2, numPages)
 	require.Empty(t, cmp.Diff([]types.SAMLIdPServiceProvider{sp1, sp2}, paginatedOut,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision"),
 	))
 
 	// Fetch a specific service provider.
 	sp, err := service.GetSAMLIdPServiceProvider(ctx, sp2.GetName())
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff(sp2, sp,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision"),
 	))
 
 	// Try to fetch a service provider that doesn't exist.
@@ -161,7 +160,7 @@ func TestSAMLIdPServiceProviderCRUD(t *testing.T) {
 	sp, err = service.GetSAMLIdPServiceProvider(ctx, sp1.GetName())
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff(sp1, sp,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision"),
 	))
 
 	// Update a service provider to an existing entity ID.
@@ -179,7 +178,7 @@ func TestSAMLIdPServiceProviderCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, nextToken)
 	require.Empty(t, cmp.Diff([]types.SAMLIdPServiceProvider{sp2}, out,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision"),
 	))
 
 	// Try to delete a service provider that doesn't exist.
@@ -589,38 +588,4 @@ func TestCreateSAMLIdPServiceProvider_GetTeleportSPSSODescriptor(t *testing.T) {
 	})
 	index, _ := GetTeleportSPSSODescriptor(ed.SPSSODescriptors)
 	require.Equal(t, 3, index)
-}
-
-func TestDeleteSAMLServiceProviderWhenReferencedByPlugin(t *testing.T) {
-	ctx := context.Background()
-	backend, err := memory.New(memory.Config{
-		Context: ctx,
-		Clock:   clockwork.NewFakeClock(),
-	})
-	require.NoError(t, err)
-	samlService, err := NewSAMLIdPServiceProviderService(backend)
-	require.NoError(t, err)
-	pluginService := NewPluginsService(backend)
-
-	sp, err := types.NewSAMLIdPServiceProvider(
-		types.Metadata{
-			Name: "sp",
-		},
-		types.SAMLIdPServiceProviderSpecV1{
-			EntityDescriptor: newEntityDescriptor("sp"),
-			EntityID:         "sp",
-		})
-	require.NoError(t, err)
-	require.NoError(t, samlService.CreateSAMLIdPServiceProvider(ctx, sp))
-
-	// service provider should not be deleted when referenced by the plugin.
-	require.NoError(t, pluginService.CreatePlugin(ctx, fixtures.NewIdentityCenterPlugin(t, sp.GetName(), sp.GetName())))
-	err = samlService.DeleteSAMLIdPServiceProvider(ctx, sp.GetName())
-	require.ErrorContains(t, err, "referenced by AWS Identity Center integration")
-
-	// service provider should be deleted once the referenced plugin itself is deleted.
-	// other existing plugin should not prevent SAML service provider from deletion.
-	require.NoError(t, pluginService.CreatePlugin(ctx, fixtures.NewMattermostPlugin(t)))
-	require.NoError(t, pluginService.DeletePlugin(ctx, types.PluginTypeAWSIdentityCenter))
-	require.NoError(t, samlService.DeleteSAMLIdPServiceProvider(ctx, sp.GetName()))
 }

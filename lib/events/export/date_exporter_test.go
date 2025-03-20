@@ -21,7 +21,7 @@ package export
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
+	"math/rand"
 	"strconv"
 	"sync"
 	"testing"
@@ -42,6 +42,7 @@ import (
 func TestDateExporterBasics(t *testing.T) {
 	t.Parallel()
 	for _, randomFlake := range []bool{false, true} {
+		randomFlake := randomFlake
 		t.Run(fmt.Sprintf("randomFlake=%v", randomFlake), func(t *testing.T) {
 			t.Parallel()
 			testDateExporterBasics(t, randomFlake)
@@ -197,6 +198,7 @@ func testDateExporterBasics(t *testing.T, randomFlake bool) {
 func TestDateExporterResume(t *testing.T) {
 	t.Parallel()
 	for _, randomFlake := range []bool{false, true} {
+		randomFlake := randomFlake
 		t.Run(fmt.Sprintf("randomFlake=%v", randomFlake), func(t *testing.T) {
 			t.Parallel()
 			testDateExporterResume(t, randomFlake)
@@ -407,8 +409,8 @@ func (c *fakeClient) ExportUnstructuredEvents(ctx context.Context, req *auditlog
 	// randomly truncate the chunk and append an error to simulate flake. we target a 33% failure rate
 	// since event export is more frequent than chunk listing.
 	var fail bool
-	if c.randomFlake && rand.N(3) == 0 {
-		chunk = chunk[:rand.N(len(chunk))]
+	if c.randomFlake && rand.Int()%3 == 0 {
+		chunk = chunk[:rand.Intn(len(chunk))]
 		fail = true
 	}
 
@@ -438,8 +440,8 @@ func (c *fakeClient) GetEventExportChunks(ctx context.Context, req *auditlogpb.G
 	// randomly truncate the chunk list and append an error to simulate flake. we target a 50% failure rate
 	// since chunk listing is less frequent than event export.
 	var fail bool
-	if c.randomFlake && rand.N(2) == 0 {
-		eec = eec[:rand.N(len(eec))]
+	if c.randomFlake && rand.Int()%2 == 0 {
+		eec = eec[:rand.Intn(len(eec))]
 		fail = true
 	}
 

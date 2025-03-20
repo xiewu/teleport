@@ -21,13 +21,11 @@ package discovery
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 
-	discoveryconfigv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/discoveryconfig/v1"
 	"github.com/gravitational/teleport/api/types/discoveryconfig"
 	aws_sync "github.com/gravitational/teleport/lib/srv/discovery/fetchers/aws-sync"
 )
@@ -36,7 +34,7 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 	testErr := "test error"
 	clock := clockwork.NewFakeClock()
 	type args struct {
-		fetchers []*fakeFetcher
+		fetchers []aws_sync.AWSSync
 		pushErr  error
 		preRun   bool
 	}
@@ -48,8 +46,8 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 		{
 			name: "test updateDiscoveryConfigStatus",
 			args: args{
-				fetchers: []*fakeFetcher{
-					{
+				fetchers: []aws_sync.AWSSync{
+					&fakeFetcher{
 						count:               1,
 						discoveryConfigName: "test",
 					},
@@ -58,11 +56,10 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 			want: map[string][]discoveryconfig.Status{
 				"test": {
 					{
-						State:                          "DISCOVERY_CONFIG_STATE_RUNNING",
-						ErrorMessage:                   nil,
-						DiscoveredResources:            1,
-						LastSyncTime:                   clock.Now(),
-						IntegrationDiscoveredResources: make(map[string]*discoveryconfigv1.IntegrationDiscoveredSummary),
+						State:               "DISCOVERY_CONFIG_STATE_RUNNING",
+						ErrorMessage:        nil,
+						DiscoveredResources: 1,
+						LastSyncTime:        clock.Now(),
 					},
 				},
 			},
@@ -71,8 +68,8 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 		{
 			name: "test updateDiscoveryConfigStatus with pushError",
 			args: args{
-				fetchers: []*fakeFetcher{
-					{
+				fetchers: []aws_sync.AWSSync{
+					&fakeFetcher{
 						count:               1,
 						discoveryConfigName: "test",
 					},
@@ -82,20 +79,19 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 			want: map[string][]discoveryconfig.Status{
 				"test": {
 					{
-						State:                          "DISCOVERY_CONFIG_STATE_ERROR",
-						ErrorMessage:                   &testErr,
-						DiscoveredResources:            1,
-						LastSyncTime:                   clock.Now(),
-						IntegrationDiscoveredResources: make(map[string]*discoveryconfigv1.IntegrationDiscoveredSummary),
+						State:               "DISCOVERY_CONFIG_STATE_ERROR",
+						ErrorMessage:        &testErr,
+						DiscoveredResources: 1,
+						LastSyncTime:        clock.Now(),
 					},
 				},
 			},
 		},
 		{
-			name: "test updateDiscoveryConfigStatus with error",
+			name: "test updateDiscoveryConfigStatus with errpr",
 			args: args{
-				fetchers: []*fakeFetcher{
-					{
+				fetchers: []aws_sync.AWSSync{
+					&fakeFetcher{
 						count:               1,
 						discoveryConfigName: "test",
 						err:                 errors.New(testErr),
@@ -105,11 +101,10 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 			want: map[string][]discoveryconfig.Status{
 				"test": {
 					{
-						State:                          "DISCOVERY_CONFIG_STATE_ERROR",
-						ErrorMessage:                   &testErr,
-						DiscoveredResources:            1,
-						LastSyncTime:                   clock.Now(),
-						IntegrationDiscoveredResources: make(map[string]*discoveryconfigv1.IntegrationDiscoveredSummary),
+						State:               "DISCOVERY_CONFIG_STATE_ERROR",
+						ErrorMessage:        &testErr,
+						DiscoveredResources: 1,
+						LastSyncTime:        clock.Now(),
 					},
 				},
 			},
@@ -117,8 +112,8 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 		{
 			name: "discar reports for non-discovery config results",
 			args: args{
-				fetchers: []*fakeFetcher{
-					{
+				fetchers: []aws_sync.AWSSync{
+					&fakeFetcher{
 						count: 1,
 					},
 				},
@@ -128,8 +123,9 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 		{
 			name: "test updateDiscoveryConfigStatus pre-run",
 			args: args{
-				fetchers: []*fakeFetcher{
-					{
+				fetchers: []aws_sync.AWSSync{
+					&fakeFetcher{
+						count:               1,
 						discoveryConfigName: "test",
 					},
 				},
@@ -138,101 +134,10 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 			want: map[string][]discoveryconfig.Status{
 				"test": {
 					{
-						State:                          "DISCOVERY_CONFIG_STATE_SYNCING",
-						ErrorMessage:                   nil,
-						DiscoveredResources:            0,
-						LastSyncTime:                   clock.Now(),
-						IntegrationDiscoveredResources: make(map[string]*discoveryconfigv1.IntegrationDiscoveredSummary),
-					},
-				},
-			},
-		},
-		{
-			name: "test multiple aws sync fetchers",
-			args: args{
-				fetchers: []*fakeFetcher{
-					{
-						discoveryConfigName: "test1",
-						count:               1,
-					},
-					{
-						discoveryConfigName: "test1",
-						count:               1,
-					},
-					{
-						discoveryConfigName: "test2",
-						count:               1,
-					},
-				},
-			},
-			want: map[string][]discoveryconfig.Status{
-				"test1": {
-					{
-						State:                          "DISCOVERY_CONFIG_STATE_RUNNING",
-						ErrorMessage:                   nil,
-						DiscoveredResources:            2,
-						LastSyncTime:                   clock.Now(),
-						IntegrationDiscoveredResources: make(map[string]*discoveryconfigv1.IntegrationDiscoveredSummary),
-					},
-				},
-				"test2": {
-					{
-						State:                          "DISCOVERY_CONFIG_STATE_RUNNING",
-						ErrorMessage:                   nil,
-						DiscoveredResources:            1,
-						LastSyncTime:                   clock.Now(),
-						IntegrationDiscoveredResources: make(map[string]*discoveryconfigv1.IntegrationDiscoveredSummary),
-					},
-				},
-			},
-		},
-		{
-			name: "merge two errors",
-			args: args{
-				fetchers: []*fakeFetcher{
-					{
-						discoveryConfigName: "test1",
-						err:                 fmt.Errorf("error in fetcher 1"),
-					},
-					{
-						discoveryConfigName: "test1",
-						err:                 fmt.Errorf("error in fetcher 2"),
-					},
-				},
-			},
-			want: map[string][]discoveryconfig.Status{
-				"test1": {
-					{
-						State:                          "DISCOVERY_CONFIG_STATE_ERROR",
-						ErrorMessage:                   stringPointer("error in fetcher 1\nerror in fetcher 2"),
-						LastSyncTime:                   clock.Now(),
-						IntegrationDiscoveredResources: make(map[string]*discoveryconfigv1.IntegrationDiscoveredSummary),
-					},
-				},
-			},
-		},
-		{
-			name: "reports error if at least one fetcher fails",
-			args: args{
-				fetchers: []*fakeFetcher{
-					{
-						discoveryConfigName: "test1",
-						err:                 fmt.Errorf("error in fetcher 1"),
-					},
-					{
-						discoveryConfigName: "test1",
-						count:               2,
-					},
-				},
-			},
-			want: map[string][]discoveryconfig.Status{
-				"test1": {
-					{
-						State:                          "DISCOVERY_CONFIG_STATE_ERROR",
-						ErrorMessage:                   stringPointer("error in fetcher 1"),
-						DiscoveredResources:            2,
-						LastSyncTime:                   clock.Now(),
-						IntegrationDiscoveredResources: make(map[string]*discoveryconfigv1.IntegrationDiscoveredSummary),
+						State:               "DISCOVERY_CONFIG_STATE_SYNCING",
+						ErrorMessage:        nil,
+						DiscoveredResources: 1,
+						LastSyncTime:        clock.Now(),
 					},
 				},
 			},
@@ -247,34 +152,15 @@ func TestServer_updateDiscoveryConfigStatus(t *testing.T) {
 					AccessPoint: accessPoint,
 					clock:       clock,
 				},
-				tagSyncStatus: newTagSyncStatus(),
 			}
-
-			if tt.args.preRun {
-				for _, fetcher := range tt.args.fetchers {
-					s.tagSyncStatus.syncStarted(fetcher, s.clock.Now())
-				}
-			} else {
-				for _, fetcher := range tt.args.fetchers {
-					s.tagSyncStatus.syncFinished(fetcher, tt.args.pushErr, s.clock.Now())
-				}
-			}
-
-			for _, discoveryConfigName := range s.tagSyncStatus.discoveryConfigs() {
-				s.updateDiscoveryConfigStatus(discoveryConfigName)
-			}
-
+			s.updateDiscoveryConfigStatus(tt.args.fetchers, tt.args.pushErr, tt.args.preRun)
 			require.Equal(t, tt.want, accessPoint.reports)
 		})
 	}
 }
 
-func stringPointer(s string) *string {
-	return &s
-}
-
 type fakeFetcher struct {
-	aws_sync.Fetcher
+	aws_sync.AWSSync
 	err                 error
 	count               uint64
 	discoveryConfigName string

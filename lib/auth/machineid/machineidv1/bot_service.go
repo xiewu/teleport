@@ -21,19 +21,19 @@ package machineidv1
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/gravitational/teleport"
 	headerv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/header/v1"
 	pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
-	userspb "github.com/gravitational/teleport/api/gen/proto/go/teleport/users/v1"
 	"github.com/gravitational/teleport/api/types"
 	apievents "github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/lib/authz"
@@ -54,8 +54,6 @@ var SupportedJoinMethods = []types.JoinMethod{
 	types.JoinMethodSpacelift,
 	types.JoinMethodToken,
 	types.JoinMethodTPM,
-	types.JoinMethodTerraformCloud,
-	types.JoinMethodBitbucket,
 }
 
 // BotResourceName returns the default name for resources associated with the
@@ -69,7 +67,7 @@ type Cache interface {
 	// GetUser returns a user by name.
 	GetUser(ctx context.Context, user string, withSecrets bool) (types.User, error)
 	// ListUsers lists users
-	ListUsers(ctx context.Context, req *userspb.ListUsersRequest) (*userspb.ListUsersResponse, error)
+	ListUsers(ctx context.Context, pageSize int, pageToken string, withSecrets bool) ([]types.User, string, error)
 	// GetRole returns a role by name.
 	GetRole(ctx context.Context, name string) (types.Role, error)
 }
@@ -108,7 +106,7 @@ type BotServiceConfig struct {
 	Authorizer authz.Authorizer
 	Cache      Cache
 	Backend    Backend
-	Logger     *slog.Logger
+	Logger     logrus.FieldLogger
 	Emitter    apievents.Emitter
 	Reporter   usagereporter.UsageReporter
 	Clock      clockwork.Clock
@@ -127,10 +125,11 @@ func NewBotService(cfg BotServiceConfig) (*BotService, error) {
 		return nil, trace.BadParameter("emitter is required")
 	case cfg.Reporter == nil:
 		return nil, trace.BadParameter("reporter is required")
-	case cfg.Logger == nil:
-		return nil, trace.BadParameter("logger is required")
 	}
 
+	if cfg.Logger == nil {
+		cfg.Logger = logrus.WithField(teleport.ComponentKey, "bot.service")
+	}
 	if cfg.Clock == nil {
 		cfg.Clock = clockwork.NewRealClock()
 	}
@@ -153,7 +152,7 @@ type BotService struct {
 	cache      Cache
 	backend    Backend
 	authorizer authz.Authorizer
-	logger     *slog.Logger
+	logger     logrus.FieldLogger
 	emitter    apievents.Emitter
 	reporter   usagereporter.UsageReporter
 	clock      clockwork.Clock
@@ -207,14 +206,13 @@ func (bs *BotService) ListBots(
 	// TODO(noah): Rewrite this to be less janky/better performing.
 	// - Concurrency for fetching roles
 	bots := []*pb.Bot{}
-	rsp, err := bs.cache.ListUsers(ctx, &userspb.ListUsersRequest{
-		PageSize:  req.PageSize,
-		PageToken: req.PageToken,
-	})
+	users, token, err := bs.cache.ListUsers(
+		ctx, int(req.PageSize), req.PageToken, false,
+	)
 	if err != nil {
 		return nil, trace.Wrap(err, "listing users")
 	}
-	for _, u := range rsp.Users {
+	for _, u := range users {
 		botName, isBot := u.GetLabel(types.BotLabel)
 		if !isBot {
 			continue
@@ -222,23 +220,17 @@ func (bs *BotService) ListBots(
 
 		role, err := bs.cache.GetRole(ctx, BotResourceName(botName))
 		if err != nil {
-			bs.logger.WarnContext(
-				ctx,
-				"Failed to fetch role for bot during ListBots. Bot will be omitted from results",
-				"error", err,
-				"bot_name", botName,
-			)
+			bs.logger.WithError(err).WithFields(logrus.Fields{
+				"bot.name": botName,
+			}).Warn("Failed to fetch role for bot during ListBots. Bot will be omitted from results.")
 			continue
 		}
 
 		bot, err := botFromUserAndRole(u, role)
 		if err != nil {
-			bs.logger.WarnContext(
-				ctx,
-				"Failed to convert bot during ListBots. Bot will be omitted from results",
-				"error", err,
-				"bot_name", botName,
-			)
+			bs.logger.WithError(err).WithFields(logrus.Fields{
+				"bot.name": botName,
+			}).Warn("Failed to convert bot during ListBots. Bot will be omitted from results.")
 			continue
 		}
 		bots = append(bots, bot)
@@ -246,8 +238,35 @@ func (bs *BotService) ListBots(
 
 	return &pb.ListBotsResponse{
 		Bots:          bots,
-		NextPageToken: rsp.NextPageToken,
+		NextPageToken: token,
 	}, nil
+}
+
+// createBotAuthz allows the legacy rbac noun/verbs to continue being used until
+// v16.0.0.
+func (bs *BotService) createBotAuthz(ctx context.Context) (*authz.Context, error) {
+	authCtx, err := bs.authorizer.Authorize(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	originalErr := authCtx.CheckAccessToKind(types.KindBot, types.VerbCreate)
+	if originalErr != nil {
+		// TODO(noah): DELETE IN 16.0.0
+		for _, kind := range []string{types.KindUser, types.KindRole, types.KindToken} {
+			if err := authCtx.CheckAccessToKind(kind, types.VerbCreate); err != nil {
+				return nil, originalErr
+			}
+		}
+		bs.logger.Warn("CreateBot authz fell back to legacy resource/verbs. Explicitly grant access to the Bot resource. From V16.0.0, this will fail!")
+	}
+
+	// Support reused MFA for bulk tctl create requests.
+	if err := authCtx.AuthorizeAdminActionAllowReusedMFA(); err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return authCtx, nil
 }
 
 // CreateBot creates a new bot. It will throw an error if the bot already
@@ -255,11 +274,8 @@ func (bs *BotService) ListBots(
 func (bs *BotService) CreateBot(
 	ctx context.Context, req *pb.CreateBotRequest,
 ) (*pb.Bot, error) {
-	authCtx, err := bs.authorizer.Authorize(ctx)
+	authCtx, err := bs.createBotAuthz(ctx)
 	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	if err := authCtx.CheckAccessToKind(types.KindBot, types.VerbCreate); err != nil {
 		return nil, trace.Wrap(err)
 	}
 	if err := authCtx.AuthorizeAdminActionAllowReusedMFA(); err != nil {
@@ -308,10 +324,7 @@ func (bs *BotService) CreateBot(
 			Name: bot.Metadata.Name,
 		},
 	}); err != nil {
-		bs.logger.WarnContext(
-			ctx, "Failed to emit BotCreate audit event",
-			"error", err,
-		)
+		bs.logger.WithError(err).Warn("Failed to emit BotCreate audit event.")
 	}
 
 	return bot, nil
@@ -404,10 +417,7 @@ func (bs *BotService) UpsertBot(ctx context.Context, req *pb.UpsertBotRequest) (
 			Name: bot.Metadata.Name,
 		},
 	}); err != nil {
-		bs.logger.WarnContext(
-			ctx, "Failed to emit BotCreate audit event",
-			"error", err,
-		)
+		bs.logger.WithError(err).Warn("Failed to emit BotCreate audit event.")
 	}
 
 	return bot, nil
@@ -502,10 +512,7 @@ func (bs *BotService) UpdateBot(
 			Name: req.Bot.Metadata.Name,
 		},
 	}); err != nil {
-		bs.logger.WarnContext(
-			ctx, "Failed to emit BotUpdate audit event",
-			"error", err,
-		)
+		bs.logger.WithError(err).Warn("Failed to emit BotUpdate audit event.")
 	}
 
 	bot, err := botFromUserAndRole(user, role)
@@ -544,6 +551,32 @@ func (bs *BotService) deleteBotRole(ctx context.Context, botName string) error {
 	return bs.backend.DeleteRole(ctx, role.GetName())
 }
 
+// deleteBotAuthz allows the legacy rbac noun/verbs to continue being used until
+// v16.0.0.
+func (bs *BotService) deleteBotAuthz(ctx context.Context) error {
+	authCtx, err := bs.authorizer.Authorize(ctx)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	originalErr := authCtx.CheckAccessToKind(types.KindBot, types.VerbDelete)
+	if originalErr != nil {
+		// TODO(noah): DELETE IN 16.0.0
+		for _, kind := range []string{types.KindUser, types.KindRole, types.KindToken} {
+			if err := authCtx.CheckAccessToKind(kind, types.VerbDelete); err != nil {
+				return originalErr
+			}
+		}
+		bs.logger.Warn("DeleteBot authz fell back to legacy resource/verbs. Explicitly grant access to the Bot resource. From V16.0.0, this will fail!")
+	}
+
+	if err := authCtx.AuthorizeAdminAction(); err != nil {
+		return trace.Wrap(err)
+	}
+
+	return nil
+}
+
 // DeleteBot deletes an existing bot. It will throw an error if the bot does
 // not exist.
 func (bs *BotService) DeleteBot(
@@ -554,16 +587,7 @@ func (bs *BotService) DeleteBot(
 	// seem to be any automatic deletion of locks in teleport today (other
 	// than expiration). Consistency around security controls seems important
 	// but we can revisit this if desired.
-	authCtx, err := bs.authorizer.Authorize(ctx)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	if err := authCtx.CheckAccessToKind(types.KindBot, types.VerbDelete); err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	if err := authCtx.AuthorizeAdminAction(); err != nil {
+	if err := bs.deleteBotAuthz(ctx); err != nil {
 		return nil, trace.Wrap(err)
 	}
 
@@ -571,7 +595,7 @@ func (bs *BotService) DeleteBot(
 		return nil, trace.BadParameter("bot_name: must be non-empty")
 	}
 
-	err = trace.NewAggregate(
+	err := trace.NewAggregate(
 		trace.Wrap(bs.deleteBotUser(ctx, req.BotName), "deleting bot user"),
 		trace.Wrap(bs.deleteBotRole(ctx, req.BotName), "deleting bot role"),
 	)
@@ -589,10 +613,7 @@ func (bs *BotService) DeleteBot(
 			Name: req.BotName,
 		},
 	}); err != nil {
-		bs.logger.WarnContext(
-			ctx, "Failed to emit BotDelete audit event",
-			"error", err,
-		)
+		bs.logger.WithError(err).Warn("Failed to emit BotDelete audit event.")
 	}
 
 	return &emptypb.Empty{}, nil

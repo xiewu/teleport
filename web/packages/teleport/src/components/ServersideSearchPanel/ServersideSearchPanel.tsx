@@ -16,41 +16,92 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { Flex } from 'design';
+import InputSearch from 'design/DataTable/InputSearch';
+import { PageIndicatorText } from 'design/DataTable/Pager/PageIndicatorText';
+
 import { AdvancedSearchToggle } from 'shared/components/AdvancedSearchToggle';
+
+import { PageIndicators } from 'teleport/components/hooks/useServersidePagination';
 
 import useServersideSearchPanel, {
   HookProps,
   SearchPanelState,
-} from 'teleport/components/ServersideSearchPanel/useServerSideSearchPanel';
+} from './useServerSideSearchPanel';
 
-import { SearchInput } from './SearchInput';
-
-export function ServersideSearchPanel(props: HookProps) {
-  const state = useServersideSearchPanel(props);
-  return <SearchPanel {...state} />;
+interface ComponentProps {
+  pageIndicators: PageIndicators;
+  disabled?: boolean;
 }
 
-export function SearchPanel({
+export interface Props extends HookProps, ComponentProps {
+  bigInputSize?: boolean;
+}
+
+export default function Container(props: Props) {
+  const {
+    pageIndicators,
+    disabled,
+    bigInputSize = false,
+    ...hookProps
+  } = props;
+  const state = useServersideSearchPanel(hookProps);
+  return (
+    <ServersideSearchPanel
+      {...state}
+      pageIndicators={pageIndicators}
+      disabled={disabled}
+      bigInputSize={bigInputSize}
+    />
+  );
+}
+
+interface State extends SearchPanelState, ComponentProps {
+  bigInputSize?: boolean;
+}
+
+export function ServersideSearchPanel({
   searchString,
   setSearchString,
   isAdvancedSearch,
   setIsAdvancedSearch,
   onSubmitSearch,
-}: SearchPanelState) {
+  pageIndicators,
+  disabled = false,
+  bigInputSize = false,
+}: State) {
   function onToggle() {
-    setIsAdvancedSearch(wasAdvancedSearch => !wasAdvancedSearch);
+    setIsAdvancedSearch(!isAdvancedSearch);
   }
 
   return (
-    <Flex as="form" className="SearchPanel" onSubmit={onSubmitSearch}>
-      <SearchInput searchValue={searchString} setSearchValue={setSearchString}>
+    <Flex
+      as="form"
+      onSubmit={onSubmitSearch}
+      alignItems="center"
+      justifyContent="space-between"
+      width="100%"
+      style={disabled ? { pointerEvents: 'none', opacity: '0.5' } : {}}
+    >
+      <InputSearch
+        searchValue={searchString}
+        setSearchValue={setSearchString}
+        bigInputSize={bigInputSize}
+      >
         <AdvancedSearchToggle
           isToggled={isAdvancedSearch}
           onToggle={onToggle}
           px={4}
         />
-      </SearchInput>
+      </InputSearch>
+      <Flex justifyContent="flex-end" mr={2} mb={1} mt={2}>
+        <PageIndicatorText
+          from={pageIndicators.from}
+          to={pageIndicators.to}
+          count={pageIndicators.totalCount}
+        />
+      </Flex>
     </Flex>
   );
 }

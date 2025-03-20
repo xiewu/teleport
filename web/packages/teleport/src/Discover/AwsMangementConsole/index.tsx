@@ -16,9 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import { AwsAccount, ResourceKind, Finished } from 'teleport/Discover/Shared';
 import { ResourceViewConfig } from 'teleport/Discover/flow';
 import { ResourceSpec } from 'teleport/Discover/SelectResource';
-import { AwsAccount, Finished, ResourceKind } from 'teleport/Discover/Shared';
+
 import { DiscoverEvent } from 'teleport/services/userEvent';
 
 import { CreateAppAccess } from './CreateAppAccess/CreateAppAccess';
@@ -27,10 +28,8 @@ import { TestConnection } from './TestConnection/TestConnection';
 
 export const AwsMangementConsole: ResourceViewConfig<ResourceSpec> = {
   kind: ResourceKind.Application,
-  shouldPrompt(currentStep, currentView) {
-    return (
-      currentStep > 0 && currentView?.eventName !== DiscoverEvent.Completed
-    );
+  shouldPrompt(currentStep) {
+    return currentStep !== 0;
   },
   views() {
     return [

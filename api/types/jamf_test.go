@@ -29,6 +29,8 @@ func TestValidateJamfSpecV1(t *testing.T) {
 	validSpec := &types.JamfSpecV1{
 		Enabled:     true,
 		ApiEndpoint: "https://yourtenant.jamfcloud.com",
+		Username:    "llama",
+		Password:    "supersecret!!1!",
 	}
 	validEntry := &types.JamfInventoryEntry{
 		FilterRsql:        "", // no filters
@@ -57,6 +59,8 @@ func TestValidateJamfSpecV1(t *testing.T) {
 			spec: &types.JamfSpecV1{
 				Enabled:     true,
 				ApiEndpoint: "https://yourtenant.jamfcloud.com",
+				Username:    "llama",
+				Password:    "supersecret!!1!",
 				Inventory: []*types.JamfInventoryEntry{
 					{
 						FilterRsql:        `general.remoteManagement.managed==true and general.platform=="Mac"`,
@@ -69,6 +73,25 @@ func TestValidateJamfSpecV1(t *testing.T) {
 						OnMissing:  "NOOP",
 					},
 					validEntry,
+				},
+			},
+		},
+		{
+			name: "all fields",
+			spec: &types.JamfSpecV1{
+				Enabled:     true,
+				Name:        "jamf2",
+				SyncDelay:   types.Duration(2 * time.Minute),
+				ApiEndpoint: "https://yourtenant.jamfcloud.com",
+				Username:    "llama",
+				Password:    "supersecret!!1!",
+				Inventory: []*types.JamfInventoryEntry{
+					{
+						FilterRsql:        `general.remoteManagement.managed==true and general.platform=="Mac"`,
+						SyncPeriodPartial: types.Duration(4 * time.Hour),
+						SyncPeriodFull:    types.Duration(48 * time.Hour),
+						OnMissing:         "DELETE",
+					},
 				},
 			},
 		},
@@ -90,6 +113,20 @@ func TestValidateJamfSpecV1(t *testing.T) {
 				spec.ApiEndpoint = "not a valid URL"
 			}),
 			wantErr: "missing hostname",
+		},
+		{
+			name: "username empty",
+			spec: modify(func(spec *types.JamfSpecV1) {
+				spec.Username = ""
+			}),
+			wantErr: "username",
+		},
+		{
+			name: "password empty",
+			spec: modify(func(spec *types.JamfSpecV1) {
+				spec.Password = ""
+			}),
+			wantErr: "password",
 		},
 		{
 			name: "inventory nil entry",

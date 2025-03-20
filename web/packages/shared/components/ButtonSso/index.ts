@@ -17,6 +17,5 @@
  */
 
 import ButtonSso, { guessProviderType } from './ButtonSso';
-
 export default ButtonSso;
 export { guessProviderType };

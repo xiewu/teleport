@@ -30,8 +30,6 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // LockCommand implements `tctl lock` group of commands.
@@ -44,7 +42,7 @@ type LockCommand struct {
 }
 
 // Initialize allows LockCommand to plug itself into the CLI parser.
-func (c *LockCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, config *servicecfg.Config) {
+func (c *LockCommand) Initialize(app *kingpin.Application, config *servicecfg.Config) {
 	c.config = config
 
 	c.mainCmd = app.Command("lock", "Create a new lock.")
@@ -62,21 +60,13 @@ func (c *LockCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIF
 }
 
 // TryRun attempts to run subcommands.
-func (c *LockCommand) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (match bool, err error) {
-	var commandFunc func(ctx context.Context, client *authclient.Client) error
+func (c *LockCommand) TryRun(ctx context.Context, cmd string, client *authclient.Client) (match bool, err error) {
 	switch cmd {
 	case c.mainCmd.FullCommand():
-		commandFunc = c.CreateLock
+		err = c.CreateLock(ctx, client)
 	default:
 		return false, nil
 	}
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	err = commandFunc(ctx, client)
-	closeFn(ctx)
-
 	return true, trace.Wrap(err)
 }
 

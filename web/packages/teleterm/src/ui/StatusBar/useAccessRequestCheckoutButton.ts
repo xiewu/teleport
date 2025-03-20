@@ -16,13 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useWorkspaceServiceState } from 'teleterm/ui/services/workspacesService';
-
 import { useAppContext } from '../appContextProvider';
 
 export function useAccessRequestsButton() {
   const ctx = useAppContext();
-  useWorkspaceServiceState();
+  ctx.workspacesService.useState();
 
   const workspaceAccessRequest =
     ctx.workspacesService.getActiveWorkspaceAccessRequestsService();
@@ -41,16 +39,16 @@ export function useAccessRequestsButton() {
     return workspaceAccessRequest.getCollapsed();
   }
 
-  function getAddedItemsCount() {
+  function getPendingResourceCount() {
     if (!workspaceAccessRequest) {
       return 0;
     }
-    return workspaceAccessRequest.getAddedItemsCount();
+    return workspaceAccessRequest.getAddedResourceCount();
   }
 
   return {
     isCollapsed,
     toggleAccessRequestBar,
-    getAddedItemsCount,
+    getPendingResourceCount,
   };
 }

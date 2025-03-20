@@ -72,8 +72,8 @@ help: ## Display this help.
 
 ##@ Development
 
-.PHONY: crd ## Single command to generate anything CRD-related (manifests and docs)
-crd: crdgen crd-docs manifests
+.PHONY: crd ## Single command to generate anything CRD-related (only manifests for this branch)
+crd: crdgen
 
 .PHONY: crdgen
 crdgen: ## Generate CRDs
@@ -96,33 +96,13 @@ manifests: crdgen controller-gen ## Generate WebhookConfiguration, ClusterRole a
 		protoc \
 			-I=../../api/proto \
 			-I=$(PROTOBUF_MOD_PATH) \
-			--plugin=./crdgen/build/protoc-gen-crd \
+			--plugin=./crdgen/protoc-gen-crd \
 			--crd_out=:./config/crd/bases \
 			"$${proto}"; \
 	done
 
 	rm -r ../../examples/chart/teleport-cluster/charts/teleport-operator/operator-crds/
 	cp -r ./config/crd/bases/ ../../examples/chart/teleport-cluster/charts/teleport-operator/operator-crds
-
-.PHONY: build-docs-plugin
-build-docs-plugin: ## Build the protoc plugin for generating docs
-	make -C crdgen build-docs
-
-.PHONY: crd-docs
-crd-docs: build-docs-plugin ## Generate CRD reference docs.
-
-# The wrappers.proto file needed for this generator exist only inside the go mod cache,
-# so we retrieve the file path for the cached proto files with go mod tools.
-	$(eval PROTOBUF_MOD_PATH := $(shell go mod download --json github.com/gogo/protobuf | awk -F: '/"Dir"/ { print $$2 }' | tr -d ' ",'))
-
-	for proto in $(PROTOS); do \
-		protoc \
-			-I=../../api/proto \
-			-I=$(PROTOBUF_MOD_PATH) \
-			--plugin=./crdgen/build/protoc-gen-crd-docs \
-			--crd-docs_out=../../docs/pages/reference/operator-resources/ \
-			"$${proto}"; \
-	done
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -154,7 +134,7 @@ crdgen-test: ## Run crdgen tests.
 
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
-	go build -trimpath -tags "kustomize_disable_go_plugin_support" -o bin/manager main.go namespace.go config.go
+	go build -trimpath -o bin/manager main.go namespace.go config.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -185,7 +165,7 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v3.8.7
-CONTROLLER_TOOLS_VERSION ?= v0.16.2
+CONTROLLER_TOOLS_VERSION ?= v0.14.0
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.

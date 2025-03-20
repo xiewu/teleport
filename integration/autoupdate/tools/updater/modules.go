@@ -31,7 +31,6 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/accesslist"
 	"github.com/gravitational/teleport/api/utils/keys"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/tlsca"
 )
@@ -53,7 +52,7 @@ func (p *TestModules) GenerateAccessRequestPromotions(context.Context, modules.A
 	return &types.AccessRequestAllowedPromotions{}, nil
 }
 
-func (p *TestModules) GetSuggestedAccessLists(context.Context, *tlsca.Identity, modules.AccessListSuggestionClient, modules.AccessListAndMembersGetter, string) ([]*accesslist.AccessList, error) {
+func (p *TestModules) GetSuggestedAccessLists(ctx context.Context, identity *tlsca.Identity, clt modules.AccessListSuggestionClient, accessListGetter modules.AccessListGetter, requestID string) ([]*accesslist.AccessList, error) {
 	return []*accesslist.AccessList{}, nil
 }
 
@@ -88,7 +87,6 @@ func (p *TestModules) PrintVersion() {
 // Features returns supported features
 func (p *TestModules) Features() modules.Features {
 	return modules.Features{
-		Entitlements:            map[entitlements.EntitlementKind]modules.EntitlementInfo{},
 		AdvancedAccessWorkflows: true,
 	}
 }

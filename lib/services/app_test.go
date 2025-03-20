@@ -211,7 +211,6 @@ func TestBuildAppURI(t *testing.T) {
 	tests := []struct {
 		serviceFQDN string
 		port        int32
-		path        string
 		protocol    string
 		expected    string
 	}{
@@ -220,34 +219,6 @@ func TestBuildAppURI(t *testing.T) {
 			port:        8080,
 			protocol:    "http",
 			expected:    "http://service.example:8080",
-		},
-		{
-			serviceFQDN: "service.example",
-			port:        8080,
-			protocol:    "http",
-			path:        "foo",
-			expected:    "http://service.example:8080/foo",
-		},
-		{
-			serviceFQDN: "service.example",
-			port:        8080,
-			protocol:    "http",
-			path:        "/foo",
-			expected:    "http://service.example:8080/foo",
-		},
-		{
-			serviceFQDN: "service.example",
-			port:        8080,
-			protocol:    "http",
-			path:        "foo/bar",
-			expected:    "http://service.example:8080/foo/bar",
-		},
-		{
-			serviceFQDN: "service.example",
-			port:        8080,
-			protocol:    "http",
-			path:        "foo bar",
-			expected:    "http://service.example:8080/foo%20bar",
 		},
 		{
 			serviceFQDN: "service.example",
@@ -264,7 +235,7 @@ func TestBuildAppURI(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		require.Equal(t, tt.expected, buildAppURI(tt.protocol, tt.serviceFQDN, tt.path, tt.port))
+		require.Equal(t, tt.expected, buildAppURI(tt.protocol, tt.serviceFQDN, tt.port))
 	}
 }
 

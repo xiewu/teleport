@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/lib/ui"
 )
 
 func TestMakeAppsLabelFilter(t *testing.T) {
@@ -50,7 +49,7 @@ func TestMakeAppsLabelFilter(t *testing.T) {
 			expected: []App{
 				{
 					Name: "App1",
-					Labels: []ui.Label{
+					Labels: []Label{
 						{
 							Name:  "first",
 							Value: "value1",
@@ -102,7 +101,7 @@ func TestMakeApps(t *testing.T) {
 					URI:        "1.com",
 					PublicAddr: "1.com",
 					FQDN:       "1.com",
-					Labels:     []ui.Label{{Name: "label1", Value: "value1"}},
+					Labels:     []Label{{Name: "label1", Value: "value1"}},
 					UserGroups: []UserGroupAndDescription{},
 				},
 				{
@@ -112,7 +111,7 @@ func TestMakeApps(t *testing.T) {
 					URI:         "2.com",
 					PublicAddr:  "2.com",
 					FQDN:        "2.com",
-					Labels: []ui.Label{
+					Labels: []Label{
 						{Name: "label2", Value: "value2"},
 						{Name: types.OriginLabel, Value: types.OriginOkta},
 					},
@@ -149,7 +148,7 @@ func TestMakeApps(t *testing.T) {
 					URI:        "1.com",
 					PublicAddr: "1.com",
 					FQDN:       "1.com",
-					Labels:     []ui.Label{{Name: "label1", Value: "value1"}},
+					Labels:     []Label{{Name: "label1", Value: "value1"}},
 					UserGroups: []UserGroupAndDescription{
 						{Name: "group1", Description: "group1 desc"},
 						{Name: "group2", Description: "group2 desc"},
@@ -162,7 +161,7 @@ func TestMakeApps(t *testing.T) {
 					URI:         "2.com",
 					PublicAddr:  "2.com",
 					FQDN:        "2.com",
-					Labels: []ui.Label{
+					Labels: []Label{
 						{Name: "label2", Value: "value2"},
 						{Name: types.OriginLabel, Value: types.OriginOkta},
 					},
@@ -189,7 +188,7 @@ func TestMakeApps(t *testing.T) {
 					Name:        "grafana_saml",
 					Description: "SAML Application",
 					PublicAddr:  "",
-					Labels:      []ui.Label{},
+					Labels:      []Label{},
 					SAMLApp:     true,
 				},
 			},
@@ -211,20 +210,7 @@ func TestMakeApps(t *testing.T) {
 	}
 }
 
-func newApp(t *testing.T, name, publicAddr, description string, labels map[string]string) types.Application {
-	app, err := types.NewAppV3(types.Metadata{
-		Name:        name,
-		Description: description,
-		Labels:      labels,
-	}, types.AppSpecV3{
-		URI:        publicAddr,
-		PublicAddr: publicAddr,
-	})
-	require.NoError(t, err)
-	return app
-}
-
-func TestMakeAppTypeFromSAMLApp(t *testing.T) {
+func TestMakeSAMLApp(t *testing.T) {
 	tests := []struct {
 		name             string
 		sp               types.SAMLIdPServiceProviderV1
@@ -248,7 +234,7 @@ func TestMakeAppTypeFromSAMLApp(t *testing.T) {
 				Name:          "test_app",
 				Description:   "SAML Application",
 				PublicAddr:    "",
-				Labels:        []ui.Label{},
+				Labels:        []Label{},
 				SAMLApp:       true,
 				SAMLAppPreset: "unspecified",
 			},
@@ -270,7 +256,7 @@ func TestMakeAppTypeFromSAMLApp(t *testing.T) {
 				Name:          "test_app",
 				Description:   "SAML Application",
 				PublicAddr:    "",
-				Labels:        []ui.Label{},
+				Labels:        []Label{},
 				SAMLApp:       true,
 				SAMLAppPreset: "test_preset",
 			},
@@ -281,17 +267,27 @@ func TestMakeAppTypeFromSAMLApp(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			apps := MakeAppTypeFromSAMLApp(&test.sp, MakeAppsConfig{})
+			apps := MakeSAMLApp(&test.sp, MakeAppsConfig{})
 			require.Empty(t, cmp.Diff(test.expected, apps))
 		})
 	}
 }
 
+func newApp(t *testing.T, name, publicAddr, description string, labels map[string]string) types.Application {
+	app, err := types.NewAppV3(types.Metadata{
+		Name:        name,
+		Description: description,
+		Labels:      labels,
+	}, types.AppSpecV3{
+		URI:        publicAddr,
+		PublicAddr: publicAddr,
+	})
+	require.NoError(t, err)
+	return app
+}
+
 // createAppServerOrSPFromApp returns a AppServerOrSAMLIdPServiceProvider given an App.
-//
-//nolint:staticcheck // SA1019. Kept to be deleted along with the API in 16.0.
 func createAppServerOrSPFromApp(app types.Application) types.AppServerOrSAMLIdPServiceProvider {
-	//nolint:staticcheck // SA1019. Kept to be deleted along with the API in 16.0.
 	appServerOrSP := &types.AppServerOrSAMLIdPServiceProviderV1{
 		Resource: &types.AppServerOrSAMLIdPServiceProviderV1_AppServer{
 			AppServer: &types.AppServerV3{
@@ -306,8 +302,6 @@ func createAppServerOrSPFromApp(app types.Application) types.AppServerOrSAMLIdPS
 }
 
 // createAppServerOrSPFromApp returns a AppServerOrSAMLIdPServiceProvider given a SAMLIdPServiceProvider.
-//
-//nolint:staticcheck // SA1019. Kept to be deleted along with the API in 16.0.
 func createAppServerOrSPFromSAMLIdPServiceProvider(sp types.SAMLIdPServiceProvider) types.AppServerOrSAMLIdPServiceProvider {
 	appServerOrSP := &types.AppServerOrSAMLIdPServiceProviderV1{
 		Resource: &types.AppServerOrSAMLIdPServiceProviderV1_SAMLIdPServiceProvider{

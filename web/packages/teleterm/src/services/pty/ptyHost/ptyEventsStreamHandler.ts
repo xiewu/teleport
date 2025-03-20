@@ -18,12 +18,8 @@
 
 import { ClientDuplexStream } from '@grpc/grpc-js';
 
-import {
-  ptyEventOneOfIsData,
-  ptyEventOneOfIsExit,
-  ptyEventOneOfIsStartError,
-} from 'teleterm/helpers';
 import Logger from 'teleterm/logger';
+
 import {
   PtyClientEvent,
   PtyEventData,
@@ -31,6 +27,11 @@ import {
   PtyEventStart,
   PtyServerEvent,
 } from 'teleterm/sharedProcess/ptyHost';
+import {
+  ptyEventOneOfIsData,
+  ptyEventOneOfIsExit,
+  ptyEventOneOfIsStartError,
+} from 'teleterm/helpers';
 
 export class PtyEventsStreamHandler {
   private logger: Logger;

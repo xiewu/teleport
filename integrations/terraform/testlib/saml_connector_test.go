@@ -29,14 +29,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/entitlements"
-	"github.com/gravitational/teleport/lib/modules"
 )
 
 func (s *TerraformSuiteEnterprise) TestSAMLConnector() {
-	saml := modules.GetProtoEntitlement(s.teleportFeatures, entitlements.SAML)
 	require.True(s.T(),
-		saml.Enabled,
+		s.teleportFeatures.GetSAML(),
 		"Test requires SAML",
 	)
 
@@ -91,9 +88,8 @@ func (s *TerraformSuiteEnterprise) TestSAMLConnector() {
 }
 
 func (s *TerraformSuiteEnterprise) TestImportSAMLConnector() {
-	saml := modules.GetProtoEntitlement(s.teleportFeatures, entitlements.SAML)
 	require.True(s.T(),
-		saml.Enabled,
+		s.teleportFeatures.GetSAML(),
 		"Test requires SAML",
 	)
 
@@ -170,9 +166,8 @@ func (s *TerraformSuiteEnterprise) TestImportSAMLConnector() {
 }
 
 func (s *TerraformSuiteEnterprise) TestSAMLConnectorWithEntityDescriptorURL() {
-	saml := modules.GetProtoEntitlement(s.teleportFeatures, entitlements.SAML)
 	require.True(s.T(),
-		saml.Enabled,
+		s.teleportFeatures.GetSAML(),
 		"Test requires SAML",
 	)
 
@@ -192,9 +187,8 @@ func (s *TerraformSuiteEnterprise) TestSAMLConnectorWithEntityDescriptorURL() {
 }
 
 func (s *TerraformSuiteEnterprise) TestSAMLConnectorWithoutEntityDescriptor() {
-	saml := modules.GetProtoEntitlement(s.teleportFeatures, entitlements.SAML)
 	require.True(s.T(),
-		saml.Enabled,
+		s.teleportFeatures.GetSAML(),
 		"Test requires SAML",
 	)
 

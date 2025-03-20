@@ -61,7 +61,7 @@ NOTE: Make sure <proxy_host>:443 points at a Teleport proxy which users can acce
 
 The user completes registration by visiting this URL in their web browser,
 picking a password, and configuring multi-factor authentication. If the
-credentials are correct, the Teleport Auth Service generates and signs a new
+credentials are correct, the Teleport Auth Server generates and signs a new
 certificate, and the client stores this key and will use it for subsequent
 logins.
 
@@ -91,13 +91,16 @@ For example, to see the full list of user records, an administrator can execute:
 $ tctl get users
 ```
 
-To edit the user `joe`, run the following command:
+To edit the user `joe`:
 
 ```code
-$ tctl edit user/joe
-```
+# Dump the user definition into a file:
+$ tctl get user/joe > joe.yaml
+# ... edit the contents of joe.yaml
 
-Make your changes, then save and close the file in your editor to apply them.
+# Update the user record:
+$ tctl create -f joe.yaml
+```
 
 ## Deleting users
 

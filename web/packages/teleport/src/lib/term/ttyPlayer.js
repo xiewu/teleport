@@ -16,13 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import Logger from 'shared/libs/logger';
 import { throttle } from 'shared/utils/highbar';
+import Logger from 'shared/libs/logger';
 
 import { StatusEnum } from 'teleport/lib/player';
 
-import { TermEvent, WebsocketCloseCode } from './enums';
 import Tty from './tty';
+import { TermEvent, WebsocketCloseCode } from './enums';
 
 const logger = Logger.create('TtyPlayer');
 

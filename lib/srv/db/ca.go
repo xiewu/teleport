@@ -49,7 +49,7 @@ func (s *Server) startCARenewer(ctx context.Context) {
 		case <-schedule.Chan():
 			for _, database := range s.getProxiedDatabases() {
 				if err := s.initCACert(ctx, database); err != nil {
-					s.log.ErrorContext(ctx, "Failed to renew database CA.", "db", database.GetName(), "error", err)
+					s.log.WithError(err).Errorf("Failed to renew database %q CA.", database.GetName())
 				}
 			}
 		case <-ctx.Done():
@@ -101,8 +101,6 @@ func (s *Server) shouldInitCACertLocked(database types.Database) bool {
 	// Can only download it for cloud-hosted instances.
 	switch database.GetType() {
 	case types.DatabaseTypeRDS,
-		types.DatabaseTypeRDSOracle,
-		types.DatabaseTypeDocumentDB,
 		types.DatabaseTypeRedshift,
 		types.DatabaseTypeRedshiftServerless,
 		types.DatabaseTypeElastiCache,
@@ -156,7 +154,7 @@ func (s *Server) getCACert(ctx context.Context, database types.Database, filePat
 	}
 	// The update flow is going to create/update the cached CA, so we can read
 	// the contents from it.
-	s.log.DebugContext(ctx, "Loaded CA certificate.", "path", filePath)
+	s.log.Debugf("Loaded CA certificate %v.", filePath)
 	return os.ReadFile(filePath)
 }
 
@@ -166,8 +164,7 @@ func (s *Server) getCACertPaths(database types.Database) ([]string, error) {
 	switch database.GetType() {
 	// All RDS instances share the same root CA (per AWS region) which can be
 	// downloaded from a well-known URL.
-	// DocumentDB uses same certs as RDS.
-	case types.DatabaseTypeRDS, types.DatabaseTypeRDSOracle, types.DatabaseTypeDocumentDB:
+	case types.DatabaseTypeRDS:
 		return []string{filepath.Join(s.cfg.DataDir, filepath.Base(rdsCAURLForDatabase(database)))}, nil
 
 	// All Redshift instances share the same root CA which can be downloaded
@@ -214,7 +211,7 @@ func (s *Server) getCACertPaths(database types.Database) ([]string, error) {
 }
 
 // saveCACert saves the downloaded certificate to the filesystem.
-func (s *Server) saveCACert(ctx context.Context, filePath string, content []byte, version []byte) error {
+func (s *Server) saveCACert(filePath string, content []byte, version []byte) error {
 	// Save CA contents.
 	err := os.WriteFile(filePath, content, teleport.FileMaskOwnerOnly)
 	if err != nil {
@@ -227,7 +224,7 @@ func (s *Server) saveCACert(ctx context.Context, filePath string, content []byte
 		return trace.Wrap(err)
 	}
 
-	s.log.DebugContext(ctx, "Saved CA certificate.", "path", filePath)
+	s.log.Debugf("Saved CA certificate %v.", filePath)
 	return nil
 }
 
@@ -253,7 +250,7 @@ func (s *Server) updateCACert(ctx context.Context, database types.Database, file
 	}
 
 	if equal {
-		s.log.DebugContext(ctx, "Database CA is up-to-date.", "db", database.GetName(), "type", database.GetType())
+		s.log.Debugf("Database %q CA is up-to-date.", database.GetName())
 		return nil
 	}
 
@@ -265,12 +262,12 @@ func (s *Server) updateCACert(ctx context.Context, database types.Database, file
 		}
 	}
 
-	err = s.saveCACert(ctx, filePath, contents, version)
+	err = s.saveCACert(filePath, contents, version)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	s.log.InfoContext(ctx, "Database CA updated.", "db", database.GetName(), "type", database.GetType())
+	s.log.Infof("Database %q CA updated.", database.GetName())
 	return nil
 }
 
@@ -310,7 +307,7 @@ func NewRealDownloader() CADownloader {
 // Download downloads CA certificate for the provided cloud database instance.
 func (d *realDownloader) Download(ctx context.Context, database types.Database, hint string) ([]byte, []byte, error) {
 	switch database.GetType() {
-	case types.DatabaseTypeRDS, types.DatabaseTypeRDSOracle, types.DatabaseTypeDocumentDB:
+	case types.DatabaseTypeRDS:
 		return d.downloadFromURL(rdsCAURLForDatabase(database))
 	case types.DatabaseTypeRedshift,
 		types.DatabaseTypeRedshiftServerless:
@@ -339,7 +336,7 @@ func (d *realDownloader) Download(ctx context.Context, database types.Database, 
 // GetVersion returns the CA version for the provided database.
 func (d *realDownloader) GetVersion(ctx context.Context, database types.Database, hint string) ([]byte, error) {
 	switch database.GetType() {
-	case types.DatabaseTypeRDS, types.DatabaseTypeRDSOracle, types.DatabaseTypeDocumentDB:
+	case types.DatabaseTypeRDS:
 		return d.getVersionFromURL(database, rdsCAURLForDatabase(database))
 	case types.DatabaseTypeRedshift,
 		types.DatabaseTypeRedshiftServerless:

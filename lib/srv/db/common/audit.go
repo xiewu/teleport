@@ -20,10 +20,9 @@ package common
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/gravitational/trace"
-	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
@@ -40,12 +39,8 @@ type Audit interface {
 	OnSessionEnd(ctx context.Context, session *Session)
 	// OnQuery is called when a database query or command is executed.
 	OnQuery(ctx context.Context, session *Session, query Query)
-	// OnResult is called when a database query or command returns.
-	OnResult(ctx context.Context, session *Session, result Result)
-	// EmitEvent emits the provided audit event to audit log and session recording.
+	// EmitEvent emits the provided audit event.
 	EmitEvent(ctx context.Context, event events.AuditEvent)
-	// RecordEvent emits event to the session recording.
-	RecordEvent(ctx context.Context, event events.AuditEvent)
 	// OnPermissionsUpdate is called when granular database-level user permissions are updated.
 	OnPermissionsUpdate(ctx context.Context, session *Session, entries []events.DatabasePermissionEntry)
 	// OnDatabaseUserCreate is called when a database user is provisioned.
@@ -67,18 +62,6 @@ type Query struct {
 	Error error
 }
 
-// Result represents a query or command result.
-type Result struct {
-	// Error is the error message. If error is nil, then the result represents a
-	// success.
-	Error error
-	// AffectedRecords is the number of records affected by the query/command.
-	AffectedRecords uint64
-	// UserMessage is a user-friendly message for successful or unsuccessful
-	// results.
-	UserMessage string
-}
-
 // AuditConfig is the audit events emitter configuration.
 type AuditConfig struct {
 	// Emitter is used to emit audit events.
@@ -89,8 +72,6 @@ type AuditConfig struct {
 	Database types.Database
 	// Component is the component in use.
 	Component string
-	// Clock used to control time.
-	Clock clockwork.Clock
 }
 
 // Check validates the config.
@@ -107,9 +88,6 @@ func (c *AuditConfig) Check() error {
 	if c.Component == "" {
 		c.Component = "db:audit"
 	}
-	if c.Clock == nil {
-		c.Clock = clockwork.NewRealClock()
-	}
 	return nil
 }
 
@@ -118,7 +96,7 @@ type audit struct {
 	// cfg is the audit events emitter configuration.
 	cfg AuditConfig
 	// log is used for logging
-	logger *slog.Logger
+	log logrus.FieldLogger
 }
 
 // NewAudit returns a new instance of the audit events emitter.
@@ -127,8 +105,8 @@ func NewAudit(config AuditConfig) (Audit, error) {
 		return nil, trace.Wrap(err)
 	}
 	return &audit{
-		cfg:    config,
-		logger: slog.With(teleport.ComponentKey, config.Component),
+		cfg: config,
+		log: logrus.WithField(teleport.ComponentKey, config.Component),
 	}, nil
 }
 
@@ -146,11 +124,7 @@ func (a *audit) OnSessionStart(ctx context.Context, session *Session, sessionErr
 			Success: true,
 		},
 		PostgresPID: session.PostgresPID,
-		ClientMetadata: events.ClientMetadata{
-			UserAgent: session.UserAgent,
-		},
 	}
-	event.SetTime(session.StartTime)
 
 	// If the database session wasn't started successfully, emit
 	// a failure event with error details.
@@ -167,20 +141,14 @@ func (a *audit) OnSessionStart(ctx context.Context, session *Session, sessionErr
 
 // OnSessionEnd emits an audit event when database session ends.
 func (a *audit) OnSessionEnd(ctx context.Context, session *Session) {
-	event := &events.DatabaseSessionEnd{
+	a.EmitEvent(ctx, &events.DatabaseSessionEnd{
 		Metadata: MakeEventMetadata(session,
 			libevents.DatabaseSessionEndEvent,
 			libevents.DatabaseSessionEndCode),
 		UserMetadata:     MakeUserMetadata(session),
 		SessionMetadata:  MakeSessionMetadata(session),
 		DatabaseMetadata: MakeDatabaseMetadata(session),
-		StartTime:        session.StartTime,
-	}
-	endTime := a.cfg.Clock.Now()
-	event.SetTime(endTime)
-	event.EndTime = endTime
-
-	a.EmitEvent(ctx, event)
+	})
 }
 
 // OnQuery emits an audit event when a database query is executed.
@@ -211,29 +179,6 @@ func (a *audit) OnQuery(ctx context.Context, session *Session, query Query) {
 		}
 	}
 	a.EmitEvent(ctx, event)
-}
-
-// OnResult is called when a database query or command returns.
-func (a *audit) OnResult(ctx context.Context, session *Session, result Result) {
-	event := &events.DatabaseSessionCommandResult{
-		Metadata: MakeEventMetadata(session,
-			libevents.DatabaseSessionCommandResultEvent,
-			libevents.DatabaseSessionCommandResultCode),
-		UserMetadata:     MakeUserMetadata(session),
-		SessionMetadata:  MakeSessionMetadata(session),
-		DatabaseMetadata: MakeDatabaseMetadata(session),
-		Status: events.Status{
-			Success:     true,
-			UserMessage: result.UserMessage,
-		},
-		AffectedRecords: result.AffectedRecords,
-	}
-	if result.Error != nil {
-		event.Status.Success = false
-		event.Status.Error = trace.Unwrap(result.Error).Error()
-	}
-
-	a.RecordEvent(ctx, event)
 }
 
 func (a *audit) OnPermissionsUpdate(ctx context.Context, session *Session, entries []events.DatabasePermissionEntry) {
@@ -300,53 +245,19 @@ func (a *audit) OnDatabaseUserDeactivate(ctx context.Context, session *Session, 
 	a.EmitEvent(ctx, event)
 }
 
-// EmitEvent emits the provided audit event using configured emitter and
-// recorder.
+// EmitEvent emits the provided audit event using configured emitter.
 func (a *audit) EmitEvent(ctx context.Context, event events.AuditEvent) {
 	defer methodCallMetrics("EmitEvent", a.cfg.Component, a.cfg.Database)()
 	preparedEvent, err := a.cfg.Recorder.PrepareSessionEvent(event)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "Failed to setup event",
-			"error", err,
-			"event_type", event.GetType(),
-			"event_id", event.GetID(),
-		)
+		a.log.WithError(err).Errorf("Failed to setup event: %s - %s.", event.GetType(), event.GetID())
 		return
 	}
 	if err := a.cfg.Recorder.RecordEvent(ctx, preparedEvent); err != nil {
-		a.logger.ErrorContext(ctx, "Failed to record session event",
-			"error", err,
-			"event_type", event.GetType(),
-			"event_id", event.GetID(),
-		)
+		a.log.WithError(err).Errorf("Failed to record session event: %s - %s.", event.GetType(), event.GetID())
 	}
 	if err := a.cfg.Emitter.EmitAuditEvent(ctx, preparedEvent.GetAuditEvent()); err != nil {
-		a.logger.ErrorContext(ctx, "Failed to emit audit event",
-			"error", err,
-			"event_type", event.GetType(),
-			"event_id", event.GetID(),
-		)
-	}
-}
-
-// RecordEvent emits event to the session recording.
-func (a *audit) RecordEvent(ctx context.Context, event events.AuditEvent) {
-	defer methodCallMetrics("RecordEvent", a.cfg.Component, a.cfg.Database)()
-	preparedEvent, err := a.cfg.Recorder.PrepareSessionEvent(event)
-	if err != nil {
-		a.logger.ErrorContext(ctx, "Failed to setup event",
-			"error", err,
-			"event_type", event.GetType(),
-			"event_id", event.GetID(),
-		)
-		return
-	}
-	if err := a.cfg.Recorder.RecordEvent(ctx, preparedEvent); err != nil {
-		a.logger.ErrorContext(ctx, "Failed to record session event",
-			"error", err,
-			"event_type", event.GetType(),
-			"event_id", event.GetID(),
-		)
+		a.log.WithError(err).Errorf("Failed to emit audit event: %s - %s.", event.GetType(), event.GetID())
 	}
 }
 

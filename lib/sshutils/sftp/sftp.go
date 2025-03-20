@@ -20,13 +20,11 @@
 package sftp
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
 	"net/http"
 	"os"
 	"path" // SFTP requires UNIX-style path separators
@@ -38,6 +36,7 @@ import (
 	"github.com/gravitational/trace"
 	"github.com/pkg/sftp"
 	"github.com/schollz/progressbar/v3"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/gravitational/teleport"
@@ -52,10 +51,6 @@ type Options struct {
 	// PreserveAttrs preserves access and modification times
 	// from the original file
 	PreserveAttrs bool
-	// Quiet indicates whether progress should be displayed.
-	Quiet bool
-	// ProgressWriter is used to write the progress output.
-	ProgressWriter io.Writer
 }
 
 // Config describes the settings of a file transfer
@@ -70,7 +65,7 @@ type Config struct {
 	// (used only on the client)
 	ProgressStream func(fileInfo os.FileInfo) io.ReadWriter
 	// Log optionally specifies the logger
-	Log *slog.Logger
+	Log log.FieldLogger
 }
 
 // FileSystem describes file operations to be done either locally or over SFTP
@@ -222,21 +217,17 @@ func (h HTTPTransferRequest) checkDefaults() error {
 func (c *Config) setDefaults() {
 	logger := c.Log
 	if logger == nil {
-		logger = slog.Default()
+		logger = log.StandardLogger()
 	}
-	c.Log = logger.With(
-		teleport.ComponentKey, "SFTP",
-		"src_paths", c.srcPaths,
-		"dst_path", c.dstPath,
-		"recursive", c.opts.Recursive,
-		"preserve_attrs", c.opts.PreserveAttrs,
-	)
-
-	if !c.opts.Quiet {
-		c.ProgressStream = func(fileInfo os.FileInfo) io.ReadWriter {
-			return NewProgressBar(fileInfo.Size(), fileInfo.Name(), cmp.Or(c.opts.ProgressWriter, io.Writer(os.Stdout)))
-		}
-	}
+	c.Log = logger.WithFields(log.Fields{
+		teleport.ComponentKey: "SFTP",
+		teleport.ComponentFields: log.Fields{
+			"SrcPaths":      c.srcPaths,
+			"DstPath":       c.dstPath,
+			"Recursive":     c.opts.Recursive,
+			"PreserveAttrs": c.opts.PreserveAttrs,
+		},
+	})
 }
 
 // TransferFiles transfers files from the configured source paths to the
@@ -429,9 +420,10 @@ func (c *Config) transfer(ctx context.Context) error {
 				return trace.Wrap(err, "could not access %s path %q", c.srcFS.Type(), match)
 			}
 			if fi.IsDir() && !c.opts.Recursive {
-				// Note: Using an error constructor included in lib/client.IsErrorResolvableWithRelogin,
-				// e.g. BadParameter, will lead to relogin attempt and a completely obscure error message.
-				return trace.Wrap(&NonRecursiveDirectoryTransferError{Path: match})
+				// Note: using any other error constructor than BadParameter
+				// might lead to relogin attempt and a completely obscure
+				// error message
+				return trace.BadParameter("%q is a directory, but the recursive option was not passed", match)
 			}
 			fileInfos = append(fileInfos, fi)
 		}
@@ -496,7 +488,7 @@ func (c *Config) transfer(ctx context.Context) error {
 
 // transferDir transfers a directory
 func (c *Config) transferDir(ctx context.Context, dstPath, srcPath string, srcFileInfo os.FileInfo) error {
-	c.Log.DebugContext(ctx, "transferring contents of directory", "source_fs", c.srcFS.Type(), "source_path", srcPath, "dest_fs", c.dstFS.Type(), "dest_path", dstPath)
+	c.Log.Debugf("copying %s dir %q to %s dir %q", c.srcFS.Type(), srcPath, c.dstFS.Type(), dstPath)
 
 	err := c.dstFS.Mkdir(ctx, dstPath)
 	if err != nil && !errors.Is(err, os.ErrExist) {
@@ -540,7 +532,7 @@ func (c *Config) transferDir(ctx context.Context, dstPath, srcPath string, srcFi
 
 // transferFile transfers a file
 func (c *Config) transferFile(ctx context.Context, dstPath, srcPath string, srcFileInfo os.FileInfo) error {
-	c.Log.DebugContext(ctx, "transferring file", "source_fs", c.srcFS.Type(), "source_file", srcPath, "dest_fs", c.dstFS.Type(), "dest_file", dstPath)
+	c.Log.Debugf("copying %s file %q to %s file %q", c.srcFS.Type(), srcPath, c.dstFS.Type(), dstPath)
 
 	srcFile, err := c.srcFS.Open(ctx, srcPath)
 	if err != nil {
@@ -684,16 +676,4 @@ func NewProgressBar(size int64, desc string, writer io.Writer) *progressbar.Prog
 		progressbar.OptionFullWidth(),
 		progressbar.OptionSetRenderBlankState(true),
 	)
-}
-
-// NonRecursiveDirectoryTransferError is returned when an attempt is made
-// to download a directory without providing the recursive option.
-// It's used to distinguish this specific situation in clients which
-// do not support the recursive option.
-type NonRecursiveDirectoryTransferError struct {
-	Path string
-}
-
-func (n *NonRecursiveDirectoryTransferError) Error() string {
-	return fmt.Sprintf("%q is a directory, but the recursive option was not passed", n.Path)
 }

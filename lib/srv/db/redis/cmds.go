@@ -98,7 +98,7 @@ func (e *Engine) subscribeCmd(ctx context.Context, subscribeFn redisSubscribeFn,
 	pubSub := subscribeFn(ctx, args...)
 	defer func() {
 		if err := pubSub.Close(); err != nil {
-			e.Log.ErrorContext(ctx, "Failed to close Redis Pub/Sub connection.", "error", err)
+			e.Log.Errorf("failed to close Redis Pub/Sub connection: %v", err)
 		}
 	}()
 

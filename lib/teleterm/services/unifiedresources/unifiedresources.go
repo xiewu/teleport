@@ -35,7 +35,6 @@ var supportedResourceKinds = []string{
 	types.KindDatabase,
 	types.KindKubernetesCluster,
 	types.KindApp,
-	types.KindSAMLIdPServiceProvider,
 }
 
 func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListUnifiedResourcesClient, req *proto.ListUnifiedResourcesRequest) (*ListResponse, error) {
@@ -61,7 +60,6 @@ func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListU
 	}
 
 	for _, enrichedResource := range enrichedResources {
-		requiresRequest := enrichedResource.RequiresRequest
 		switch r := enrichedResource.ResourceWithLabels.(type) {
 		case types.Server:
 			response.Resources = append(response.Resources, UnifiedResource{
@@ -69,7 +67,6 @@ func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListU
 					URI:    cluster.URI.AppendServer(r.GetName()),
 					Server: r,
 				},
-				RequiresRequest: requiresRequest,
 			})
 		case types.DatabaseServer:
 			db := r.GetDatabase()
@@ -78,7 +75,6 @@ func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListU
 					URI:      cluster.URI.AppendDB(db.GetName()),
 					Database: db,
 				},
-				RequiresRequest: requiresRequest,
 			})
 		case types.AppServer:
 			app := r.GetApp()
@@ -90,16 +86,27 @@ func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListU
 					AWSRoles: cluster.GetAWSRoles(app),
 					App:      app,
 				},
-				RequiresRequest: requiresRequest,
 			})
-		case types.SAMLIdPServiceProvider:
-			response.Resources = append(response.Resources, UnifiedResource{
-				SAMLIdPServiceProvider: &clusters.SAMLIdPServiceProvider{
-					URI:      cluster.URI.AppendApp(r.GetName()),
-					Provider: r,
-				},
-				RequiresRequest: requiresRequest,
-			})
+		case types.AppServerOrSAMLIdPServiceProvider:
+			if r.IsAppServer() {
+				app := r.GetAppServer().GetApp()
+				response.Resources = append(response.Resources, UnifiedResource{
+					App: &clusters.App{
+						URI:      cluster.URI.AppendApp(app.GetName()),
+						FQDN:     cluster.AssembleAppFQDN(app),
+						AWSRoles: cluster.GetAWSRoles(app),
+						App:      app,
+					},
+				})
+			} else {
+				provider := r.GetSAMLIdPServiceProvider()
+				response.Resources = append(response.Resources, UnifiedResource{
+					SAMLIdPServiceProvider: &clusters.SAMLIdPServiceProvider{
+						URI:      cluster.URI.AppendApp(provider.GetName()),
+						Provider: provider,
+					},
+				})
+			}
 		case types.KubeCluster:
 			kubeCluster := r
 			response.Resources = append(response.Resources, UnifiedResource{
@@ -107,7 +114,6 @@ func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListU
 					URI:               cluster.URI.AppendKube(kubeCluster.GetName()),
 					KubernetesCluster: kubeCluster,
 				},
-				RequiresRequest: requiresRequest,
 			})
 		case types.KubeServer:
 			kubeCluster := r.GetCluster()
@@ -116,7 +122,6 @@ func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListU
 					URI:               cluster.URI.AppendKube(kubeCluster.GetName()),
 					KubernetesCluster: kubeCluster,
 				},
-				RequiresRequest: requiresRequest,
 			})
 		}
 	}
@@ -137,5 +142,4 @@ type UnifiedResource struct {
 	Kube                   *clusters.Kube
 	App                    *clusters.App
 	SAMLIdPServiceProvider *clusters.SAMLIdPServiceProvider
-	RequiresRequest        bool
 }

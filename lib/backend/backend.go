@@ -23,7 +23,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"iter"
 	"sort"
 	"time"
 
@@ -114,34 +113,6 @@ type Backend interface {
 	CloseWatchers()
 }
 
-// IterateParams are parameters that are provided to
-// [BackendWithItems.Items] to alter the iteration behavior.
-type IterateParams struct {
-	// StartKey is the minimum key in the range yielded by the iteration. This key
-	// will be included in the results if it exists.
-	StartKey Key
-	// EndKey is the maximum key in the range yielded by the iteration. This key
-	// will be included in the results if it exists.
-	EndKey Key
-	// Descending makes the iteration yield items from the biggest to the smallest
-	// key (i.e. from EndKey to StartKey). If unset, the iteration will proceed in the
-	// usual ascending order (i.e. from StartKey to EndKey).
-	Descending bool
-	// Limit is an optional maximum number of items to retrieve during iteration.
-	Limit int
-}
-
-// BackendWithItems is a temporary interface that will be added to [backend.Backend]
-// once all concrete backend implementations satisfy the new interface.
-// TODO(tross): REMEMBER TO DELETE THIS
-type BackendWithItems interface {
-	Backend
-
-	// Items produces an iterator of backend items in the range, and order
-	// described in the provided [IterateParams].
-	Items(ctx context.Context, params IterateParams) iter.Seq2[Item, error]
-}
-
 // New initializes a new [Backend] implementation based on the service config.
 func New(ctx context.Context, backend string, params Params) (Backend, error) {
 	registryMu.RLock()
@@ -197,7 +168,7 @@ func IterateRange(ctx context.Context, bk Backend, startKey, endKey Key, limit i
 // impl for a given backend may be used.
 func StreamRange(ctx context.Context, bk Backend, startKey, endKey Key, pageSize int) stream.Stream[Item] {
 	return stream.PageFunc[Item](func() ([]Item, error) {
-		if startKey.components == nil {
+		if startKey == nil {
 			return nil, io.EOF
 		}
 		rslt, err := bk.GetRange(ctx, startKey, endKey, pageSize)
@@ -205,7 +176,7 @@ func StreamRange(ctx context.Context, bk Backend, startKey, endKey Key, pageSize
 			return nil, trace.Wrap(err)
 		}
 		if len(rslt.Items) < pageSize {
-			startKey = Key{}
+			startKey = nil
 		} else {
 			startKey = nextKey(rslt.Items[pageSize-1].Key)
 		}
@@ -225,6 +196,9 @@ func StreamRange(ctx context.Context, bk Backend, startKey, endKey Key, pageSize
 type Lease struct {
 	// Key is the resource identifier.
 	Key Key
+	// ID is a lease ID, could be empty.
+	// Deprecated: use Revision instead
+	ID int64
 	// Revision is the last known version of the object.
 	Revision string
 }
@@ -285,6 +259,9 @@ type Item struct {
 	Value []byte
 	// Expires is an optional record expiry time
 	Expires time.Time
+	// ID is a record ID, newer records have newer ids
+	// Deprecated: use Revision instead
+	ID int64
 	// Revision is the last known version of the object.
 	Revision string
 }
@@ -331,20 +308,20 @@ const NoLimit = 0
 // If used with a key prefix, this will return
 // the end of the range for that key prefix.
 func nextKey(key Key) Key {
-	end := make([]byte, len(key.s))
-	copy(end, key.s)
+	end := make([]byte, len(key))
+	copy(end, key)
 	for i := len(end) - 1; i >= 0; i-- {
 		if end[i] < 0xff {
 			end[i] = end[i] + 1
 			end = end[:i+1]
-			return KeyFromString(string(end))
+			return end
 		}
 	}
 	// next key does not exist (e.g., 0xffff);
-	return Key{noEnd: true}
+	return noEnd
 }
 
-var noEnd = []byte{0}
+var noEnd = Key{0}
 
 // RangeEnd returns end of the range for given key.
 func RangeEnd(key Key) Key {
@@ -367,14 +344,8 @@ type KeyedItem interface {
 // For items that implement HostID, the next key will also
 // have the HostID part.
 func NextPaginationKey(ki KeyedItem) string {
-	var key Key
-	if h, ok := ki.(HostID); ok {
-		key = internalKey(h.GetHostID(), h.GetName())
-	} else {
-		key = NewKey(ki.GetName())
-	}
-
-	return nextKey(key).String()
+	key := GetPaginationKey(ki)
+	return string(nextKey(Key(key)))
 }
 
 // GetPaginationKey returns the pagination key given item.
@@ -382,7 +353,7 @@ func NextPaginationKey(ki KeyedItem) string {
 // have the HostID part.
 func GetPaginationKey(ki KeyedItem) string {
 	if h, ok := ki.(HostID); ok {
-		return internalKey(h.GetHostID(), h.GetName()).String()
+		return string(internalKey(h.GetHostID(), h.GetName()))
 	}
 
 	return ki.GetName()

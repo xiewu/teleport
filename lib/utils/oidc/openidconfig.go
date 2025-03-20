@@ -19,15 +19,14 @@
 package oidc
 
 // OpenIDConfiguration is the default OpenID Configuration used by Teleport.
-// Based on https://openid.net/specs/openid-connect-discovery-1_0.html
 type OpenIDConfiguration struct {
 	Issuer                           string   `json:"issuer"`
 	JWKSURI                          string   `json:"jwks_uri"`
 	Claims                           []string `json:"claims"`
 	IdTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
 	ResponseTypesSupported           []string `json:"response_types_supported"`
-	ScopesSupported                  []string `json:"scopes_supported,omitempty"`
-	SubjectTypesSupported            []string `json:"subject_types_supported,omitempty"`
+	ScopesSupported                  []string `json:"scopes_supported"`
+	SubjectTypesSupported            []string `json:"subject_types_supported"`
 }
 
 // OpenIDConfigurationForIssuer returns the OpenID Configuration for

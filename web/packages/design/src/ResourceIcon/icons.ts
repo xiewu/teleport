@@ -17,18 +17,16 @@
  */
 
 import activemq from './assets/activemq.svg';
-import adobe from './assets/adobe.svg';
 import adobecreativecloudDark from './assets/adobecreativecloud-dark.svg';
 import adobecreativecloudLight from './assets/adobecreativecloud-light.svg';
 import adobemarketo from './assets/adobemarketo.svg';
+import adobe from './assets/adobe.svg';
 import airbase from './assets/airbase.svg';
 import airtable from './assets/airtable.svg';
 import algoliaDark from './assets/algolia-dark.svg';
 import algoliaLight from './assets/algolia-light.svg';
 import altisalesDark from './assets/altisales-dark.svg';
 import altisalesLight from './assets/altisales-light.svg';
-import ansibleDark from './assets/ansible-dark.svg';
-import ansibleLight from './assets/ansible-light.svg';
 import anthem from './assets/anthem.svg';
 import apolloIoDark from './assets/apollo.io-dark.svg';
 import apolloIoLight from './assets/apollo.io-light.svg';
@@ -39,14 +37,11 @@ import argocd from './assets/argocd.svg';
 import asana from './assets/asana.svg';
 import assembleDark from './assets/assemble-dark.svg';
 import assembleLight from './assets/assemble-light.svg';
-import atlassian from './assets/atlassian.svg';
 import atlassianbitbucket from './assets/atlassianbitbucket.svg';
 import atlassianjiraservicemanagement from './assets/atlassianjiraservicemanagement.svg';
 import atlassianstatuspage from './assets/atlassianstatuspage.svg';
-import auth0Dark from './assets/auth0-dark.svg';
-import auth0Light from './assets/auth0-light.svg';
+import atlassian from './assets/atlassian.svg';
 import avalara from './assets/avalara.svg';
-import awsAccount from './assets/aws-account.svg';
 import awsDark from './assets/aws-dark.svg';
 import awsLight from './assets/aws-light.svg';
 import azure from './assets/azure.svg';
@@ -64,8 +59,6 @@ import cartaDark from './assets/carta-dark.svg';
 import cartaLight from './assets/carta-light.svg';
 import checkly from './assets/checkly.svg';
 import checkr from './assets/checkr.svg';
-import ciliumDark from './assets/cilium-dark.svg';
-import ciliumLight from './assets/cilium-light.svg';
 import circleciDark from './assets/circleci-dark.svg';
 import circleciLight from './assets/circleci-light.svg';
 import clari from './assets/clari.svg';
@@ -113,7 +106,6 @@ import eks from './assets/eks.svg';
 import elastic from './assets/elastic.svg';
 import emailDark from './assets/email-dark.svg';
 import emailLight from './assets/email-light.svg';
-import entraid from './assets/entra-id.svg';
 import eventbrite from './assets/eventbrite.svg';
 import excalidraw from './assets/excalidraw.svg';
 import figma from './assets/figma.svg';
@@ -126,8 +118,6 @@ import g2 from './assets/g2.svg';
 import gable from './assets/gable.svg';
 import gemDark from './assets/gem-dark.svg';
 import gemLight from './assets/gem-light.svg';
-import gitDark from './assets/git-dark.svg';
-import gitLight from './assets/git-light.svg';
 import githubDark from './assets/github-dark.svg';
 import githubLight from './assets/github-light.svg';
 import gitlab from './assets/gitlab.svg';
@@ -151,6 +141,8 @@ import hackeroneDark from './assets/hackerone-dark.svg';
 import hackeroneLight from './assets/hackerone-light.svg';
 import headliner from './assets/headliner.svg';
 import hootsuite from './assets/hootsuite.svg';
+import ciliumDark from './assets/cilium-dark.svg';
+import ciliumLight from './assets/cilium-light.svg';
 import ibmDark from './assets/ibm-dark.svg';
 import ibmLight from './assets/ibm-light.svg';
 import inkeep from './assets/inkeep.svg';
@@ -211,12 +203,9 @@ import neverbounceDark from './assets/neverbounce-dark.svg';
 import neverbounceLight from './assets/neverbounce-light.svg';
 import notion from './assets/notion.svg';
 import oasisopen from './assets/oasisopen.svg';
-import oktaAlt from './assets/okta-alt.svg';
 import oktaDark from './assets/okta-dark.svg';
 import oktaLight from './assets/okta-light.svg';
 import onehundredonedomain from './assets/onehundredonedomain.svg';
-import oneloginDark from './assets/onelogin-dark.svg';
-import oneloginLight from './assets/onelogin-light.svg';
 import onepasswordDark from './assets/onepassword-dark.svg';
 import onepasswordLight from './assets/onepassword-light.svg';
 import opencomp from './assets/opencomp.svg';
@@ -318,8 +307,6 @@ export {
   algoliaLight,
   altisalesDark,
   altisalesLight,
-  ansibleDark,
-  ansibleLight,
   anthem,
   apolloIoDark,
   apolloIoLight,
@@ -334,12 +321,9 @@ export {
   atlassianjiraservicemanagement,
   atlassianstatuspage,
   atlassian,
-  auth0Dark,
-  auth0Light,
   avalara,
   awsDark,
   awsLight,
-  awsAccount,
   azure,
   bill,
   bonusly,
@@ -402,7 +386,6 @@ export {
   elastic,
   emailDark,
   emailLight,
-  entraid,
   eventbrite,
   excalidraw,
   figma,
@@ -415,8 +398,6 @@ export {
   gable,
   gemDark,
   gemLight,
-  gitDark,
-  gitLight,
   githubDark,
   githubLight,
   gitlab,
@@ -504,10 +485,7 @@ export {
   oasisopen,
   oktaDark,
   oktaLight,
-  oktaAlt,
   onehundredonedomain,
-  oneloginDark,
-  oneloginLight,
   onepasswordDark,
   onepasswordLight,
   opencomp,

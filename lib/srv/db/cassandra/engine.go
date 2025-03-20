@@ -67,7 +67,7 @@ func (e *Engine) SendError(sErr error) {
 	if utils.IsOKNetworkError(sErr) || sErr == nil {
 		return
 	}
-	e.Log.DebugContext(e.Context, "Cassandra connection error.", "error", sErr)
+	e.Log.Debugf("Cassandra connection error: %v.", sErr)
 	// Errors from Cassandra engine can be sent to the client only if handshake is triggered.
 	if e.handshakeTriggered {
 		return
@@ -75,7 +75,7 @@ func (e *Engine) SendError(sErr error) {
 
 	eh := failedHandshake{error: sErr}
 	if err := eh.handshake(e.clientConn, nil); err != nil {
-		e.Log.WarnContext(e.Context, "Cassandra handshake error.", "error", sErr)
+		e.Log.Warnf("Cassandra handshake error: %v.", sErr)
 	}
 }
 
@@ -249,7 +249,7 @@ func (e *Engine) processPacket(packet *protocol.Packet) error {
 	case *message.Revise:
 		// Revise message is support by DSE (DataStax Enterprise) only.
 		// Skip audit for this message.
-		e.Log.DebugContext(e.Context, "Skip audit for revise message.", "message", msg)
+		e.Log.WithField("message", msg).Debug("Skip audit for revise message.")
 	default:
 		return trace.BadParameter("received a message with unexpected type %T", body.Message)
 	}
@@ -284,7 +284,7 @@ func (e *Engine) authorizeConnection(ctx context.Context) error {
 }
 
 func (e *Engine) connect(ctx context.Context, sessionCtx *common.Session) (*protocol.Conn, error) {
-	config, err := e.Auth.GetTLSConfig(ctx, sessionCtx.GetExpiry(), sessionCtx.Database, sessionCtx.DatabaseUser)
+	config, err := e.Auth.GetTLSConfig(ctx, sessionCtx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -309,8 +309,8 @@ func (e *Engine) getAuth(sessionCtx *common.Session) (handshakeHandler, error) {
 	switch {
 	case sessionCtx.Database.IsAWSHosted():
 		return &authAWSSigV4Auth{
-			ses:       sessionCtx,
-			awsConfig: e.AWSConfigProvider,
+			cloudClients: e.CloudClients,
+			ses:          sessionCtx,
 		}, nil
 	default:
 		return &basicHandshake{ses: sessionCtx}, nil

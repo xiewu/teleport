@@ -123,31 +123,30 @@ func newJobWithEvents(events types.Events, config Config, fn EventFunc, watchIni
 			// We are not supporting liveness/readiness yet, but if we do it would make sense to use job's readiness
 			job.SetReady(false)
 
-			// Note: we must always return an error, even if everything went great and we're doing a graceful shutdown.
-			// The process library will trigger a complete shutdown only if the critical job exits with an error.
 			switch {
 			case trace.IsConnectionProblem(err):
 				if config.FailFast {
 					return trace.WrapWithMessage(err, "Connection problem detected. Exiting as fail fast is on.")
 				}
-				log.ErrorContext(ctx, "Connection problem detected, attempting to reconnect", "error", err)
+				log.WithError(err).Error("Connection problem detected. Attempting to reconnect.")
 			case errors.Is(err, io.EOF):
 				if config.FailFast {
 					return trace.WrapWithMessage(err, "Watcher stream closed. Exiting as fail fast is on.")
 				}
-				log.ErrorContext(ctx, "Watcher stream closed attempting to reconnect", "error", err)
+				log.WithError(err).Error("Watcher stream closed. Attempting to reconnect.")
 			case lib.IsCanceled(err):
-				log.DebugContext(ctx, "Watcher context is canceled")
-				return trace.Wrap(err)
+				log.Debug("Watcher context is canceled")
+				// Context cancellation is not an error
+				return nil
 			default:
-				log.ErrorContext(ctx, "Watcher event loop failed", "error", err)
+				log.WithError(err).Error("Watcher event loop failed")
 				return trace.Wrap(err)
 			}
 
 			// To mitigate a potentially aggressive retry loop, we wait
 			if err := bk.Do(ctx); err != nil {
-				log.DebugContext(ctx, "Watcher context was canceled while waiting before a reconnection")
-				return trace.Wrap(err)
+				log.Debug("Watcher context was canceled while waiting before a reconnection")
+				return nil
 			}
 		}
 	})
@@ -162,7 +161,7 @@ func (job job) watchEvents(ctx context.Context) error {
 	}
 	defer func() {
 		if err := watcher.Close(); err != nil {
-			logger.Get(ctx).ErrorContext(ctx, "Failed to close a watcher", "error", err)
+			logger.Get(ctx).WithError(err).Error("Failed to close a watcher")
 		}
 	}()
 
@@ -170,7 +169,7 @@ func (job job) watchEvents(ctx context.Context) error {
 		return trace.Wrap(err)
 	}
 
-	logger.Get(ctx).DebugContext(ctx, "Watcher connected")
+	logger.Get(ctx).Debug("Watcher connected")
 	job.SetReady(true)
 
 	for {
@@ -186,10 +185,7 @@ func (job job) watchEvents(ctx context.Context) error {
 					return trace.Wrap(ctx.Err())
 				}
 			}
-			if err := watcher.Error(); err != nil {
-				return trace.Wrap(err)
-			}
-			return trace.Errorf("watcher closed without error")
+			return trace.Wrap(watcher.Error())
 		}
 	}
 }
@@ -253,7 +249,7 @@ func (job job) eventLoop(ctx context.Context) error {
 			event := *eventPtr
 			resource := event.Resource
 			if resource == nil {
-				log.ErrorContext(ctx, "received an event with empty resource field")
+				log.Error("received an event with empty resource field")
 			}
 			key := eventKey{kind: resource.GetKind(), name: resource.GetName()}
 			if queue, loaded := queues[key]; loaded {

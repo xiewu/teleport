@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"os"
 	"strconv"
@@ -32,6 +31,7 @@ import (
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/constants"
@@ -44,8 +44,6 @@ import (
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/lib/utils/gcp"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // UserCommand implements `tctl users` set of commands
@@ -82,7 +80,7 @@ type UserCommand struct {
 }
 
 // Initialize allows UserCommand to plug itself into the CLI parser
-func (u *UserCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, config *servicecfg.Config) {
+func (u *UserCommand) Initialize(app *kingpin.Application, config *servicecfg.Config) {
 	const helpPrefix string = "[Teleport local users only]"
 
 	u.config = config
@@ -155,29 +153,21 @@ func (u *UserCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIF
 }
 
 // TryRun takes the CLI command as an argument (like "users add") and executes it.
-func (u *UserCommand) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (match bool, err error) {
-	var commandFunc func(ctx context.Context, client *authclient.Client) error
+func (u *UserCommand) TryRun(ctx context.Context, cmd string, client *authclient.Client) (match bool, err error) {
 	switch cmd {
 	case u.userAdd.FullCommand():
-		commandFunc = u.Add
+		err = u.Add(ctx, client)
 	case u.userUpdate.FullCommand():
-		commandFunc = u.Update
+		err = u.Update(ctx, client)
 	case u.userList.FullCommand():
-		commandFunc = u.List
+		err = u.List(ctx, client)
 	case u.userDelete.FullCommand():
-		commandFunc = u.Delete
+		err = u.Delete(ctx, client)
 	case u.userResetPassword.FullCommand():
-		commandFunc = u.ResetPassword
+		err = u.ResetPassword(ctx, client)
 	default:
 		return false, nil
 	}
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	err = commandFunc(ctx, client)
-	closeFn(ctx)
-
 	return true, trace.Wrap(err)
 }
 
@@ -193,7 +183,7 @@ func (u *UserCommand) ResetPassword(ctx context.Context, client *authclient.Clie
 		return err
 	}
 
-	err = u.PrintResetPasswordToken(token)
+	err = u.PrintResetPasswordToken(token, u.format)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -202,8 +192,9 @@ func (u *UserCommand) ResetPassword(ctx context.Context, client *authclient.Clie
 }
 
 // PrintResetPasswordToken prints ResetPasswordToken
-func (u *UserCommand) PrintResetPasswordToken(token types.UserToken) error {
+func (u *UserCommand) PrintResetPasswordToken(token types.UserToken, format string) error {
 	err := u.printResetPasswordToken(token,
+		format,
 		"User %q has been reset. Share this URL with the user to complete password reset, link is valid for %v:\n%v\n\n",
 	)
 	if err != nil {
@@ -214,8 +205,9 @@ func (u *UserCommand) PrintResetPasswordToken(token types.UserToken) error {
 }
 
 // PrintResetPasswordTokenAsInvite prints ResetPasswordToken as Invite
-func (u *UserCommand) PrintResetPasswordTokenAsInvite(token types.UserToken) error {
+func (u *UserCommand) PrintResetPasswordTokenAsInvite(token types.UserToken, format string) error {
 	err := u.printResetPasswordToken(token,
+		format,
 		"User %q has been created but requires a password. Share this URL with the user to complete user setup, link is valid for %v:\n%v\n\n")
 	if err != nil {
 		return trace.Wrap(err)
@@ -225,7 +217,7 @@ func (u *UserCommand) PrintResetPasswordTokenAsInvite(token types.UserToken) err
 }
 
 // PrintResetPasswordToken prints ResetPasswordToken
-func (u *UserCommand) printResetPasswordToken(token types.UserToken, messageFormat string) (err error) {
+func (u *UserCommand) printResetPasswordToken(token types.UserToken, format string, messageFormat string) (err error) {
 	switch strings.ToLower(u.format) {
 	case teleport.JSON:
 		err = printTokenAsJSON(token)
@@ -334,7 +326,7 @@ func (u *UserCommand) Add(ctx context.Context, client *authclient.Client) error 
 		return trace.Wrap(err)
 	}
 
-	if err := u.PrintResetPasswordTokenAsInvite(token); err != nil {
+	if err := u.PrintResetPasswordTokenAsInvite(token, u.format); err != nil {
 		return trace.Wrap(err)
 	}
 
@@ -482,11 +474,7 @@ func (u *UserCommand) Update(ctx context.Context, client *authclient.Client) err
 
 	for _, roleName := range user.GetRoles() {
 		if _, err := client.GetRole(ctx, roleName); err != nil {
-			slog.WarnContext(ctx, "Error checking role when upserting user",
-				"role", roleName,
-				"user", user.GetName(),
-				"error", err,
-			)
+			log.Warnf("Error checking role %q when upserting user %q: %v", roleName, user.GetName(), err)
 		}
 	}
 	if _, err := client.UpsertUser(ctx, user); err != nil {

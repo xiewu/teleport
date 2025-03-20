@@ -45,8 +45,6 @@ type Config struct {
 	KubeconfigsDir string
 	// AgentsDir contains agent config files and data directories for Connect My Computer.
 	AgentsDir string
-	// InstallationID is a unique ID identifying a specific Teleport Connect installation.
-	InstallationID string
 	// AddKeysToAgent is passed to [client.Config].
 	AddKeysToAgent string
 }
@@ -80,10 +78,6 @@ func (c *Config) CheckAndSetDefaults() error {
 
 	if c.AgentsDir == "" {
 		return trace.BadParameter("missing agents directory")
-	}
-
-	if c.InstallationID == "" {
-		return trace.BadParameter("missing installation ID")
 	}
 
 	if c.AddKeysToAgent == "" {

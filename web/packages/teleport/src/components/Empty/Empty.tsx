@@ -16,24 +16,44 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { Link } from 'react-router-dom';
 
-import {
-  Box,
-  ButtonBorder,
-  ButtonPrimary,
-  Flex,
-  H1,
-  ResourceIcon,
-  Text,
-} from 'design';
+import { Text, Box, Flex, ButtonPrimary, ButtonBorder } from 'design';
+import Image from 'design/Image';
+
+import application from 'design/assets/resources/appplication.png';
+import database from 'design/assets/resources/database.png';
+import desktop from 'design/assets/resources/desktop.png';
+import stack from 'design/assets/resources/stack.png';
 
 import cfg from 'teleport/config';
+
+type ResourceType =
+  | 'application'
+  | 'database'
+  | 'desktop'
+  | 'kubernetes'
+  | 'server'
+  | 'unified_resource';
+
+function getAccentImage(resourceType: ResourceType): string {
+  const accentImages = {
+    application: application,
+    database: database,
+    desktop: desktop,
+    kubernetes: stack,
+    server: stack,
+    // TODO (avatus) update once we have a dedicated image for unified resources
+    unified_resource: stack,
+  };
+  return accentImages[resourceType];
+}
 
 export default function Empty(props: Props) {
   const { canCreate, clusterId, emptyStateInfo } = props;
 
-  const { byline, docsURL, readOnly, title } = emptyStateInfo;
+  const { byline, docsURL, resourceType, readOnly, title } = emptyStateInfo;
 
   // always show the welcome for enterprise users who have access to create an app
   if (!canCreate) {
@@ -46,7 +66,9 @@ export default function Empty(props: Props) {
         color="text.main"
         borderRadius="12px"
       >
-        <H1 mb="3">{readOnly.title}</H1>
+        <Text typography="h2" mb="3">
+          {readOnly.title}
+        </Text>
         <Text>
           Either there are no {readOnly.resource} in the "
           <Text as="span" bold>
@@ -70,8 +92,16 @@ export default function Empty(props: Props) {
     >
       <Box maxWidth={600}>
         <Box mb={4} textAlign="center">
-          <ResourceIcon name="server" mx="auto" mb={4} height="160px" />
-          <H1 mb={2}>{title}</H1>
+          <Image
+            src={getAccentImage(resourceType)}
+            ml="auto"
+            mr="auto"
+            mb={4}
+            height="160px"
+          />
+          <Text typography="h5" mb={2} fontWeight={700} fontSize={24}>
+            {title}
+          </Text>
           <Text fontWeight={400} fontSize={14} style={{ opacity: '0.6' }}>
             {byline}
           </Text>
@@ -81,7 +111,7 @@ export default function Empty(props: Props) {
             to={{
               pathname: `${cfg.routes.root}/discover`,
               state: {
-                entity: 'unified_resource',
+                entity: resourceType,
               },
             }}
             style={{ textDecoration: 'none' }}
@@ -113,6 +143,7 @@ export default function Empty(props: Props) {
 export type EmptyStateInfo = {
   byline: string;
   docsURL?: string;
+  resourceType?: ResourceType;
   readOnly: {
     title: string;
     resource: string;

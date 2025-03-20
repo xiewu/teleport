@@ -16,9 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useState } from 'react';
+import React from 'react';
 
 import Logger from '../../libs/logger';
+
 import { useValidation } from './Validation';
 
 const logger = Logger.create('validation');
@@ -32,13 +33,13 @@ export default function useRule(cb) {
     return;
   }
 
-  const [, rerender] = useState();
+  const [, rerender] = React.useState();
   const validator = useValidation();
 
   // register to validation context to be called on cb()
-  useEffect(() => {
+  React.useEffect(() => {
     function onValidate() {
-      if (validator.state.validating) {
+      if (validator.validating) {
         const result = cb();
         validator.addResult(result);
         rerender({});
@@ -46,18 +47,18 @@ export default function useRule(cb) {
     }
 
     // subscribe to store changes
-    validator.addRuleCallback(onValidate);
+    validator.subscribe(onValidate);
 
     // unsubscribe on unmount
     function cleanup() {
-      validator.removeRuleCallback(onValidate);
+      validator.unsubscribe(onValidate);
     }
 
     return cleanup;
   }, [cb]);
 
   // if validation has been requested, cb right away.
-  if (validator.state.validating) {
+  if (validator.validating) {
     return cb();
   }
 

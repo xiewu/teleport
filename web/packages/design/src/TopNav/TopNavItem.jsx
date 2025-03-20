@@ -18,7 +18,7 @@
 
 import styled from 'styled-components';
 
-import { height, maxHeight, maxWidth, space, width } from 'design/system';
+import { space, width, maxWidth, height, maxHeight } from 'design/system';
 
 /**
  * TopNavItem

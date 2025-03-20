@@ -19,13 +19,11 @@
 package authz_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/gravitational/trace"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/constants"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/devicetrust/authz"
@@ -49,25 +47,6 @@ func TestIsSSHDeviceVerified(t *testing.T) {
 			}
 		}
 		return authz.IsSSHDeviceVerified(ident)
-	})
-}
-
-func TestHasDeviceTrustExtensions(t *testing.T) {
-	testIsDeviceVerified(t, "HasDeviceTrustExtensions", func(ext *tlsca.DeviceExtensions) bool {
-		if ext == nil {
-			return authz.HasDeviceTrustExtensions(nil)
-		}
-		var extensions []string
-		if ext.DeviceID != "" {
-			extensions = append(extensions, teleport.CertExtensionDeviceID)
-		}
-		if ext.AssetTag != "" {
-			extensions = append(extensions, teleport.CertExtensionDeviceAssetTag)
-		}
-		if ext.CredentialID != "" {
-			extensions = append(extensions, teleport.CertExtensionDeviceCredentialID)
-		}
-		return authz.HasDeviceTrustExtensions(extensions)
 	})
 }
 
@@ -128,7 +107,7 @@ func testIsDeviceVerified(t *testing.T, name string, fn func(ext *tlsca.DeviceEx
 
 func TestVerifyTLSUser(t *testing.T) {
 	runVerifyUserTest(t, "VerifyTLSUser", func(dt *types.DeviceTrust, ext *tlsca.DeviceExtensions) error {
-		return authz.VerifyTLSUser(context.Background(), dt, tlsca.Identity{
+		return authz.VerifyTLSUser(dt, tlsca.Identity{
 			Username:         "llama",
 			DeviceExtensions: *ext,
 		})
@@ -137,7 +116,7 @@ func TestVerifyTLSUser(t *testing.T) {
 
 func TestVerifySSHUser(t *testing.T) {
 	runVerifyUserTest(t, "VerifySSHUser", func(dt *types.DeviceTrust, ext *tlsca.DeviceExtensions) error {
-		return authz.VerifySSHUser(context.Background(), dt, &sshca.Identity{
+		return authz.VerifySSHUser(dt, &sshca.Identity{
 			DeviceID:           ext.DeviceID,
 			DeviceAssetTag:     ext.AssetTag,
 			DeviceCredentialID: ext.CredentialID,

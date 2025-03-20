@@ -17,20 +17,20 @@
  */
 
 import React from 'react';
-
-import { Box, Flex, Indicator } from 'design';
+import styled from 'styled-components';
+import { Text, Box, Indicator, Flex } from 'design';
 import * as Icons from 'design/Icon';
-import { P } from 'design/Text/Text';
 
 import {
-  ActionButtons,
-  ButtonBlueText,
   Header,
   HeaderSubtitle,
-  StyledBox,
+  ActionButtons,
+  ButtonBlueText,
 } from 'teleport/Discover/Shared';
 
-import { AccessInfo, type TraitKind } from './AccessInfo';
+import { AccessInfo } from './AccessInfo';
+
+import type { TraitKind } from './AccessInfo';
 import type { State } from './useUserTraits';
 
 export type Props = {
@@ -72,12 +72,11 @@ export function SetupAccessWrapper({
   let $content;
   switch (attempt.status) {
     case 'failed':
-      // TODO(bl-nero): Migrate this to an alert with embedded retry button.
       $content = (
         <>
           <Flex my={3}>
             <Icons.Warning ml={1} mr={2} color="error.main" size="medium" />
-            <P>Encountered Error: {attempt.statusText}</P>
+            <Text>Encountered Error: {attempt.statusText}</Text>
           </Flex>
           <ButtonBlueText ml={1} onClick={fetchUserTraits}>
             Retry
@@ -138,7 +137,7 @@ export function SetupAccessWrapper({
 
   const ssoUserWithAutoDiscover = wantAutoDiscover && isSsoUser;
   return (
-    <>
+    <Box maxWidth="700px">
       <Header>Set Up Access</Header>
       <HeaderSubtitle>{headerSubtitle}</HeaderSubtitle>
       {preContent}
@@ -161,6 +160,13 @@ export function SetupAccessWrapper({
           (!ssoUserWithAutoDiscover && !hasTraits)
         }
       />
-    </>
+    </Box>
   );
 }
+
+const StyledBox = styled(Box)`
+  max-width: 700px;
+  background-color: ${props => props.theme.colors.spotBackground[0]};
+  border-radius: 8px;
+  padding: 20px;
+`;

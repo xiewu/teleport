@@ -18,8 +18,6 @@
 
 import { ipcMain, ipcRenderer } from 'electron';
 
-import { CONFIG_MODIFIABLE_FROM_RENDERER } from 'teleterm/services/config/appConfigSchema';
-
 import {
   ConfigServiceEventChannel,
   ConfigServiceEventType,
@@ -36,11 +34,6 @@ export function subscribeToConfigServiceEvents(
         case ConfigServiceEventType.Get:
           return (event.returnValue = configService.get(item.path));
         case ConfigServiceEventType.Set:
-          if (!CONFIG_MODIFIABLE_FROM_RENDERER.includes(item.path)) {
-            throw new Error(
-              `Could not update "${item.path}". This field is readonly in the renderer process.`
-            );
-          }
           return configService.set(item.path, item.value);
         case ConfigServiceEventType.GetConfigError:
           return (event.returnValue = configService.getConfigError());

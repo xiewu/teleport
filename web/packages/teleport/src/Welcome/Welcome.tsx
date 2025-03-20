@@ -16,19 +16,22 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { WelcomeWrapper } from 'teleport/components/Onboard';
+import React from 'react';
+
+import { WelcomeWrapper } from 'design/Onboard/WelcomeWrapper';
+
 import {
   Route,
   Switch,
-  useLocation,
   useParams,
+  useLocation,
 } from 'teleport/components/Router';
-import cfg from 'teleport/config';
 import history from 'teleport/services/history';
+import cfg from 'teleport/config';
 import { NewCredentialsContainerProps } from 'teleport/Welcome/NewCredentials';
 
-import { CardWelcome } from './CardWelcome';
 import { CLOUD_INVITE_URL_PARAM } from './const';
+import { CardWelcome } from './CardWelcome';
 
 type WelcomeProps = {
   NewCredentials: (props: NewCredentialsContainerProps) => JSX.Element;

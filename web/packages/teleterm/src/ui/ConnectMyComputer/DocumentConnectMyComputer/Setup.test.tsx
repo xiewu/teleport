@@ -16,24 +16,24 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { act } from '@testing-library/react';
 import React from 'react';
-
 import { render, screen, waitFor } from 'design/utils/testing';
 
-import Logger, { NullService } from 'teleterm/logger';
+import { act } from '@testing-library/react';
+
 import {
-  makeAcl,
   makeLoggedInUser,
   makeRootCluster,
   makeServer,
 } from 'teleterm/services/tshd/testHelpers';
-import * as useResourcesContext from 'teleterm/ui/DocumentCluster/resourcesContext';
 import { MockAppContextProvider } from 'teleterm/ui/fixtures/MockAppContextProvider';
-import { MockAppContext } from 'teleterm/ui/fixtures/mocks';
 import { MockWorkspaceContextProvider } from 'teleterm/ui/fixtures/MockWorkspaceContextProvider';
+import { MockAppContext } from 'teleterm/ui/fixtures/mocks';
+import Logger, { NullService } from 'teleterm/logger';
+import * as useResourcesContext from 'teleterm/ui/DocumentCluster/resourcesContext';
 
 import * as connectMyComputerContext from '../connectMyComputerContext';
+
 import { Setup } from './Setup';
 
 beforeAll(() => {
@@ -116,7 +116,7 @@ function setupAppContext(): {
 } {
   const cluster = makeRootCluster({
     loggedInUser: makeLoggedInUser({
-      acl: makeAcl({
+      acl: {
         tokens: {
           create: true,
           list: true,
@@ -125,13 +125,22 @@ function setupAppContext(): {
           delete: true,
           use: true,
         },
-      }),
+      },
     }),
   });
   const appContext = new MockAppContext({
     appVersion: cluster.proxyVersion,
   });
-  appContext.addRootCluster(cluster);
+  appContext.clustersService.state.clusters.set(cluster.uri, cluster);
+  appContext.workspacesService.setState(draftState => {
+    draftState.rootClusterUri = cluster.uri;
+    draftState.workspaces[cluster.uri] = {
+      localClusterUri: cluster.uri,
+      documents: [],
+      location: undefined,
+      accessRequests: undefined,
+    };
+  });
 
   jest
     .spyOn(appContext.mainProcessClient, 'isAgentConfigFileCreated')

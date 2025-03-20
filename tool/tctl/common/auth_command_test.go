@@ -33,14 +33,13 @@ import (
 	"github.com/gravitational/trace"
 	"github.com/stretchr/testify/require"
 
-	"github.com/gravitational/teleport/api"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/client/webclient"
 	"github.com/gravitational/teleport/api/fixtures"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/auth/authclient"
+	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/client/identityfile"
-	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/kube/kubeconfig"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
@@ -397,16 +396,12 @@ type mockClient struct {
 	appSession     types.WebSession
 	networkConfig  types.ClusterNetworkingConfig
 	crl            []byte
+
+	unsupportedCATypes []types.CertAuthType
 }
 
-func (c *mockClient) GetClusterName(_ context.Context) (types.ClusterName, error) {
+func (c *mockClient) GetClusterName(...services.MarshalOption) (types.ClusterName, error) {
 	return c.clusterName, nil
-}
-
-func (c *mockClient) Ping(ctx context.Context) (proto.PingResponse, error) {
-	return proto.PingResponse{
-		ServerVersion: api.Version,
-	}, nil
 }
 
 func (c *mockClient) GetClusterNetworkingConfig(ctx context.Context) (types.ClusterNetworkingConfig, error) {
@@ -422,6 +417,11 @@ func (c *mockClient) GenerateUserCerts(ctx context.Context, userCertsReq proto.U
 }
 
 func (c *mockClient) GetCertAuthority(ctx context.Context, id types.CertAuthID, loadSigningKeys bool) (types.CertAuthority, error) {
+	for _, unsupported := range c.unsupportedCATypes {
+		if unsupported == id.Type {
+			return nil, trace.BadParameter("%q authority type is not supported", unsupported)
+		}
+	}
 	for _, v := range c.cas {
 		if v.GetType() == id.Type && v.GetClusterName() == id.DomainName {
 			return v, nil
@@ -431,6 +431,11 @@ func (c *mockClient) GetCertAuthority(ctx context.Context, id types.CertAuthID, 
 }
 
 func (c *mockClient) GetCertAuthorities(_ context.Context, caType types.CertAuthType, _ bool) ([]types.CertAuthority, error) {
+	for _, unsupported := range c.unsupportedCATypes {
+		if unsupported == caType {
+			return nil, trace.BadParameter("%q authority type is not supported", unsupported)
+		}
+	}
 	return c.cas, nil
 }
 
@@ -438,7 +443,7 @@ func (c *mockClient) GetProxies() ([]types.Server, error) {
 	return c.proxies, nil
 }
 
-func (c *mockClient) GetRemoteClusters(ctx context.Context) ([]types.RemoteCluster, error) {
+func (c *mockClient) GetRemoteClusters(opts ...services.MarshalOption) ([]types.RemoteCluster, error) {
 	return c.remoteClusters, nil
 }
 
@@ -458,7 +463,7 @@ func (c *mockClient) GetApplicationServers(context.Context, string) ([]types.App
 	return c.appServices, nil
 }
 
-func (c *mockClient) CreateAppSession(ctx context.Context, req *proto.CreateAppSessionRequest) (types.WebSession, error) {
+func (c *mockClient) CreateAppSession(ctx context.Context, req types.CreateAppSessionRequest) (types.WebSession, error) {
 	return c.appSession, nil
 }
 
@@ -499,7 +504,7 @@ func TestGenerateDatabaseKeys(t *testing.T) {
 		cas: []types.CertAuthority{dbCA},
 	}
 
-	keyRing, err := generateKeyRing(context.Background(), authClient, cryptosuites.DatabaseClient)
+	key, err := client.GenerateRSAKey()
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -523,7 +528,7 @@ func TestGenerateDatabaseKeys(t *testing.T) {
 			outSubject:     pkix.Name{CommonName: "postgres.example.com"},
 			outServerNames: []string{"postgres.example.com"},
 			wantFiles: map[string][]byte{
-				"db.key": keyRing.TLSPrivateKey.PrivateKeyPEM(),
+				"db.key": key.PrivateKeyPEM(),
 				"db.crt": certBytes,
 				"db.cas": dbClientCABytes,
 			},
@@ -537,7 +542,7 @@ func TestGenerateDatabaseKeys(t *testing.T) {
 			outSubject:     pkix.Name{CommonName: "mysql.external.net"},
 			outServerNames: []string{"mysql.external.net", "mysql.internal.net", "192.168.1.1"},
 			wantFiles: map[string][]byte{
-				"db.key": keyRing.TLSPrivateKey.PrivateKeyPEM(),
+				"db.key": key.PrivateKeyPEM(),
 				"db.crt": certBytes,
 				"db.cas": dbClientCABytes,
 			},
@@ -551,7 +556,7 @@ func TestGenerateDatabaseKeys(t *testing.T) {
 			outSubject:     pkix.Name{CommonName: "mongo.example.com", Organization: []string{"example.com"}},
 			outServerNames: []string{"mongo.example.com"},
 			wantFiles: map[string][]byte{
-				"mongo.crt": append(certBytes, keyRing.TLSPrivateKey.PrivateKeyPEM()...),
+				"mongo.crt": append(certBytes, key.PrivateKeyPEM()...),
 				"mongo.cas": dbClientCABytes,
 			},
 		},
@@ -563,7 +568,7 @@ func TestGenerateDatabaseKeys(t *testing.T) {
 			outSubject:     pkix.Name{CommonName: "node"},
 			outServerNames: []string{"node", "localhost", "roach1"}, // "node" principal should always be added
 			wantFiles: map[string][]byte{
-				"node.key":      keyRing.TLSPrivateKey.PrivateKeyPEM(),
+				"node.key":      key.PrivateKeyPEM(),
 				"node.crt":      certBytes,
 				"ca.crt":        dbServerCABytes,
 				"ca-client.crt": dbClientCABytes,
@@ -578,7 +583,7 @@ func TestGenerateDatabaseKeys(t *testing.T) {
 			outSubject:     pkix.Name{CommonName: "localhost"},
 			outServerNames: []string{"localhost", "redis1", "172.0.0.1"},
 			wantFiles: map[string][]byte{
-				"db.key": keyRing.TLSPrivateKey.PrivateKeyPEM(),
+				"db.key": key.PrivateKeyPEM(),
 				"db.crt": certBytes,
 				"db.cas": dbClientCABytes,
 			},
@@ -603,7 +608,7 @@ func TestGenerateDatabaseKeys(t *testing.T) {
 				genTTL:        time.Hour,
 			}
 
-			err = ac.generateDatabaseKeysForKeyRing(context.Background(), authClient, keyRing)
+			err = ac.generateDatabaseKeysForKey(context.Background(), authClient, key)
 			if test.genKeyErrMsg == "" {
 				require.NoError(t, err)
 			} else {
@@ -712,6 +717,7 @@ func TestGenerateAppCertificates(t *testing.T) {
 
 			expectedRouteToApp := proto.RouteToApp{
 				Name:        tc.appName,
+				SessionID:   sessionID,
 				PublicAddr:  publicAddr,
 				ClusterName: clusterNameStr,
 			}
@@ -933,6 +939,21 @@ func TestGenerateAndSignKeys(t *testing.T) {
 			},
 		},
 		{
+			name:      "snowflake format db client ca not supported upstream",
+			inFormat:  identityfile.FormatSnowflake,
+			inOutDir:  t.TempDir(),
+			inOutFile: "ca",
+			authClient: &mockClient{
+				clusterName: clusterName,
+				dbCerts: &proto.DatabaseCertResponse{
+					Cert:    certBytes,
+					CACerts: [][]byte{caBytes},
+				},
+				cas:                []types.CertAuthority{dbCARoot, dbCALeaf},
+				unsupportedCATypes: []types.CertAuthType{types.DatabaseClientCA},
+			},
+		},
+		{
 			name:      "db format",
 			inFormat:  identityfile.FormatDatabase,
 			inOutDir:  t.TempDir(),
@@ -981,4 +1002,63 @@ func TestGenerateCRLForCA(t *testing.T) {
 		authClient := &mockClient{crl: []byte{}}
 		require.Error(t, ac.GenerateCRLForCA(ctx, authClient))
 	})
+}
+
+func TestGetDatabaseClientCA(t *testing.T) {
+	_, cert, err := tlsca.GenerateSelfSignedCA(pkix.Name{CommonName: "example.com"}, nil, time.Minute)
+	require.NoError(t, err)
+
+	dbClientCA, err := types.NewCertAuthority(types.CertAuthoritySpecV2{
+		Type:        types.DatabaseClientCA,
+		ClusterName: "example.com",
+		ActiveKeys: types.CAKeySet{
+			TLS: []*types.TLSKeyPair{{Cert: cert}},
+		},
+	})
+	require.NoError(t, err)
+
+	dbServerCA, err := types.NewCertAuthority(types.CertAuthoritySpecV2{
+		Type:        types.DatabaseCA,
+		ClusterName: "example.com",
+		ActiveKeys: types.CAKeySet{
+			TLS: []*types.TLSKeyPair{{Cert: cert}},
+		},
+	})
+	require.NoError(t, err)
+
+	clusterName, err := services.NewClusterNameWithRandomID(
+		types.ClusterNameSpecV2{
+			ClusterName: "example.com",
+		})
+	require.NoError(t, err)
+	tests := []struct {
+		desc       string
+		authClient *mockClient
+		wantCA     types.CertAuthority
+	}{
+		{
+			desc: "db client ca exists",
+			authClient: &mockClient{
+				clusterName: clusterName,
+				cas:         []types.CertAuthority{dbClientCA, dbServerCA},
+			},
+			wantCA: dbClientCA,
+		},
+		{
+			desc: "db client ca not supported",
+			authClient: &mockClient{
+				clusterName:        clusterName,
+				unsupportedCATypes: []types.CertAuthType{types.DatabaseClientCA},
+				cas:                []types.CertAuthority{dbServerCA},
+			},
+			wantCA: dbServerCA,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			ca, err := getDatabaseClientCA(context.Background(), test.authClient)
+			require.NoError(t, err)
+			require.Equal(t, test.wantCA, ca)
+		})
+	}
 }

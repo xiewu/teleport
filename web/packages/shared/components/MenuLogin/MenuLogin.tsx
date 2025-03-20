@@ -16,27 +16,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {
-  ChangeEvent,
-  useImperativeHandle,
-  useRef,
-  useState,
-} from 'react';
-import { NavLink } from 'react-router-dom';
+import React, { useImperativeHandle, useRef, useState } from 'react';
 import styled from 'styled-components';
+import { NavLink } from 'react-router-dom';
+import Menu, { MenuItem } from 'design/Menu';
+import { space } from 'design/system';
 
 import { ButtonBorder, Flex, Indicator } from 'design';
 import { ChevronDown } from 'design/Icon';
-import Menu, { MenuItem } from 'design/Menu';
-import { space, SpaceProps } from 'design/system';
-import { Attempt, useAsync } from 'shared/hooks/useAsync';
 
-import {
-  LoginItem,
-  MenuInputType,
-  MenuLoginHandle,
-  MenuLoginProps,
-} from './types';
+import { useAsync, Attempt } from 'shared/hooks/useAsync';
+
+import { MenuLoginProps, LoginItem, MenuLoginHandle } from './types';
 
 export const MenuLogin = React.forwardRef<MenuLoginHandle, MenuLoginProps>(
   (props, ref) => {
@@ -45,41 +36,25 @@ export const MenuLogin = React.forwardRef<MenuLoginHandle, MenuLoginProps>(
       anchorOrigin,
       transformOrigin,
       alignButtonWidthToMenu = false,
-      inputType = MenuInputType.INPUT,
       required = true,
       width,
     } = props;
-    const [filter, setFilter] = useState('');
-    const anchorRef = useRef<HTMLButtonElement>();
+    const anchorRef = useRef<HTMLElement>();
     const [isOpen, setIsOpen] = useState(false);
     const [getLoginItemsAttempt, runGetLoginItems] = useAsync(() =>
       Promise.resolve().then(() => props.getLoginItems())
     );
 
-    const logins = getLoginItemsAttempt?.data || [];
-    const filteredLogins =
-      getLoginItemsAttempt?.data?.filter(item =>
-        item.login.toLocaleLowerCase().includes(filter)
-      ) || [];
-
-    const defaultPlaceholder =
-      inputType === MenuInputType.INPUT
-        ? 'Enter login name…'
-        : 'Search logins…';
-    const placeholder = props.placeholder || defaultPlaceholder;
-
+    const placeholder = props.placeholder || 'Enter login name…';
     const onOpen = () => {
       if (!getLoginItemsAttempt.status) {
         runGetLoginItems();
       }
       setIsOpen(true);
     };
-
     const onClose = () => {
-      setFilter('');
       setIsOpen(false);
     };
-
     const onItemClick = (
       e: React.MouseEvent<HTMLAnchorElement>,
       login: string
@@ -87,29 +62,8 @@ export const MenuLogin = React.forwardRef<MenuLoginHandle, MenuLoginProps>(
       onClose();
       onSelect(e, login);
     };
-
-    const onChange = (event: ChangeEvent<HTMLInputElement>) => {
-      setFilter(event.target.value);
-    };
-
     const onKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key !== 'Enter') {
-        return;
-      }
-      // if we are a filter type input, send in the first filtered item
-      // into onSelect
-      if (inputType === MenuInputType.FILTER) {
-        const firstFilteredItem = filteredLogins[0];
-        if (!firstFilteredItem) {
-          return;
-        }
-        onClose();
-        onSelect(e, firstFilteredItem.login);
-        return;
-      }
-
-      // otherwise, send in the currently typed value
-      if (!required || e.currentTarget.value) {
+      if (e.key === 'Enter' && (!required || e.currentTarget.value)) {
         onClose();
         onSelect(e, e.currentTarget.value);
       }
@@ -121,20 +75,19 @@ export const MenuLogin = React.forwardRef<MenuLoginHandle, MenuLoginProps>(
       },
     }));
 
-    const ButtonComponent = props.ButtonComponent || ButtonBorder;
-
     return (
       <React.Fragment>
-        <ButtonComponent
+        <ButtonBorder
           width={alignButtonWidthToMenu ? width : null}
           textTransform={props.textTransform}
+          height="24px"
           size="small"
           setRef={anchorRef}
           onClick={onOpen}
         >
-          {props.buttonText || 'Connect'}
-          <ChevronDown ml={1} size="small" color="text.slightlyMuted" />
-        </ButtonComponent>
+          Connect
+          <ChevronDown ml={1} mr={-2} size="small" color="text.slightlyMuted" />
+        </ButtonBorder>
         <Menu
           anchorOrigin={anchorOrigin}
           transformOrigin={transformOrigin}
@@ -142,15 +95,10 @@ export const MenuLogin = React.forwardRef<MenuLoginHandle, MenuLoginProps>(
           open={isOpen}
           onClose={onClose}
           getContentAnchorEl={null}
-          // The list of logins is updated asynchronously, so Popover inside Menu needs to account
-          // for LoginItemList changing in size.
-          updatePositionOnChildResize
         >
           <LoginItemList
             getLoginItemsAttempt={getLoginItemsAttempt}
-            items={inputType === MenuInputType.INPUT ? logins : filteredLogins}
             onKeyPress={onKeyPress}
-            onChange={onChange}
             onClick={onItemClick}
             placeholder={placeholder}
             width={width}
@@ -165,20 +113,16 @@ const LoginItemList = ({
   getLoginItemsAttempt,
   onClick,
   onKeyPress,
-  onChange,
-  items,
   placeholder,
   width,
 }: {
   getLoginItemsAttempt: Attempt<LoginItem[]>;
-  items: LoginItem[];
   onClick: (e: React.MouseEvent<HTMLAnchorElement>, login: string) => void;
   onKeyPress: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   placeholder: string;
   width?: string;
 }) => {
-  const content = getLoginItemListContent(items, getLoginItemsAttempt, onClick);
+  const content = getLoginItemListContent(getLoginItemsAttempt, onClick);
 
   return (
     <Flex flexDirection="column" minWidth={width}>
@@ -193,7 +137,6 @@ const LoginItemList = ({
         // https://stackoverflow.com/questions/22661977/disabling-safari-autofill-on-usernames-and-passwords
         name="notsearch_password"
         onKeyPress={onKeyPress}
-        onChange={onChange}
         type="text"
         autoFocus
         placeholder={placeholder}
@@ -205,7 +148,6 @@ const LoginItemList = ({
 };
 
 function getLoginItemListContent(
-  items: LoginItem[],
   getLoginItemsAttempt: Attempt<LoginItem[]>,
   onClick: (e: React.MouseEvent<HTMLAnchorElement>, login: string) => void
 ) {
@@ -214,8 +156,6 @@ function getLoginItemListContent(
     case 'processing':
       return (
         <Indicator
-          // Without this margin, <Indicator> would cause a scroll bar to pop up and hide repeatedly.
-          m={1}
           css={`
             align-self: center;
           `}
@@ -226,7 +166,9 @@ function getLoginItemListContent(
       // space to show the error inside the menu.
       return null;
     case 'success':
-      return items.map((item, key) => {
+      const logins = getLoginItemsAttempt.data;
+
+      return logins.map((item, key) => {
         const { login, url } = item;
         return (
           <StyledMenuItem
@@ -260,14 +202,14 @@ const StyledMenuItem = styled(MenuItem)(
   border-bottom: 1px solid ${theme.colors.spotBackground[0]};
   min-height: 32px;
 
-  &:last-child {
+  :last-child {
     border-bottom: none;
     margin-bottom: 8px;
   }
 `
 );
 
-const Input = styled.input<SpaceProps>(
+const Input = styled.input(
   ({ theme }) => `
   background: transparent;
   border: 1px solid ${theme.colors.text.muted};
@@ -282,7 +224,7 @@ const Input = styled.input<SpaceProps>(
     outline: none;
   }
 
-  &::placeholder {
+  ::placeholder {
     color: ${theme.colors.text.muted};
     opacity: 1;
   }

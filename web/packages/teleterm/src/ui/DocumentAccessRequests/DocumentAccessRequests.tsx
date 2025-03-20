@@ -16,18 +16,22 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { RequestFlags } from 'shared/components/AccessRequests/ReviewRequests';
+import React from 'react';
+
 import { Attempt } from 'shared/hooks/useAsync';
+
 import { AccessRequest } from 'shared/services/accessRequests';
+import { RequestFlags } from 'shared/components/AccessRequests/ReviewRequests';
 
 import Document from 'teleterm/ui/Document';
 import * as types from 'teleterm/ui/services/workspacesService';
 
-import { NewRequest } from './NewRequest';
+import { useAssumeAccess } from './useAssumeAccess';
+
+import useAccessRequests from './useAccessRequests';
 import { RequestList } from './RequestList/RequestList';
 import { ReviewAccessRequest } from './ReviewAccessRequest';
-import useAccessRequests from './useAccessRequests';
-import { useAssumeAccess } from './useAssumeAccess';
+import { NewRequest } from './NewRequest';
 
 export function DocumentAccessRequests(props: DocumentProps) {
   const state = useAccessRequests(props.doc);
@@ -45,6 +49,7 @@ export function DocumentAccessRequests(props: DocumentProps) {
 }
 
 export function DocumentAccessRequestsViews({
+  accessRequests,
   attempt,
   doc,
   assumeRole,
@@ -72,6 +77,7 @@ export function DocumentAccessRequestsViews({
     <RequestList
       assumeRole={accessRequest => assumeRole(accessRequest.id)}
       attempt={attempt}
+      requests={accessRequests}
       getFlags={getFlags}
       getRequests={getRequests}
       viewRequest={(id: string) => onViewRequest(id)}

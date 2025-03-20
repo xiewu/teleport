@@ -95,7 +95,7 @@ func (p *PluginDataService) getPluginData(ctx context.Context, filter types.Plug
 	}
 	var matches []types.PluginData
 	for _, item := range result.Items {
-		if !item.Key.HasSuffix(backend.NewKey(paramsPrefix)) {
+		if !item.Key.HasSuffix(backend.Key(paramsPrefix)) {
 			// Item represents a different resource type in the
 			// same namespace.
 			continue
@@ -231,6 +231,7 @@ func itemFromPluginData(data types.PluginData) (backend.Item, error) {
 		Key:      pluginDataKey(data.GetSubKind(), data.GetName()),
 		Value:    value,
 		Expires:  data.Expiry(),
+		ID:       data.GetResourceID(),
 		Revision: rev,
 	}, nil
 }
@@ -238,6 +239,7 @@ func itemFromPluginData(data types.PluginData) (backend.Item, error) {
 func itemToPluginData(item backend.Item) (types.PluginData, error) {
 	data, err := services.UnmarshalPluginData(
 		item.Value,
+		services.WithResourceID(item.ID),
 		services.WithExpires(item.Expires),
 		services.WithRevision(item.Revision),
 	)

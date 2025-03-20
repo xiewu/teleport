@@ -16,19 +16,20 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import cfg from 'teleport/config';
 import api from 'teleport/services/api';
+import cfg from 'teleport/config';
 import session from 'teleport/services/websession';
 
-import { MfaChallengeResponse } from '../mfa';
+import { WebauthnAssertionResponse } from '../auth';
+
+import makeUserContext from './makeUserContext';
 import { makeResetToken } from './makeResetToken';
 import makeUser, { makeUsers } from './makeUser';
-import makeUserContext from './makeUserContext';
 import {
-  ExcludeUserField,
-  ResetPasswordType,
   User,
   UserContext,
+  ResetPasswordType,
+  ExcludeUserField,
 } from './types';
 
 const cache = {
@@ -85,14 +86,14 @@ const service = {
   createUser(
     user: User,
     excludeUserField: ExcludeUserField,
-    mfaResponse?: MfaChallengeResponse
+    webauthnResponse?: WebauthnAssertionResponse
   ) {
     return api
       .post(
         cfg.getUsersUrl(),
         withExcludedField(user, excludeUserField),
         null,
-        mfaResponse
+        webauthnResponse
       )
       .then(makeUser);
   },
@@ -100,10 +101,15 @@ const service = {
   createResetPasswordToken(
     name: string,
     type: ResetPasswordType,
-    mfaResponse?: MfaChallengeResponse
+    webauthnResponse?: WebauthnAssertionResponse
   ) {
     return api
-      .post(cfg.api.resetPasswordTokenPath, { name, type }, null, mfaResponse)
+      .post(
+        cfg.api.resetPasswordTokenPath,
+        { name, type },
+        null,
+        webauthnResponse
+      )
       .then(makeResetToken);
   },
 
@@ -115,27 +121,10 @@ const service = {
     await session.renewSession({ reloadUser: true }, signal);
   },
 
-  async checkUserHasAccessToAnyRegisteredResource() {
-    const clusterId = cfg.proxyCluster;
-
-    const res = await api
-      .get(
-        cfg.getUnifiedResourcesUrl(clusterId, {
-          limit: 1,
-          sort: {
-            fieldName: 'name',
-            dir: 'ASC',
-          },
-          includedResourceMode: 'all',
-        })
-      )
-      .catch(err => {
-        // eslint-disable-next-line no-console
-        console.error('Error checking access to registered resources', err);
-        return { items: [] };
-      });
-
-    return !!res?.items?.some?.(Boolean);
+  checkUserHasAccessToRegisteredResource(): Promise<boolean> {
+    return api
+      .get(cfg.getCheckAccessToRegisteredResourceUrl())
+      .then(res => Boolean(res.hasResource));
   },
 
   fetchConnectMyComputerLogins(signal?: AbortSignal): Promise<Array<string>> {

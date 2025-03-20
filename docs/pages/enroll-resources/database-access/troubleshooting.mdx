@@ -22,7 +22,7 @@ due to expired certificates.
 The command used to generate a new certificate is `tctl auth sign`. For example,
 to create a certificate for PostgreSQL, the command looks like this:
 
-```code
+```bash
 # Export Teleport's certificate authority and a generate certificate/key pair
 # for host db.example.com with a 3-month validity period.
 
@@ -102,7 +102,8 @@ spec:
 
 The `internal.db_users` and `internal.db_names` traits are
 replaced with values from the Teleport local user database. For full details on
-how traits work in Teleport roles, see the [Access Controls Reference](../../reference/access-controls/roles.mdx).
+how traits work in Teleport roles, see the [Teleport Access
+Controls Reference](../../reference/access-controls/roles.mdx).
 
 Now suppose we want to grant Alice more permissive access.
 To keep this example simple, let's just assign Alice a different role.
@@ -115,15 +116,12 @@ We can update a user's roles from the command-line by using either `tctl users u
   ```
   </TabItem>
   <TabItem label="tctl create">
-
-    Open Alice's user resource in your text editor:
-
-    ```code
-    $ tctl edit users/alice@example.com
+    First save Alice's user resource to a local file:
+    ```sh
+    $ tctl get users/alice@example.com > alice.yaml
     ```
 
-    Then modify the resource to assign the `access` role:
-
+    Then modify `alice.yaml` to assign the `access` role:
     ```yaml
     kind: user
     metadata:
@@ -135,8 +133,11 @@ We can update a user's roles from the command-line by using either `tctl users u
         db_names: ["*"]
     ```
 
-    Save and close the file to apply your changes.
-
+    Finally, use `tctl create --force` to update the user
+    (`--force` is required to overwrite an already existing resource).
+    ```sh
+    $ tctl create --force alice.yaml
+    ```
   </TabItem>
 </Tabs>
 

@@ -35,8 +35,6 @@ import (
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 	"github.com/gravitational/teleport/tool/common"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // RecordingsCommand implements "tctl recordings" group of commands.
@@ -58,7 +56,7 @@ type RecordingsCommand struct {
 }
 
 // Initialize allows RecordingsCommand to plug itself into the CLI parser
-func (c *RecordingsCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, config *servicecfg.Config) {
+func (c *RecordingsCommand) Initialize(app *kingpin.Application, config *servicecfg.Config) {
 	c.config = config
 	recordings := app.Command("recordings", "View and control session recordings.")
 	c.recordingsList = recordings.Command("ls", "List recorded sessions.")
@@ -70,21 +68,13 @@ func (c *RecordingsCommand) Initialize(app *kingpin.Application, _ *tctlcfg.Glob
 }
 
 // TryRun attempts to run subcommands like "recordings ls".
-func (c *RecordingsCommand) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (match bool, err error) {
-	var commandFunc func(ctx context.Context, client *authclient.Client) error
+func (c *RecordingsCommand) TryRun(ctx context.Context, cmd string, client *authclient.Client) (match bool, err error) {
 	switch cmd {
 	case c.recordingsList.FullCommand():
-		commandFunc = c.ListRecordings
+		err = c.ListRecordings(ctx, client)
 	default:
 		return false, nil
 	}
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	err = commandFunc(ctx, client)
-	closeFn(ctx)
-
 	return true, trace.Wrap(err)
 }
 

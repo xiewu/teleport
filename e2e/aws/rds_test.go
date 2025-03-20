@@ -311,7 +311,7 @@ func testRDS(t *testing.T) {
 		adminUser := mustGetDBAdmin(t, db)
 
 		conn := connectAsRDSMySQLAdmin(t, ctx, db.GetAWS().RDS.InstanceID)
-		provisionRDSMySQLAutoUsersAdmin(t, conn, adminUser.Name)
+		provisionRDSMySQLAutoUsersAdmin(t, ctx, conn, adminUser.Name)
 
 		// create a couple test tables to test role assignment with.
 		testTable1 := "teleport.test_" + randASCII(t)
@@ -420,7 +420,7 @@ func testRDS(t *testing.T) {
 		// connect as the RDS database admin user - not to be confused
 		// with Teleport's "db admin user".
 		conn := connectAsRDSMySQLAdmin(t, ctx, db.GetAWS().RDS.InstanceID)
-		provisionMariaDBAdminUser(t, conn, adminUser.Name)
+		provisionMariaDBAdminUser(t, ctx, conn, adminUser.Name)
 
 		// create a couple test tables to test role assignment with.
 		testTable1 := "teleport.test_" + randASCII(t)
@@ -559,18 +559,17 @@ func connectAsRDSMySQLAdmin(t *testing.T, ctx context.Context, instanceID string
 	const dbName = "mysql"
 	info := getRDSAdminInfo(t, ctx, instanceID)
 
-	opt := func(conn *mysqlclient.Conn) error {
+	opt := func(conn *mysqlclient.Conn) {
 		conn.SetTLSConfig(&tls.Config{
 			ServerName: info.address,
 			RootCAs:    awsCertPool.Clone(),
 		})
-		return nil
 	}
 	endpoint := fmt.Sprintf("%s:%d", info.address, info.port)
 	conn, err := mysqlclient.Connect(endpoint, info.username, info.password, dbName, opt)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = conn.Quit()
+		_ = conn.Close()
 	})
 	return &mySQLConn{conn: conn}
 }
@@ -604,7 +603,7 @@ func getRDSAdminInfo(t *testing.T, ctx context.Context, instanceID string) dbUse
 
 // provisionRDSMySQLAutoUsersAdmin provisions an admin user suitable for auto-user
 // provisioning.
-func provisionRDSMySQLAutoUsersAdmin(t *testing.T, conn *mySQLConn, adminUser string) {
+func provisionRDSMySQLAutoUsersAdmin(t *testing.T, ctx context.Context, conn *mySQLConn, adminUser string) {
 	t.Helper()
 	// provision the IAM user to test with.
 	// ignore errors from user creation. If the user doesn't exist
@@ -630,7 +629,7 @@ func provisionRDSMySQLAutoUsersAdmin(t *testing.T, conn *mySQLConn, adminUser st
 
 // provisionMariaDBAdminUser provisions an admin user suitable for auto-user
 // provisioning.
-func provisionMariaDBAdminUser(t *testing.T, conn *mySQLConn, adminUser string) {
+func provisionMariaDBAdminUser(t *testing.T, ctx context.Context, conn *mySQLConn, adminUser string) {
 	t.Helper()
 	// provision the IAM user to test with.
 	// ignore errors from user creation. If the user doesn't exist

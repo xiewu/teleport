@@ -28,16 +28,11 @@ import (
 	"github.com/gravitational/trace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/testing/protocmp"
 
+	"github.com/gravitational/teleport/api/constants"
 	autoupdatev1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/autoupdate/v1"
-	headerv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/header/v1"
-	labelv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/label/v1"
-	userprovisioningpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/userprovisioning/v2"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/autoupdate"
-	"github.com/gravitational/teleport/api/types/userprovisioning"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/modules"
@@ -80,20 +75,12 @@ func TestEditResources(t *testing.T) {
 			edit: testEditSessionRecordingConfig,
 		},
 		{
-			kind: types.KindStaticHostUser,
-			edit: testEditStaticHostUser,
-		},
-		{
 			kind: types.KindAutoUpdateConfig,
 			edit: testEditAutoUpdateConfig,
 		},
 		{
 			kind: types.KindAutoUpdateVersion,
 			edit: testEditAutoUpdateVersion,
-		},
-		{
-			kind: types.KindDynamicWindowsDesktop,
-			edit: testEditDynamicWindowsDesktop,
 		},
 	}
 
@@ -145,7 +132,7 @@ func testEditGithubConnector(t *testing.T, clt *authclient.Client) {
 	actual, err := clt.GetGithubConnector(ctx, expected.GetName(), true)
 	require.NoError(t, err, "retrieving github connector after edit")
 	assert.NotEqual(t, created.GetClientID(), actual.GetClientID(), "client id should have been modified by edit")
-	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "Namespace")))
+	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision", "Namespace")))
 
 	// Try editing the connector a second time. This time the revisions will not match
 	// since the created revision is stale.
@@ -183,7 +170,7 @@ func testEditRole(t *testing.T, clt *authclient.Client) {
 	actual, err := clt.GetRole(ctx, expected.GetName())
 	require.NoError(t, err, "retrieving role after edit")
 	assert.NotEqual(t, created.GetLogins(types.Allow), actual.GetLogins(types.Allow), "logins should have been modified by edit")
-	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision")))
 
 	// Try editing the role a second time. This time the revisions will not match
 	// since the created revision is stale.
@@ -223,7 +210,7 @@ func testEditUser(t *testing.T, clt *authclient.Client) {
 	actual, err := clt.GetUser(ctx, expected.GetName(), true)
 	require.NoError(t, err, "retrieving user after edit")
 	assert.NotEqual(t, created.GetLogins(), actual.GetLogins(), "logins should have been modified by edit")
-	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision")))
 
 	// Try editing the user a second time. This time the revisions will not match
 	// since the created revision is stale.
@@ -262,7 +249,7 @@ func testEditClusterNetworkingConfig(t *testing.T, clt *authclient.Client) {
 	require.NoError(t, err, "retrieving cnc after edit")
 	assert.NotEqual(t, initial.GetKeepAliveCountMax(), actual.GetKeepAliveCountMax(), "keep alive count max should have been modified by edit")
 	assert.NotEqual(t, initial.GetCaseInsensitiveRouting(), actual.GetCaseInsensitiveRouting(), "keep alive count max should have been modified by edit")
-	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "Labels")))
+	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision", "Labels")))
 	assert.Equal(t, types.OriginDynamic, actual.Origin())
 
 	// Try editing the cnc a second time. This time the revisions will not match
@@ -286,7 +273,7 @@ func testEditAuthPreference(t *testing.T, clt *authclient.Client) {
 		}
 
 		expected.SetRevision(initial.GetRevision())
-		expected.SetSecondFactors(types.SecondFactorType_SECOND_FACTOR_TYPE_OTP, types.SecondFactorType_SECOND_FACTOR_TYPE_SSO)
+		expected.SetSecondFactor(constants.SecondFactorOff)
 
 		collection := &authPrefCollection{authPref: expected}
 		return trace.NewAggregate(writeYAML(collection, f), f.Close())
@@ -299,8 +286,8 @@ func testEditAuthPreference(t *testing.T, clt *authclient.Client) {
 
 	actual, err := clt.GetAuthPreference(ctx)
 	require.NoError(t, err, "retrieving cap after edit")
-	assert.NotEqual(t, initial.GetSecondFactors(), actual.GetSecondFactors(), "second factors should have been modified by edit")
-	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "Labels")))
+	assert.NotEqual(t, initial.GetSecondFactor(), actual.GetSecondFactor(), "second factor should have been modified by edit")
+	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision", "Labels")))
 	assert.Equal(t, types.OriginDynamic, actual.Origin())
 
 	// Try editing the cap a second time. This time the revisions will not match
@@ -338,7 +325,7 @@ func testEditSessionRecordingConfig(t *testing.T, clt *authclient.Client) {
 	actual, err := clt.GetSessionRecordingConfig(ctx)
 	require.NoError(t, err, "retrieving src after edit")
 	assert.NotEqual(t, initial.GetMode(), actual.GetMode(), "mode should have been modified by edit")
-	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "Labels")))
+	require.Empty(t, cmp.Diff(expected, actual, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision", "Labels")))
 	assert.Equal(t, types.OriginDynamic, actual.Origin())
 
 	// Try editing the src a second time. This time the revisions will not match
@@ -357,10 +344,8 @@ func TestEditEnterpriseResources(t *testing.T) {
 	modules.SetTestModules(t, &modules.TestModules{
 		TestBuildType: modules.BuildEnterprise,
 		TestFeatures: modules.Features{
-			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-				entitlements.OIDC: {Enabled: true},
-				entitlements.SAML: {Enabled: true},
-			},
+			OIDC: true,
+			SAML: true,
 		},
 	})
 	log := utils.NewSlogLoggerForTests()
@@ -427,7 +412,7 @@ func testEditOIDCConnector(t *testing.T, clt *authclient.Client) {
 
 	actual, err := clt.GetOIDCConnector(ctx, expected.GetName(), false)
 	require.NoError(t, err, "retrieving oidc connector after edit")
-	require.Empty(t, cmp.Diff(created, actual, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "Namespace"),
+	require.Empty(t, cmp.Diff(created, actual, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision", "Namespace"),
 		cmpopts.IgnoreFields(types.OIDCConnectorSpecV3{}, "ClientID", "ClientSecret"),
 	))
 	require.NotEqual(t, created.GetClientID(), actual.GetClientID(), "client id should have been modified by edit")
@@ -496,7 +481,7 @@ func testEditSAMLConnector(t *testing.T, clt *authclient.Client) {
 
 	actual, err := clt.GetSAMLConnector(ctx, expected.GetName(), true)
 	require.NoError(t, err, "retrieving saml connector after edit")
-	require.Empty(t, cmp.Diff(created, actual, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "Namespace"),
+	require.Empty(t, cmp.Diff(created, actual, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision", "Namespace"),
 		cmpopts.IgnoreFields(types.SAMLConnectorSpecV2{}, "AssertionConsumerService"),
 	))
 	require.NotEqual(t, created.GetAssertionConsumerService(), actual.GetAssertionConsumerService(), "acs should have been modified by edit")
@@ -507,53 +492,6 @@ func testEditSAMLConnector(t *testing.T, clt *authclient.Client) {
 	_, err = runEditCommand(t, clt, []string{"edit", "connector/saml"}, withEditor(editor))
 	assert.Error(t, err, "stale connector was allowed to be updated")
 	require.ErrorIs(t, err, backend.ErrIncorrectRevision, "expected an incorrect revision error, got %T", err)
-}
-
-func testEditStaticHostUser(t *testing.T, clt *authclient.Client) {
-	ctx := context.Background()
-
-	expected := userprovisioning.NewStaticHostUser("alice", &userprovisioningpb.StaticHostUserSpec{
-		Matchers: []*userprovisioningpb.Matcher{
-			{
-				NodeLabels: []*labelv1.Label{
-					{
-						Name:   "foo",
-						Values: []string{"bar"},
-					},
-				},
-				Groups: []string{"foo", "bar"},
-			},
-		},
-	})
-	created, err := clt.StaticHostUserClient().CreateStaticHostUser(ctx, expected)
-	require.NoError(t, err)
-
-	editor := func(name string) error {
-		f, err := os.Create(name)
-		if err != nil {
-			return trace.Wrap(err, "opening file to edit")
-		}
-
-		expected.GetMetadata().Revision = created.GetMetadata().Revision
-		expected.Spec.Matchers[0].Groups = []string{"baz", "quux"}
-
-		collection := &staticHostUserCollection{items: []*userprovisioningpb.StaticHostUser{expected}}
-		return trace.NewAggregate(writeYAML(collection, f), f.Close())
-	}
-
-	_, err = runEditCommand(t, clt, []string{"edit", "host_user/alice"}, withEditor(editor))
-	require.NoError(t, err)
-
-	actual, err := clt.StaticHostUserClient().GetStaticHostUser(ctx, expected.GetMetadata().Name)
-	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(expected, actual,
-		protocmp.IgnoreFields(&headerv1.Metadata{}, "revision"),
-		protocmp.Transform(),
-	))
-
-	_, err = runEditCommand(t, clt, []string{"edit", "host_user/alice"}, withEditor(editor))
-	require.Error(t, err)
-	require.True(t, trace.IsCompareFailed(err), "unexpected error: %v", err)
 }
 
 func testEditAutoUpdateConfig(t *testing.T, clt *authclient.Client) {
@@ -574,7 +512,7 @@ func testEditAutoUpdateConfig(t *testing.T, clt *authclient.Client) {
 	require.NoError(t, err)
 
 	serviceClient := autoupdatev1pb.NewAutoUpdateServiceClient(clt.GetConnection())
-	initial, err = serviceClient.CreateAutoUpdateConfig(ctx, &autoupdatev1pb.CreateAutoUpdateConfigRequest{Config: initial})
+	_, err = serviceClient.CreateAutoUpdateConfig(ctx, &autoupdatev1pb.CreateAutoUpdateConfigRequest{Config: initial})
 	require.NoError(t, err, "creating initial autoupdate config")
 
 	editor := func(name string) error {
@@ -616,7 +554,7 @@ func testEditAutoUpdateVersion(t *testing.T, clt *authclient.Client) {
 	require.NoError(t, err)
 
 	serviceClient := autoupdatev1pb.NewAutoUpdateServiceClient(clt.GetConnection())
-	initial, err = serviceClient.CreateAutoUpdateVersion(ctx, &autoupdatev1pb.CreateAutoUpdateVersionRequest{Version: initial})
+	_, err = serviceClient.CreateAutoUpdateVersion(ctx, &autoupdatev1pb.CreateAutoUpdateVersionRequest{Version: initial})
 	require.NoError(t, err, "creating initial autoupdate version")
 
 	editor := func(name string) error {
@@ -638,36 +576,4 @@ func testEditAutoUpdateVersion(t *testing.T, clt *authclient.Client) {
 	assert.NotEqual(t, initial.GetSpec().GetTools().GetTargetVersion(), actual.GetSpec().GetTools().GetTargetVersion(),
 		"tools_autoupdate should have been modified by edit")
 	assert.Equal(t, expected.GetSpec().GetTools().GetTargetVersion(), actual.GetSpec().GetTools().GetTargetVersion())
-}
-
-func testEditDynamicWindowsDesktop(t *testing.T, clt *authclient.Client) {
-	ctx := context.Background()
-
-	expected, err := types.NewDynamicWindowsDesktopV1("test", nil, types.DynamicWindowsDesktopSpecV1{
-		Addr: "test",
-	})
-	require.NoError(t, err)
-	created, err := clt.DynamicDesktopClient().CreateDynamicWindowsDesktop(ctx, expected)
-	require.NoError(t, err)
-
-	editor := func(name string) error {
-		f, err := os.Create(name)
-		if err != nil {
-			return trace.Wrap(err, "opening file to edit")
-		}
-
-		expected.SetRevision(created.GetRevision())
-		expected.Spec.Addr = "test2"
-
-		collection := &dynamicWindowsDesktopCollection{desktops: []types.DynamicWindowsDesktop{expected}}
-		return trace.NewAggregate(writeYAML(collection, f), f.Close())
-	}
-
-	_, err = runEditCommand(t, clt, []string{"edit", "dynamic_windows_desktop/test"}, withEditor(editor))
-	require.NoError(t, err)
-
-	actual, err := clt.DynamicDesktopClient().GetDynamicWindowsDesktop(ctx, expected.GetName())
-	require.NoError(t, err)
-	expected.SetRevision(actual.GetRevision())
-	require.Empty(t, cmp.Diff(expected, actual, protocmp.Transform()))
 }

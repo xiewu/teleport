@@ -222,13 +222,13 @@ This message contains a mouse wheel update. Sent from client to server.
 
 This message indicates an error has occurred.
 
-#### 28 - alert
+#### 28 - notification
 
 ```
 | message type (28) | message_length uint32 | message []byte | severity byte |
 ```
 
-This message sends an alert message along with a severity level. Sent from server to client.
+This message sends a notification message with a severity level. Sent from server to client.
 
 `message_length` denotes the length of the `message` byte array. It doesn't include the `severity` byte.
 
@@ -239,7 +239,7 @@ This message sends an alert message along with a severity level. Sent from serve
 - `2` is for an error
 
 An error (`2`) means that some fatal problem was encountered and the TDP connection is ending imminently.
-An alert with `severity == 2` should be preferred to the `error` message above.
+A notification with `severity == 2` should be preferred to the `error` message above.
 
 A warning (`1`) means some non-fatal problem was encountered but the TDP connection can still continue.
 
@@ -280,7 +280,7 @@ It is sent from TDP server to client. At the time of writing, the purpose of thi
 ```
 
 Some messages passed to the TDP client via a FastPath Frame warrant a response, which can be sent from the TDP client to the server with this message.
-At the time of writing this message is used to send responses to RemoteFX frames, which occasionally demand such, but in theory it can be used to carry
+At the time of writing this message is used to send responses to RemoteFX frames, which occasionaly demand such, but in theory it can be used to carry
 any raw RDP response message intended to be written directly into the TDP server-side's RDP connection.
 
 #### 31 - RDP Connection Activated

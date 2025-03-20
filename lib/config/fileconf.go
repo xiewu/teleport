@@ -20,14 +20,12 @@ package config
 
 import (
 	"bytes"
-	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -36,6 +34,7 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
@@ -330,6 +329,13 @@ func makeSampleSSHConfig(conf *servicecfg.Config, flags SampleFlags, enabled boo
 	if enabled {
 		s.EnabledFlag = "yes"
 		s.ListenAddress = conf.SSH.Addr.Addr
+		s.Commands = []CommandLabel{
+			{
+				Name:    defaults.HostnameLabel,
+				Command: []string{"hostname"},
+				Period:  time.Minute,
+			},
+		}
 		labels, err := client.ParseLabelSpec(flags.NodeLabels)
 		if err != nil {
 			return s, trace.Wrap(err)
@@ -512,10 +518,8 @@ type ConnectionRate struct {
 // ConnectionLimits sets up connection limiter
 type ConnectionLimits struct {
 	MaxConnections int64            `yaml:"max_connections"`
+	MaxUsers       int              `yaml:"max_users"`
 	Rates          []ConnectionRate `yaml:"rates,omitempty"`
-
-	// Deprecated: MaxUsers has no effect.
-	MaxUsers int `yaml:"max_users"`
 }
 
 // LegacyLog contains the old format of the 'format' field
@@ -557,8 +561,7 @@ func (l *Log) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type logYAML Log
 	log := (*logYAML)(l)
 	if err := unmarshal(log); err != nil {
-		var typeError *yaml.TypeError
-		if !errors.As(err, &typeError) {
+		if _, ok := err.(*yaml.TypeError); !ok {
 			return err
 		}
 
@@ -811,6 +814,9 @@ type Auth struct {
 	// This is currently Cloud-specific.
 	HostedPlugins HostedPlugins `yaml:"hosted_plugins,omitempty"`
 
+	// Assist is a set of options related to the Teleport Assist feature.
+	Assist *AuthAssistOptions `yaml:"assist,omitempty"`
+
 	// AccessMonitoring is a set of options related to the Access Monitoring feature.
 	AccessMonitoring *servicecfg.AccessMonitoringOptions `yaml:"access_monitoring,omitempty"`
 }
@@ -854,6 +860,7 @@ func (a *Auth) hasCustomNetworkingConfig() bool {
 		a.RoutingStrategy != empty.RoutingStrategy ||
 		a.TunnelStrategy != empty.TunnelStrategy ||
 		a.ProxyPingInterval != empty.ProxyPingInterval ||
+		(a.Assist != nil && a.Assist.CommandExecutionWorkers != 0) ||
 		a.SSHDialTimeout != empty.SSHDialTimeout
 }
 
@@ -889,15 +896,13 @@ type PKCS11 struct {
 	// SlotNumber is the slot number of the HSM token to use. Set this or
 	// TokenLabel to select a token.
 	SlotNumber *int `yaml:"slot_number,omitempty"`
-	// PIN is the raw pin for connecting to the HSM. Set this or PINPath to set
+	// Pin is the raw pin for connecting to the HSM. Set this or PinPath to set
 	// the pin.
-	PIN string `yaml:"pin,omitempty"`
-	// PINPath is a path to a file containing a pin for connecting to the HSM.
+	Pin string `yaml:"pin,omitempty"`
+	// PinPath is a path to a file containing a pin for connecting to the HSM.
 	// Trailing newlines will be removed, other whitespace will be left. Set
 	// this or Pin to set the pin.
-	PINPath string `yaml:"pin_path,omitempty"`
-	// MaxSessions is the upper limit of sessions allowed by the HSM.
-	MaxSessions int `yaml:"max_sessions"`
+	PinPath string `yaml:"pin_path,omitempty"`
 }
 
 // GoogleCloudKMS configures Google Cloud Key Management Service to to be used for
@@ -921,16 +926,6 @@ type AWSKMS struct {
 	Account string `yaml:"account"`
 	// Region is the AWS region to use.
 	Region string `yaml:"region"`
-	// MultiRegion contains configuration for multi-region AWS KMS.
-	MultiRegion struct {
-		// Enabled configures new keys to be multi-region.
-		Enabled bool
-	} `yaml:"multi_region,omitempty"`
-	// Tags are key/value pairs used as AWS resource tags. The 'TeleportCluster'
-	// tag is added automatically if not specified in the set of tags. Changing tags
-	// after Teleport has already created KMS keys may require manually updating
-	// the tags of existing keys.
-	Tags map[string]string `yaml:"tags,omitempty"`
 }
 
 // TrustedCluster struct holds configuration values under "trusted_clusters" key
@@ -1014,7 +1009,6 @@ func (t StaticToken) Parse() ([]types.ProvisionTokenV1, error) {
 type AuthenticationConfig struct {
 	Type           string                     `yaml:"type"`
 	SecondFactor   constants.SecondFactorType `yaml:"second_factor,omitempty"`
-	SecondFactors  []types.SecondFactorType   `yaml:"second_factors,omitempty"`
 	ConnectorName  string                     `yaml:"connector_name,omitempty"`
 	U2F            *UniversalSecondFactor     `yaml:"u2f,omitempty"`
 	Webauthn       *Webauthn                  `yaml:"webauthn,omitempty"`
@@ -1044,17 +1038,12 @@ type AuthenticationConfig struct {
 	DefaultSessionTTL types.Duration `yaml:"default_session_ttl"`
 
 	// Deprecated. HardwareKey.PIVSlot should be used instead.
+	// TODO(Joerger): DELETE IN 17.0.0
 	PIVSlot keys.PIVSlot `yaml:"piv_slot,omitempty"`
 
 	// HardwareKey holds settings related to hardware key support.
 	// Requires Teleport Enterprise.
 	HardwareKey *HardwareKey `yaml:"hardware_key,omitempty"`
-
-	// SignatureAlgorithmSuite is the configured signature algorithm suite for the cluster.
-	SignatureAlgorithmSuite types.SignatureAlgorithmSuite `yaml:"signature_algorithm_suite"`
-
-	// StableUNIXUserConfig is [types.AuthPreferenceSpecV2.StableUnixUserConfig].
-	StableUNIXUserConfig *StableUNIXUserConfig `yaml:"stable_unix_user_config,omitempty"`
 }
 
 // Parse returns valid types.AuthPreference instance.
@@ -1086,64 +1075,37 @@ func (a *AuthenticationConfig) Parse() (types.AuthPreference, error) {
 	}
 
 	var h *types.HardwareKey
-	switch {
-	case a.HardwareKey != nil:
-		if a.PIVSlot != "" {
-			slog.WarnContext(context.Background(), `Both "piv_slot" and "hardware_key" settings were populated, using "hardware_key" setting`)
-		}
+	if a.HardwareKey != nil {
 		h, err = a.HardwareKey.Parse()
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-	case a.HardwareKey == nil && a.PIVSlot != "":
+	}
+
+	// TODO(Joerger): DELETE IN 17.0.0
+	if a.PIVSlot != "" {
+		log.Warn(`The "piv_slot" setting will be removed in 17.0.0, please set "hardware_key.piv_slot" instead.`)
 		if err = a.PIVSlot.Validate(); err != nil {
 			return nil, trace.Wrap(err, "failed to parse piv_slot")
 		}
-
-		h = &types.HardwareKey{
-			PIVSlot: string(a.PIVSlot),
-		}
-	default:
 	}
 
-	if a.SecondFactor != "" && a.SecondFactors != nil {
-		const msg = `second_factor and second_factors are both set. second_factors will take precedence. ` +
-			`second_factor should be unset to remove this warning.`
-		slog.WarnContext(context.Background(), msg)
-	}
-
-	stableUNIXUserConfig, err := a.StableUNIXUserConfig.Parse()
-	if err != nil {
-		return nil, trace.Wrap(err, "failed to parse stable_unix_user_config")
-	}
-
-	ap, err := types.NewAuthPreferenceFromConfigFile(types.AuthPreferenceSpecV2{
-		Type:                    a.Type,
-		SecondFactor:            a.SecondFactor,
-		SecondFactors:           a.SecondFactors,
-		ConnectorName:           a.ConnectorName,
-		U2F:                     u,
-		Webauthn:                w,
-		RequireMFAType:          a.RequireMFAType,
-		LockingMode:             a.LockingMode,
-		AllowLocalAuth:          a.LocalAuth,
-		AllowPasswordless:       a.Passwordless,
-		AllowHeadless:           a.Headless,
-		DeviceTrust:             dt,
-		DefaultSessionTTL:       a.DefaultSessionTTL,
-		HardwareKey:             h,
-		SignatureAlgorithmSuite: a.SignatureAlgorithmSuite,
-		StableUnixUserConfig:    stableUNIXUserConfig,
+	return types.NewAuthPreferenceFromConfigFile(types.AuthPreferenceSpecV2{
+		Type:              a.Type,
+		SecondFactor:      a.SecondFactor,
+		ConnectorName:     a.ConnectorName,
+		U2F:               u,
+		Webauthn:          w,
+		RequireMFAType:    a.RequireMFAType,
+		LockingMode:       a.LockingMode,
+		AllowLocalAuth:    a.LocalAuth,
+		AllowPasswordless: a.Passwordless,
+		AllowHeadless:     a.Headless,
+		DeviceTrust:       dt,
+		DefaultSessionTTL: a.DefaultSessionTTL,
+		PIVSlot:           string(a.PIVSlot),
+		HardwareKey:       h,
 	})
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	if err := services.ValidateAuthPreference(ap); err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	return ap, nil
 }
 
 type UniversalSecondFactor struct {
@@ -1184,10 +1146,10 @@ func (w *Webauthn) Parse() (*types.Webauthn, error) {
 		return nil, trace.BadParameter("webauthn.attestation_denied_cas: %v", err)
 	}
 	if w.Disabled {
-		const msg = `The "webauthn.disabled" setting is marked for removal and currently has no effect. ` +
+		log.Warnf(`` +
+			`The "webauthn.disabled" setting is marked for removal and currently has no effect. ` +
 			`Please update your configuration to use WebAuthn. ` +
-			`Refer to https://goteleport.com/docs/admin-guides/access-controls/guides/webauthn/`
-		slog.WarnContext(context.Background(), msg)
+			`Refer to https://goteleport.com/docs/admin-guides/access-controls/guides/webauthn/`)
 	}
 	return &types.Webauthn{
 		// Allow any RPID to go through, we rely on
@@ -1220,11 +1182,11 @@ func getCertificatePEM(certOrPath string) (string, error) {
 	data, err := os.ReadFile(certOrPath)
 	if err != nil {
 		// Don't use trace in order to keep a clean error message.
-		return "", fmt.Errorf("%q is not a valid x509 certificate (%w) and can't be read as a file (%w)", certOrPath, parseErr, err)
+		return "", fmt.Errorf("%q is not a valid x509 certificate (%v) and can't be read as a file (%v)", certOrPath, parseErr, err)
 	}
 	if _, err := tlsutils.ParseCertificatePEM(data); err != nil {
 		// Don't use trace in order to keep a clean error message.
-		return "", fmt.Errorf("file %q contains an invalid x509 certificate: %w", certOrPath, err)
+		return "", fmt.Errorf("file %q contains an invalid x509 certificate: %v", certOrPath, err)
 	}
 
 	return string(data), nil // OK, valid PEM file
@@ -1327,31 +1289,29 @@ func (h *HardwareKeySerialNumberValidation) Parse() (*types.HardwareKeySerialNum
 	}, nil
 }
 
-// StableUNIXUserConfig is [types.StableUNIXUserConfig].
-type StableUNIXUserConfig struct {
-	// Enabled is [types.StableUNIXUserConfig.Enabled].
-	Enabled bool `yaml:"enabled"`
-	// FirstUID is [types.StableUNIXUserConfig.FirstUid].
-	FirstUID int32 `yaml:"first_uid"`
-	// LastUID is [types.StableUNIXUserConfig.LastUid].
-	LastUID int32 `yaml:"last_uid"`
+// AssistOptions is a set of options common to both Auth and Proxy related to the Teleport Assist feature.
+type AssistOptions struct {
+	// OpenAI is a set of options related to the OpenAI assist backend.
+	OpenAI *OpenAIOptions `yaml:"openai,omitempty"`
 }
 
-func (s *StableUNIXUserConfig) Parse() (*types.StableUNIXUserConfig, error) {
-	if s == nil {
-		return nil, nil
-	}
+// ProxyAssistOptions is a set of proxy service options related to the Assist feature
+type ProxyAssistOptions struct {
+	AssistOptions `yaml:",inline"`
+}
 
-	c := &types.StableUNIXUserConfig{
-		Enabled:  s.Enabled,
-		FirstUid: s.FirstUID,
-		LastUid:  s.LastUID,
-	}
+// AuthAssistOptions is a set of auth service options related to the Assist feature
+type AuthAssistOptions struct {
+	AssistOptions `yaml:",inline"`
+	// CommandExecutionWorkers determines the number of workers that will
+	// execute arbitrary remote commands on servers (e.g. through Assist) in parallel
+	CommandExecutionWorkers int32 `yaml:"command_execution_workers,omitempty"`
+}
 
-	if err := services.ValidateStableUNIXUserConfig(c); err != nil {
-		return nil, trace.Wrap(err)
-	}
-	return c, nil
+// OpenAIOptions stores options related to the OpenAI assist backend.
+type OpenAIOptions struct {
+	// APITokenPath is the path to a file with OpenAI API key.
+	APITokenPath string `yaml:"api_token_path,omitempty"`
 }
 
 // HostedPlugins defines 'auth_service/plugins' Enterprise extension
@@ -1571,10 +1531,6 @@ type GCPMatcher struct {
 type AccessGraphSync struct {
 	// AWS is the AWS configuration for the AccessGraph Sync service.
 	AWS []AccessGraphAWSSync `yaml:"aws,omitempty"`
-	// Azure is the Azure configuration for the AccessGraph Sync service.
-	Azure []AccessGraphAzureSync `yaml:"azure,omitempty"`
-	// PollInterval is the frequency at which to poll for AWS resources
-	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
 }
 
 // AccessGraphAWSSync represents the configuration for the AWS AccessGraph Sync service.
@@ -1586,12 +1542,6 @@ type AccessGraphAWSSync struct {
 	// ExternalID is the AWS external ID to use when assuming a role for
 	// database discovery in an external AWS account.
 	ExternalID string `yaml:"external_id,omitempty"`
-}
-
-// AccessGraphAzureSync represents the configuration for the Azure AccessGraph Sync service.
-type AccessGraphAzureSync struct {
-	// SubscriptionID is the Azure subscription ID configured for syncing
-	SubscriptionID string `yaml:"subscription_id,omitempty"`
 }
 
 // CommandLabel is `command` section of `ssh_service` in the config file
@@ -2084,54 +2034,6 @@ type App struct {
 
 	// Cloud identifies the cloud instance the app represents.
 	Cloud string `yaml:"cloud,omitempty"`
-
-	// RequiredApps is a list of app names that are required for this app to function. Any app listed here will
-	// be part of the authentication redirect flow and authenticate along side this app.
-	RequiredApps []string `yaml:"required_apps,omitempty"`
-
-	// UseAnyProxyPublicAddr will rebuild this app's fqdn based on the proxy public addr that the
-	// request originated from. This should be true if your proxy has multiple proxy public addrs and you
-	// want the app to be accessible from any of them. If `public_addr` is explicitly set in the app spec,
-	// setting this value to true will overwrite that public address in the web UI.
-	UseAnyProxyPublicAddr bool `yaml:"use_any_proxy_public_addr"`
-
-	// CORS defines the Cross-Origin Resource Sharing configuration for the app,
-	// controlling how resources are shared across different origins.
-	CORS *CORS `yaml:"cors,omitempty"`
-
-	// TCPPorts is a list of ports and port ranges that an app agent can forward connections to.
-	// Only applicable to TCP App Access.
-	// If this field is not empty, URI is expected to contain no port number and start with the tcp
-	// protocol.
-	TCPPorts []PortRange `yaml:"tcp_ports,omitempty"`
-}
-
-// CORS represents the configuration for Cross-Origin Resource Sharing (CORS)
-// settings that control how the app responds to requests from different origins.
-type CORS struct {
-	// AllowedOrigins specifies the list of origins that are allowed to access the app.
-	// Example: "https://client.teleport.example.com:3080"
-	AllowedOrigins []string `yaml:"allowed_origins"`
-
-	// AllowedMethods specifies the HTTP methods that are allowed when accessing the app.
-	// Example: "POST", "GET", "OPTIONS", "PUT", "DELETE"
-	AllowedMethods []string `yaml:"allowed_methods"`
-
-	// AllowedHeaders specifies the HTTP headers that can be used when making requests to the app.
-	// Example: "Content-Type", "Authorization", "X-Custom-Header"
-	AllowedHeaders []string `yaml:"allowed_headers"`
-
-	// ExposedHeaders indicate which response headers should be made available to scripts running in
-	// the browser, in response to a cross-origin request.
-	ExposedHeaders []string `yaml:"exposed_headers"`
-
-	// AllowCredentials indicates whether credentials such as cookies or authorization headers
-	// are allowed to be included in the requests.
-	AllowCredentials bool `yaml:"allow_credentials"`
-
-	// MaxAge specifies how long (in seconds) the results of a preflight request can be cached.
-	// Example: 86400 (which equals 24 hours)
-	MaxAge uint `yaml:"max_age"`
 }
 
 // Rewrite is a list of rewriting rules to apply to requests and responses.
@@ -2148,18 +2050,6 @@ type Rewrite struct {
 type AppAWS struct {
 	// ExternalID is the AWS External ID used when assuming roles in this app.
 	ExternalID string `yaml:"external_id,omitempty"`
-}
-
-// PortRange describes a port range for TCP apps. The range starts with Port and ends with EndPort.
-// PortRange can be used to describe a single port in which case the Port field is the port and the
-// EndPort field is 0.
-type PortRange struct {
-	// Port describes the start of the range. It must be between 1 and 65535.
-	Port int `yaml:"port"`
-	// EndPort describes the end of the range, inclusive. When describing a port range, it must be
-	// greater than Port and less than or equal to 65535. When describing a single port, it must be
-	// set to 0.
-	EndPort int `yaml:"end_port,omitempty"`
 }
 
 // Proxy is a `proxy_service` section of the config file:
@@ -2246,6 +2136,9 @@ type Proxy struct {
 	// UI provides config options for the web UI
 	UI *UIConfig `yaml:"ui,omitempty"`
 
+	// Assist is a set of options related to the Teleport Assist feature.
+	Assist *ProxyAssistOptions `yaml:"assist,omitempty"`
+
 	// TrustXForwardedFor enables the service to take client source IPs from
 	// the "X-Forwarded-For" headers for web APIs received from layer 7 load
 	// balancers or reverse proxies.
@@ -2261,10 +2154,6 @@ type Proxy struct {
 type UIConfig struct {
 	// ScrollbackLines is the max number of lines the UI terminal can display in its history
 	ScrollbackLines int `yaml:"scrollback_lines,omitempty"`
-	// ShowResources determines which resources are shown in the web UI. Default if unset is "requestable"
-	// which means resources the user has access to and resources they can request will be shown in the
-	// resources UI. If set to `accessible_only`, only resources the user already has access to will be shown.
-	ShowResources constants.ShowResources `yaml:"show_resources,omitempty"`
 }
 
 // ACME configures ACME protocol - automatic X.509 certificates
@@ -2464,12 +2353,6 @@ type WindowsDesktopService struct {
 	// but Teleport is used to provide access to users and computers in a child
 	// domain.
 	PKIDomain string `yaml:"pki_domain"`
-	// KDCAddress optionally configures the address of the Kerberos Key Distribution Center,
-	// which is used to support RDP Network Level Authentication (NLA).
-	// If empty, the LDAP address will be used instead.
-	// Note: NLA is only supported in Active Directory environments - this field has
-	// no effect when connecting to desktops as local Windows users.
-	KDCAddress string `yaml:"kdc_address"`
 	// Discovery configures desktop discovery via LDAP.
 	Discovery LDAPDiscoveryConfig `yaml:"discovery,omitempty"`
 	// ADHosts is a list of static, AD-connected Windows hosts. This gives users
@@ -2490,8 +2373,6 @@ type WindowsDesktopService struct {
 	// A host can match multiple rules and will get a union of all
 	// the matched labels.
 	HostLabels []WindowsHostLabelRule `yaml:"host_labels,omitempty"`
-	// ResourceMatchers match dynamic Windows desktop resources.
-	ResourceMatchers []ResourceMatcher `yaml:"resources,omitempty"`
 }
 
 // Check checks whether the WindowsDesktopService is valid or not
@@ -2694,14 +2575,9 @@ type JamfService struct {
 	APIEndpoint string `yaml:"api_endpoint,omitempty"`
 	// Username is the Jamf Pro API username.
 	Username string `yaml:"username,omitempty"`
-	// PasswordFile is a file containing the Jamf Pro API password.
+	// PasswordFile is a file containing the  Jamf Pro API password.
 	// A single trailing newline is trimmed, anything else is taken literally.
 	PasswordFile string `yaml:"password_file,omitempty"`
-	// ClientID is the Jamf API Client ID.
-	ClientID string `yaml:"client_id,omitempty"`
-	// ClientSecretFile is a file containing the Jamf API client secret.
-	// A single trailing newline is trimmed, anything else is taken literally.
-	ClientSecretFile string `yaml:"client_secret_file,omitempty"`
 	// Inventory are the entries for inventory sync.
 	Inventory []*JamfInventoryEntry `yaml:"inventory,omitempty"`
 }
@@ -2732,6 +2608,22 @@ func (j *JamfService) toJamfSpecV1() (*types.JamfSpecV1, error) {
 		return nil, trace.BadParameter("jamf_service is nil")
 	case j.ListenAddress != "":
 		return nil, trace.BadParameter("jamf listen_addr not supported")
+	case j.PasswordFile == "":
+		return nil, trace.BadParameter("jamf password_file required")
+	}
+
+	// Read password from file.
+	pwdBytes, err := os.ReadFile(j.PasswordFile)
+	if err != nil {
+		return nil, trace.BadParameter("jamf password_file: %v", err)
+	}
+	pwd := string(pwdBytes)
+	if pwd == "" {
+		return nil, trace.BadParameter("jamf password_file is empty")
+	}
+	// Trim trailing \n?
+	if l := len(pwd); pwd[l-1] == '\n' {
+		pwd = pwd[:l-1]
 	}
 
 	// Assemble spec.
@@ -2750,6 +2642,8 @@ func (j *JamfService) toJamfSpecV1() (*types.JamfSpecV1, error) {
 		Name:        j.Name,
 		SyncDelay:   types.Duration(j.SyncDelay),
 		ApiEndpoint: j.APIEndpoint,
+		Username:    j.Username,
+		Password:    pwd,
 		Inventory:   inventory,
 	}
 
@@ -2759,50 +2653,4 @@ func (j *JamfService) toJamfSpecV1() (*types.JamfSpecV1, error) {
 	}
 
 	return spec, nil
-}
-
-func (j *JamfService) readJamfCredentials() (*servicecfg.JamfCredentials, error) {
-	password, err := readJamfPasswordFile(j.PasswordFile, "password_file")
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	clientSecret, err := readJamfPasswordFile(j.ClientSecretFile, "client_secret_file")
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	creds := &servicecfg.JamfCredentials{
-		Username:     j.Username,
-		Password:     password,
-		ClientID:     j.ClientID,
-		ClientSecret: clientSecret,
-	}
-
-	// Validate.
-	if err := servicecfg.ValidateJamfCredentials(creds); err != nil {
-		return nil, trace.BadParameter("jamf_service %v", err)
-	}
-
-	return creds, nil
-}
-
-func readJamfPasswordFile(path, key string) (string, error) {
-	if path == "" {
-		return "", nil
-	}
-
-	pwdBytes, err := os.ReadFile(path)
-	if err != nil {
-		return "", trace.BadParameter("jamf %v: %v", key, err)
-	}
-	pwd := string(pwdBytes)
-	if pwd == "" {
-		return "", trace.BadParameter("jamf %v is empty", key)
-	}
-	// Trim exactly one trailing \n, if present.
-	if l := len(pwd); pwd[l-1] == '\n' {
-		pwd = pwd[:l-1]
-	}
-
-	return pwd, nil
 }

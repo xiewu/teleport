@@ -32,7 +32,8 @@ package circleci
 import (
 	"fmt"
 
-	workloadidentityv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/workloadidentity/v1"
+	"github.com/gravitational/trace"
+	"github.com/mitchellh/mapstructure"
 )
 
 const IssuerURLTemplate = "https://oidc.circleci.com/org/%s"
@@ -54,13 +55,20 @@ type IDTokenClaims struct {
 	ProjectID string `json:"oidc.circleci.com/project-id"`
 }
 
-// JoinAttrs returns the protobuf representation of the attested identity.
-// This is used for auditing and for evaluation of WorkloadIdentity rules and
-// templating.
-func (c *IDTokenClaims) JoinAttrs() *workloadidentityv1pb.JoinAttrsCircleCI {
-	return &workloadidentityv1pb.JoinAttrsCircleCI{
-		Sub:        c.Sub,
-		ContextIds: c.ContextIDs,
-		ProjectId:  c.ProjectID,
+// JoinAuditAttributes returns a series of attributes that can be inserted into
+// audit events related to a specific join.
+func (c *IDTokenClaims) JoinAuditAttributes() (map[string]interface{}, error) {
+	res := map[string]interface{}{}
+	d, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		TagName: "json",
+		Result:  &res,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err)
 	}
+
+	if err := d.Decode(c); err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return res, nil
 }

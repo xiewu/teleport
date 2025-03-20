@@ -18,14 +18,16 @@
 
 import { useEffect } from 'react';
 
+import { sortLogins } from 'teleport/Nodes/useNodes';
 import {
-  useServerSidePagination,
   useUrlFiltering,
+  useServerSidePagination,
 } from 'teleport/components/hooks';
-import type { Node } from 'teleport/services/nodes';
 
-import { useConsoleContext } from './../consoleContextProvider';
 import * as stores from './../stores';
+import { useConsoleContext } from './../consoleContextProvider';
+
+import type { Node } from 'teleport/services/nodes';
 
 export default function useNodes({ clusterId, id }: stores.DocumentNodes) {
   const consoleCtx = useConsoleContext();
@@ -101,13 +103,3 @@ export default function useNodes({ clusterId, id }: stores.DocumentNodes) {
     ...paginationProps,
   };
 }
-
-// sort logins by making 'root' as the first in the list
-export const sortLogins = (logins: string[]) => {
-  const noRoot = logins.filter(l => l !== 'root');
-  noRoot.sort();
-  if (noRoot.length === logins.length) {
-    return logins;
-  }
-  return ['root', ...noRoot];
-};

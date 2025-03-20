@@ -16,8 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { render, screen } from '@testing-library/react';
-
+import { screen, render } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import { FailedApp } from './App';

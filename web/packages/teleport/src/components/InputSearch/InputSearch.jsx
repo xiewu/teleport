@@ -16,13 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Component } from 'react';
-import styled from 'styled-components';
-
-import { color, height, space } from 'design/system';
+import React from 'react';
 import { debounce } from 'shared/utils/highbar';
+import styled from 'styled-components';
+import { height, space, color } from 'design/system';
 
-class InputSearch extends Component {
+class InputSearch extends React.Component {
   constructor(props) {
     super(props);
     this.debouncedNotify = debounce(() => {

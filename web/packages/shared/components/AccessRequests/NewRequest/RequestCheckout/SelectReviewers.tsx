@@ -16,12 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { components } from 'react-select';
 import ReactSelectCreatable from 'react-select/creatable';
 import styled from 'styled-components';
-
-import { Box, ButtonBorder, ButtonIcon, Flex, Text } from 'design';
+import { ButtonBorder, Box, Text, Flex, ButtonIcon } from 'design';
 import * as Icon from 'design/Icon';
 
 import { ReviewerOption } from './types';
@@ -41,7 +40,7 @@ export function SelectReviewers({
     () => reviewers.map(r => ({ value: r, label: r, isDisabled: true }))
   );
 
-  useEffect(() => {
+  React.useEffect(() => {
     // When editing reviewers, auto focus on input box.
     if (editReviewers) {
       reactSelectRef.current.focus();
@@ -202,7 +201,7 @@ function Reviewers({
         `}
       >
         <Text
-          typography="body3"
+          typography="body2"
           bold
           style={{ whiteSpace: 'nowrap', maxWidth: '200px' }}
           title={reviewer.value}
@@ -243,8 +242,10 @@ function Reviewers({
           border-color: ${props => props.theme.colors.spotBackground[1]};
         `}
       >
-        <Flex alignItems="baseline" gap={2}>
-          <Text typography="body3">Reviewers (optional)</Text>
+        <Flex>
+          <Text mr={2} fontSize={1}>
+            Reviewers (optional)
+          </Text>
           <ButtonBorder
             onClick={e => {
               // By stopping propagation,
@@ -257,15 +258,6 @@ function Reviewers({
           >
             {btnTxt}
           </ButtonBorder>
-          {reviewers.length > 0 ? (
-            <ButtonBorder
-              onClick={() => updateReviewers([])}
-              size="small"
-              width="50px"
-            >
-              Clear
-            </ButtonBorder>
-          ) : null}
         </Flex>
         {reviewers.length > 0 && (
           <ButtonIcon onClick={() => setExpanded(e => !e)}>

@@ -17,11 +17,10 @@ limitations under the License.
 package types
 
 import (
-	"context"
-	"log/slog"
 	"time"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/gravitational/teleport/api/defaults"
@@ -109,6 +108,16 @@ func (c *GithubConnectorV3) SetSubKind(s string) {
 	c.SubKind = s
 }
 
+// GetResourceID returns resource ID
+func (c *GithubConnectorV3) GetResourceID() int64 {
+	return c.Metadata.ID
+}
+
+// SetResourceID sets resource ID
+func (c *GithubConnectorV3) SetResourceID(id int64) {
+	c.Metadata.ID = id
+}
+
 // GetRevision returns the revision
 func (c *GithubConnectorV3) GetRevision() string {
 	return c.Metadata.GetRevision()
@@ -184,7 +193,7 @@ func (c *GithubConnectorV3) CheckAndSetDefaults() error {
 
 	// DELETE IN 11.0.0
 	if len(c.Spec.TeamsToLogins) > 0 {
-		slog.WarnContext(context.Background(), "GitHub connector field teams_to_logins is deprecated and will be removed in the next version. Please use teams_to_roles instead.")
+		log.Warn("GitHub connector field teams_to_logins is deprecated and will be removed in the next version. Please use teams_to_roles instead.")
 	}
 
 	// make sure claim mappings have either roles or a role template
@@ -338,43 +347,30 @@ func (r *GithubAuthRequest) Expiry() time.Time {
 
 // Check makes sure the request is valid
 func (r *GithubAuthRequest) Check() error {
-	authenticatedUserFlow := r.AuthenticatedUser != ""
-	regularLoginFlow := !r.SSOTestFlow && !authenticatedUserFlow
-
-	switch {
-	case r.ConnectorID == "":
+	if r.ConnectorID == "" {
 		return trace.BadParameter("missing ConnectorID")
-	case r.StateToken == "":
+	}
+	if r.StateToken == "" {
 		return trace.BadParameter("missing StateToken")
-	// we could collapse these two checks into one, but the error message would become ambiguous.
-	case r.SSOTestFlow && r.ConnectorSpec == nil:
-		return trace.BadParameter("ConnectorSpec cannot be nil when SSOTestFlow is true")
-	case authenticatedUserFlow && r.ConnectorSpec == nil:
-		return trace.BadParameter("ConnectorSpec cannot be nil for authenticated user")
-	case regularLoginFlow && r.ConnectorSpec != nil:
-		return trace.BadParameter("ConnectorSpec must be nil")
-	case len(r.PublicKey) != 0 && len(r.SshPublicKey) != 0:
-		return trace.BadParameter("illegal to set both PublicKey and SshPublicKey")
-	case len(r.PublicKey) != 0 && len(r.TlsPublicKey) != 0:
-		return trace.BadParameter("illegal to set both PublicKey and TlsPublicKey")
-	case r.AttestationStatement != nil && r.SshAttestationStatement != nil:
-		return trace.BadParameter("illegal to set both AttestationStatement and SshAttestationStatement")
-	case r.AttestationStatement != nil && r.TlsAttestationStatement != nil:
-		return trace.BadParameter("illegal to set both AttestationStatement and TlsAttestationStatement")
 	}
-	sshPubKey := r.PublicKey
-	if len(sshPubKey) == 0 {
-		sshPubKey = r.SshPublicKey
-	}
-	if len(sshPubKey) > 0 {
-		_, _, _, _, err := ssh.ParseAuthorizedKey(sshPubKey)
+	if len(r.PublicKey) != 0 {
+		_, _, _, _, err := ssh.ParseAuthorizedKey(r.PublicKey)
 		if err != nil {
-			return trace.BadParameter("bad SSH public key: %v", err)
+			return trace.BadParameter("bad PublicKey: %v", err)
+		}
+		if (r.CertTTL > defaults.MaxCertDuration) || (r.CertTTL < defaults.MinCertDuration) {
+			return trace.BadParameter("wrong CertTTL")
 		}
 	}
-	if len(r.PublicKey)+len(r.SshPublicKey)+len(r.TlsPublicKey) > 0 &&
-		(r.CertTTL > defaults.MaxCertDuration || r.CertTTL < defaults.MinCertDuration) {
-		return trace.BadParameter("wrong CertTTL")
+
+	// we could collapse these two checks into one, but the error message would become ambiguous.
+	if r.SSOTestFlow && r.ConnectorSpec == nil {
+		return trace.BadParameter("ConnectorSpec cannot be nil when SSOTestFlow is true")
 	}
+
+	if !r.SSOTestFlow && r.ConnectorSpec != nil {
+		return trace.BadParameter("ConnectorSpec must be nil when SSOTestFlow is false")
+	}
+
 	return nil
 }

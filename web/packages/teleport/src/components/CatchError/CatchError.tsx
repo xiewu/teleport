@@ -17,7 +17,6 @@
  */
 
 import React from 'react';
-
 import { Failed } from 'design/CardError';
 import Logger from 'shared/libs/logger';
 

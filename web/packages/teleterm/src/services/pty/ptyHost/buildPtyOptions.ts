@@ -18,24 +18,22 @@
 
 import path, { delimiter } from 'path';
 
-import { makeCustomShellFromPath, Shell } from 'teleterm/mainProcess/shell';
 import { RuntimeSettings } from 'teleterm/mainProcess/types';
+import { PtyProcessOptions } from 'teleterm/sharedProcess/ptyHost';
+import { assertUnreachable } from 'teleterm/ui/utils';
 import {
   TSH_AUTOUPDATE_ENV_VAR,
   TSH_AUTOUPDATE_OFF,
 } from 'teleterm/node/tshAutoupdate';
-import { CUSTOM_SHELL_ID } from 'teleterm/services/config/appConfigSchema';
-import { PtyProcessOptions } from 'teleterm/sharedProcess/ptyHost';
-import { assertUnreachable } from 'teleterm/ui/utils';
 
 import {
   PtyCommand,
   PtyProcessCreationStatus,
-  ShellCommand,
-  SshOptions,
   TshKubeLoginCommand,
+  SshOptions,
   WindowsPty,
 } from '../types';
+
 import {
   resolveShellEnvCached,
   ResolveShellEnvTimeoutError,
@@ -44,42 +42,17 @@ import {
 type PtyOptions = {
   ssh: SshOptions;
   windowsPty: Pick<WindowsPty, 'useConpty'>;
-  customShellPath: string;
 };
 
-const WSLENV_VAR = 'WSLENV';
-
-export async function buildPtyOptions({
-  settings,
-  options,
-  cmd,
-  processEnv = process.env,
-}: {
-  settings: RuntimeSettings;
-  options: PtyOptions;
-  cmd: PtyCommand;
-  processEnv?: typeof process.env;
-}): Promise<{
+export async function buildPtyOptions(
+  settings: RuntimeSettings,
+  options: PtyOptions,
+  cmd: PtyCommand
+): Promise<{
   processOptions: PtyProcessOptions;
-  shell: Shell;
   creationStatus: PtyProcessCreationStatus;
 }> {
-  const defaultShell = settings.availableShells.find(
-    s => s.id === settings.defaultOsShellId
-  );
-  let shell = defaultShell;
-  let failedToResolveShell = false;
-
-  if (cmd.kind === 'pty.shell') {
-    const resolvedShell = await resolveShell(cmd, settings, options);
-    if (!resolvedShell) {
-      failedToResolveShell = true;
-    } else {
-      shell = resolvedShell;
-    }
-  }
-
-  return resolveShellEnvCached(shell.binPath)
+  return resolveShellEnvCached(settings.defaultShell)
     .then(resolvedEnv => ({
       shellEnv: resolvedEnv,
       creationStatus: PtyProcessCreationStatus.Ok,
@@ -98,7 +71,7 @@ export async function buildPtyOptions({
       // commands might add extra variables, but they shouldn't remove any of the env vars that are
       // added here.
       const combinedEnv = {
-        ...processEnv,
+        ...process.env,
         ...shellEnv,
         TERM_PROGRAM: 'Teleport_Connect',
         TERM_PROGRAM_VERSION: settings.appVersion,
@@ -108,55 +81,24 @@ export async function buildPtyOptions({
         [TSH_AUTOUPDATE_ENV_VAR]: TSH_AUTOUPDATE_OFF,
       };
 
-      // The regular env vars are not available in WSL,
-      // they need to be passed via the special variable WSLENV.
-      // Note that path variables have /p postfix which translates the paths from Win32 to WSL.
-      // https://devblogs.microsoft.com/commandline/share-environment-vars-between-wsl-and-windows/
-      if (settings.platform === 'win32' && shell.binName === 'wsl.exe') {
-        const wslEnv = [
-          'KUBECONFIG/p',
-          'TERM_PROGRAM',
-          'TERM_PROGRAM_VERSION',
-          'TELEPORT_CLUSTER',
-          'TELEPORT_PROXY',
-          'TELEPORT_HOME/p',
-          TSH_AUTOUPDATE_ENV_VAR,
-        ];
-        // Preserve the user defined WSLENV and add ours (ours takes precedence).
-        combinedEnv[WSLENV_VAR] = [combinedEnv[WSLENV_VAR], wslEnv]
-          .flat()
-          .join(':');
-      }
-
       return {
-        processOptions: getPtyProcessOptions({
-          settings: settings,
-          options: options,
-          cmd: cmd,
-          env: combinedEnv,
-          shellBinPath: shell.binPath,
-        }),
-        shell,
-        creationStatus: failedToResolveShell
-          ? PtyProcessCreationStatus.ShellNotResolved
-          : creationStatus,
+        processOptions: getPtyProcessOptions(
+          settings,
+          options,
+          cmd,
+          combinedEnv
+        ),
+        creationStatus,
       };
     });
 }
 
-export function getPtyProcessOptions({
-  settings,
-  options,
-  cmd,
-  env,
-  shellBinPath,
-}: {
-  settings: RuntimeSettings;
-  options: PtyOptions;
-  cmd: PtyCommand;
-  env: typeof process.env;
-  shellBinPath: string;
-}): PtyProcessOptions {
+export function getPtyProcessOptions(
+  settings: RuntimeSettings,
+  options: PtyOptions,
+  cmd: PtyCommand,
+  env: typeof process.env
+): PtyProcessOptions {
   const useConpty = options.windowsPty?.useConpty;
 
   switch (cmd.kind) {
@@ -175,7 +117,7 @@ export function getPtyProcessOptions({
       }
 
       return {
-        path: shellBinPath,
+        path: settings.defaultShell,
         args: [],
         cwd: cmd.cwd,
         env: { ...env, ...cmd.env },
@@ -203,7 +145,7 @@ export function getPtyProcessOptions({
       const bashCommandArgs = ['-c', `${kubeLoginCommand};$SHELL`];
       const powershellCommandArgs = ['-NoExit', '-c', kubeLoginCommand];
       return {
-        path: shellBinPath,
+        path: settings.defaultShell,
         args: isWindows ? powershellCommandArgs : bashCommandArgs,
         env: { ...env, KUBECONFIG: getKubeConfigFilePath(cmd, settings) },
         useConpty,
@@ -256,18 +198,8 @@ function prependBinDirToPath(
   //
   // Windows seems to construct Path by first taking the system Path env var and adding to it the
   // user Path env var.
-  //
-  // For process.env on Windows, Path and PATH are the same (case insensitivity).
-  // Node.js have special setters and getters, so no matter what property you set,
-  // the single underlying value is updated. However, since we merge many sources
-  // of env vars into a single object with the object spread (let env = { ...process.env }),
-  // theses setters and getters are lost.
-  // The problem happens when user variables and system variables use different
-  // casing for PATH and Node.js merges them into a single variable, and we have
-  // to figure out its casing.
-  // vscode does it the same way.
-  const pathKey = getPropertyCaseInsensitive(env, 'PATH');
-  env[pathKey] = [settings.binDir, env[pathKey]]
+  const pathName = settings.platform === 'win32' ? 'Path' : 'PATH';
+  env[pathName] = [settings.binDir, env[pathName]]
     .map(path => path?.trim())
     .filter(Boolean)
     .join(delimiter);
@@ -278,29 +210,4 @@ function getKubeConfigFilePath(
   settings: RuntimeSettings
 ): string {
   return path.join(settings.kubeConfigsDir, command.kubeConfigRelativePath);
-}
-
-async function resolveShell(
-  cmd: ShellCommand,
-  settings: RuntimeSettings,
-  ptyOptions: PtyOptions
-): Promise<Shell | undefined> {
-  if (cmd.shellId !== CUSTOM_SHELL_ID) {
-    return settings.availableShells.find(s => s.id === cmd.shellId);
-  }
-
-  const { customShellPath } = ptyOptions;
-  if (customShellPath) {
-    return makeCustomShellFromPath(customShellPath);
-  }
-}
-
-function getPropertyCaseInsensitive(
-  env: Record<string, string>,
-  key: string
-): string | undefined {
-  const pathKeys = Object.keys(env).filter(
-    k => k.toLowerCase() === key.toLowerCase()
-  );
-  return pathKeys.length > 0 ? pathKeys[0] : key;
 }

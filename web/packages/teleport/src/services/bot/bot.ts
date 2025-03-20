@@ -16,8 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import cfg from 'teleport/config';
 import api from 'teleport/services/api';
+import cfg from 'teleport/config';
+
 import { makeBot, toApiGitHubTokenSpec } from 'teleport/services/bot/consts';
 import ResourceService, { RoleResource } from 'teleport/services/resources';
 import { FeatureFlags } from 'teleport/types';
@@ -25,10 +26,10 @@ import { FeatureFlags } from 'teleport/types';
 import {
   BotList,
   BotResponse,
-  CreateBotJoinTokenRequest,
-  CreateBotRequest,
-  EditBotRequest,
   FlatBot,
+  EditBotRequest,
+  CreateBotRequest,
+  CreateBotJoinTokenRequest,
 } from './types';
 
 export function createBot(config: CreateBotRequest): Promise<void> {

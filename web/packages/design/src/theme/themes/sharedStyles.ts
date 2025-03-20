@@ -16,18 +16,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { fonts } from '../fonts';
-import { blueGrey, lightBlue, yellow } from '../palette';
-import typography, { fontSizes, fontWeights } from '../typography';
 import { getContrastRatio } from '../utils/colorManipulator';
+import { lightBlue, blueGrey, yellow } from '../palette';
+import typography, { fontSizes, fontWeights } from '../typography';
+import { fonts } from '../fonts';
+
 import { SharedColors, SharedStyles } from './types';
 
+const dockedAssistWidth = 520;
 // TODO(bl-nero): use a CSS var for sidebar width and make the breakpoints work
 // by changing the minimum width on a per-view basis (Main.tsx).
 const sidebarWidth = 256;
 
 // Styles that are shared by all themes.
 export const sharedStyles: SharedStyles = {
+  dockedAssistWidth,
   sidebarWidth,
   boxShadow: [
     '0px 2px 1px -1px rgba(0, 0, 0, 0.2), 0px 1px 1px rgba(0, 0, 0, 0.14), 0px 1px 3px rgba(0, 0, 0, 0.12)',
@@ -82,9 +85,12 @@ export const sharedColors: SharedColors = {
   info: lightBlue[600],
 };
 
-export function getContrastText(background: string) {
+export function getContrastText(background) {
   // Use the same logic as
   // Bootstrap: https://github.com/twbs/bootstrap/blob/1d6e3710dd447de1a200f29e8fa521f8a0908f70/scss/_functions.scss#L59
   // and material-components-web https://github.com/material-components/material-components-web/blob/ac46b8863c4dab9fc22c4c662dc6bd1b65dd652f/packages/mdc-theme/_functions.scss#L54
-  return getContrastRatio(background, '#FFFFFF') >= 3 ? '#FFFFFF' : '#000000';
+  const contrastText =
+    getContrastRatio(background, '#FFFFFF') >= 3 ? '#FFFFFF' : '#000000';
+
+  return contrastText;
 }

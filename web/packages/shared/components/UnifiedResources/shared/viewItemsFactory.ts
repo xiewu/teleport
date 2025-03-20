@@ -19,27 +19,27 @@
 import {
   Application as ApplicationIcon,
   Database as DatabaseIcon,
-  Desktop as DesktopIcon,
-  GitHub as GitHubIcon,
   Kubernetes as KubernetesIcon,
   Server as ServerIcon,
+  Desktop as DesktopIcon,
 } from 'design/Icon';
 import { ResourceIconName } from 'design/ResourceIcon';
-import { NodeSubKind } from 'shared/services';
+
 import { DbProtocol } from 'shared/services/databases';
+import { NodeSubKind } from 'shared/services';
 
 import {
-  SharedUnifiedResource,
+  UnifiedResourceViewItem,
+  UnifiedResourceUi,
+  UnifiedResourceNode,
   UnifiedResourceApp,
   UnifiedResourceDatabase,
   UnifiedResourceDesktop,
-  UnifiedResourceGitServer,
   UnifiedResourceKube,
-  UnifiedResourceNode,
-  UnifiedResourceUi,
   UnifiedResourceUserGroup,
-  UnifiedResourceViewItem,
+  SharedUnifiedResource,
 } from '../types';
+
 import { guessAppIcon } from './guessAppIcon';
 
 export function makeUnifiedResourceViewItemNode(
@@ -63,7 +63,6 @@ export function makeUnifiedResourceViewItemNode(
       resourceType: nodeSubKind,
       addr: addressIfNotTunnel,
     },
-    requiresRequest: resource.requiresRequest,
   };
 }
 
@@ -85,7 +84,6 @@ export function makeUnifiedResourceViewItemDatabase(
       primaryDesc: resource.type,
       secondaryDesc: resource.description,
     },
-    requiresRequest: resource.requiresRequest,
   };
 }
 
@@ -105,7 +103,6 @@ export function makeUnifiedResourceViewItemKube(
     listViewProps: {
       resourceType: 'Kubernetes',
     },
-    requiresRequest: resource.requiresRequest,
   };
 }
 
@@ -128,7 +125,6 @@ export function makeUnifiedResourceViewItemApp(
       description: resource.samlApp ? '' : resource.description,
       addr: resource.addrWithProtocol,
     },
-    requiresRequest: resource.requiresRequest,
   };
 }
 
@@ -150,7 +146,6 @@ export function makeUnifiedResourceViewItemDesktop(
       resourceType: 'Windows',
       addr: resource.addr,
     },
-    requiresRequest: resource.requiresRequest,
   };
 }
 
@@ -168,27 +163,6 @@ export function makeUnifiedResourceViewItemUserGroup(
     listViewProps: {
       resourceType: 'User Group',
     },
-    requiresRequest: resource.requiresRequest,
-  };
-}
-
-export function makeUnifiedResourceViewItemGitServer(
-  resource: UnifiedResourceGitServer,
-  ui: UnifiedResourceUi
-): UnifiedResourceViewItem {
-  return {
-    name: resource.github ? resource.github.organization : resource.hostname,
-    SecondaryIcon: GitHubIcon,
-    primaryIconName: 'git',
-    ActionButton: ui.ActionButton,
-    labels: resource.labels,
-    cardViewProps: {
-      primaryDesc: 'GitHub Organization',
-    },
-    listViewProps: {
-      resourceType: 'GitHub Organization',
-    },
-    requiresRequest: resource.requiresRequest,
   };
 }
 
@@ -203,7 +177,7 @@ function formatNodeSubKind(subKind: NodeSubKind): string {
   }
 }
 
-export function getDatabaseIconName(protocol: DbProtocol): ResourceIconName {
+function getDatabaseIconName(protocol: DbProtocol): ResourceIconName {
   switch (protocol) {
     case 'postgres':
       return 'postgres';
@@ -236,7 +210,5 @@ export function mapResourceToViewItem({ resource, ui }: SharedUnifiedResource) {
       return makeUnifiedResourceViewItemDesktop(resource, ui);
     case 'user_group':
       return makeUnifiedResourceViewItemUserGroup(resource, ui);
-    case 'git_server':
-      return makeUnifiedResourceViewItemGitServer(resource, ui);
   }
 }

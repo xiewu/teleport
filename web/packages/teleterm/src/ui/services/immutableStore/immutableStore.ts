@@ -19,9 +19,8 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment*/
 
 import { enableMapSet, produce } from 'immer';
-
-import stateLogger from 'shared/libs/stores/logger';
 import Store from 'shared/libs/stores/store';
+import stateLogger from 'shared/libs/stores/logger';
 
 import Logger from 'teleterm/logger';
 
@@ -48,16 +47,14 @@ export class ImmutableStore<T> extends Store<T> {
   /**
    * Adds a callback which gets called only when the part of the state returned by selector is
    * changed. selector must be pure.
-   *
-   * Returns a functions that removes the subscription.
    */
   subscribeWithSelector<SelectedState>(
     selector: (state: T) => SelectedState,
     callback: () => void
-  ): () => void {
+  ) {
     let selectedState = selector(this.state);
 
-    const subscription = () => {
+    this.subscribe(() => {
       const newSelectedState = selector(this.state);
       // It doesn't appear to be explicitly documented anywhere, but Immer preserves object
       // identity, so Object.is works as expected. This behavior is covered by our tests.
@@ -71,12 +68,6 @@ export class ImmutableStore<T> extends Store<T> {
       }
 
       selectedState = newSelectedState;
-    };
-
-    this.subscribe(subscription);
-
-    return () => {
-      this.unsubscribe(subscription);
-    };
+    });
   }
 }

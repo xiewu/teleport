@@ -16,13 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { createMemoryHistory } from 'history';
-import { Route, Router } from 'react-router';
-
 import { render, screen } from 'design/utils/testing';
+import React from 'react';
+import { Route, Router } from 'react-router';
+import { createMemoryHistory } from 'history';
 
-import cfg from 'teleport/config';
 import { HeadlessRequest } from 'teleport/HeadlessRequest/HeadlessRequest';
+import cfg from 'teleport/config';
 import auth from 'teleport/services/auth';
 
 test('ip address should be visible', async () => {

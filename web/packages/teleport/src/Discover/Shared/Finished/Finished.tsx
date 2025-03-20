@@ -16,15 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
-
-import { ButtonPrimary, ButtonSecondary, Flex, H2, Image, Text } from 'design';
+import { ButtonPrimary, Text, Flex, ButtonSecondary, Image } from 'design';
 
 import cfg from 'teleport/config';
 import history from 'teleport/services/history';
 
-import type { AgentStepProps } from '../../types';
 import celebratePamPng from './celebrate-pam.png';
+
+import type { AgentStepProps } from '../../types';
 
 export function Finished(props: AgentStepProps) {
   let title = 'Resource Successfully Added';
@@ -44,9 +45,9 @@ export function Finished(props: AgentStepProps) {
   return (
     <Container>
       <Image width="120px" height="120px" src={celebratePamPng} />
-      <H2 mt={3} mb={2}>
+      <Text mt={3} mb={2} typography="h4" bold>
         {title}
-      </H2>
+      </Text>
       <Text mb={3}>{resourceText}</Text>
       <Flex>
         <ButtonPrimary

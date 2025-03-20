@@ -25,15 +25,15 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/gravitational/trace"
+	"github.com/gravitational/trace/trail"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/grpc/status"
 
-	"github.com/gravitational/teleport/api/trail"
 	"github.com/gravitational/teleport/api/types"
 	awslib "github.com/gravitational/teleport/lib/cloud/aws"
 	azurelib "github.com/gravitational/teleport/lib/cloud/azure"
@@ -47,39 +47,29 @@ func ConvertError(err error) error {
 		return nil
 	}
 	// Unwrap original error first.
-	var traceErr *trace.TraceErr
-	if errors.As(err, &traceErr) {
+	if _, ok := err.(*trace.TraceErr); ok {
 		return ConvertError(trace.Unwrap(err))
 	}
-	var pgErr pgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := err.(pgError); ok {
 		return ConvertError(pgErr.Unwrap())
 	}
-
-	var c causer
-	if errors.As(err, &c) {
-		return ConvertError(c.Cause())
+	if causer, ok := err.(causer); ok {
+		return ConvertError(causer.Cause())
 	}
 	if _, ok := status.FromError(err); ok {
 		return trail.FromGRPC(err)
 	}
-
-	var googleAPIErr *googleapi.Error
-	var awsRequestFailureErr *awshttp.ResponseError
-	var azResponseErr *azcore.ResponseError
-	var pgError *pgconn.PgError
-	var myError *mysql.MyError
-	switch err := trace.Unwrap(err); {
-	case errors.As(err, &googleAPIErr):
-		return convertGCPError(googleAPIErr)
-	case errors.As(err, &awsRequestFailureErr):
-		return awslib.ConvertRequestFailureError(awsRequestFailureErr)
-	case errors.As(err, &azResponseErr):
-		return azurelib.ConvertResponseError(azResponseErr)
-	case errors.As(err, &pgError):
-		return convertPostgresError(pgError)
-	case errors.As(err, &myError):
-		return convertMySQLError(myError)
+	switch e := trace.Unwrap(err).(type) {
+	case *googleapi.Error:
+		return convertGCPError(e)
+	case awserr.RequestFailure:
+		return awslib.ConvertRequestFailureError(e)
+	case *azcore.ResponseError:
+		return azurelib.ConvertResponseError(e)
+	case *pgconn.PgError:
+		return convertPostgresError(e)
+	case *mysql.MyError:
+		return convertMySQLError(e)
 	}
 	return err // Return unmodified.
 }
@@ -88,9 +78,9 @@ func ConvertError(err error) error {
 func convertGCPError(err *googleapi.Error) error {
 	switch err.Code {
 	case http.StatusForbidden:
-		return trace.AccessDenied("%s", err)
+		return trace.AccessDenied(err.Error())
 	case http.StatusConflict:
-		return trace.CompareFailed("%s", err)
+		return trace.CompareFailed(err.Error())
 	}
 	return err // Return unmodified.
 }
@@ -99,7 +89,7 @@ func convertGCPError(err *googleapi.Error) error {
 func convertPostgresError(err *pgconn.PgError) error {
 	switch err.Code {
 	case pgerrcode.InvalidAuthorizationSpecification, pgerrcode.InvalidPassword:
-		return trace.AccessDenied("%s", err)
+		return trace.AccessDenied(err.Error())
 	}
 	return err // Return unmodified.
 }
@@ -108,7 +98,7 @@ func convertPostgresError(err *pgconn.PgError) error {
 func convertMySQLError(err *mysql.MyError) error {
 	switch err.Code {
 	case mysql.ER_ACCESS_DENIED_ERROR, mysql.ER_DBACCESS_DENIED_ERROR:
-		return trace.AccessDenied("%s", fmtEscape(err))
+		return trace.AccessDenied(fmtEscape(err))
 	}
 	return err // Return unmodified.
 }
@@ -225,9 +215,8 @@ a few minutes to propagate):
 }
 
 func isRDSMySQLIAMAuthError(err error) bool {
-	var c causer
-	if errors.As(err, &c) {
-		return isRDSMySQLIAMAuthError(c.Cause())
+	if causer, ok := err.(causer); ok {
+		return isRDSMySQLIAMAuthError(causer.Cause())
 	}
 	var mysqlError *mysql.MyError
 	if !errors.As(trace.Unwrap(err), &mysqlError) {

@@ -16,13 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { execFile } from 'node:child_process';
+import { pipeline } from 'node:stream/promises';
 import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { pipeline } from 'node:stream/promises';
-import { promisify } from 'node:util';
 import { createUnzip } from 'node:zlib';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import { extract } from 'tar-fs';
 
@@ -31,6 +31,7 @@ import { compareSemVers } from 'shared/utils/semVer';
 import Logger from 'teleterm/logger';
 
 import { RuntimeSettings } from '../types';
+
 import type { IFileDownloader } from './fileDownloader';
 
 const TELEPORT_CDN_ADDRESS = 'https://cdn.teleport.dev';

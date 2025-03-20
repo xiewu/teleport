@@ -131,14 +131,6 @@ data:
               - read
               - update
               - delete
-          - resources:
-              - trusted_cluster
-            verbs:
-              - list
-              - create
-              - read
-              - update
-              - delete
       deny: {}
     version: v7
     ---

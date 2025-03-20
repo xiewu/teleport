@@ -21,13 +21,9 @@ package app
 import (
 	"fmt"
 	"html/template"
-	"io"
 	"net/http"
-	"slices"
-	"strings"
 
 	"github.com/gravitational/trace"
-	"golang.org/x/net/html"
 
 	"github.com/gravitational/teleport/lib/httplib"
 )
@@ -67,33 +63,6 @@ func MetaRedirect(w http.ResponseWriter, redirectURL string) error {
 	return trace.Wrap(metaRedirectTemplate.Execute(w, redirectURL))
 }
 
-// GetURLFromMetaRedirect parses an HTML redirect response written by
-// [MetaRedirect] and returns the redirect URL. Useful for tests.
-func GetURLFromMetaRedirect(body io.Reader) (string, error) {
-	tokenizer := html.NewTokenizer(body)
-	for tt := tokenizer.Next(); tt != html.ErrorToken; tt = tokenizer.Next() {
-		token := tokenizer.Token()
-		if token.Data != "meta" {
-			continue
-		}
-		if !slices.Contains(token.Attr, html.Attribute{Key: "http-equiv", Val: "refresh"}) {
-			continue
-		}
-		contentAttrIndex := slices.IndexFunc(token.Attr, func(attr html.Attribute) bool { return attr.Key == "content" })
-		if contentAttrIndex < 0 {
-			return "", trace.BadParameter("refresh tag did not contain content")
-		}
-		content := token.Attr[contentAttrIndex].Val
-		parts := strings.Split(content, "URL=")
-		if len(parts) < 2 {
-			return "", trace.BadParameter("refresh tag content did not contain URL")
-		}
-		quotedURL := parts[1]
-		return strings.TrimPrefix(strings.TrimSuffix(quotedURL, "'"), "'"), nil
-	}
-	return "", trace.NotFound("body did not contain refresh tag")
-}
-
 var appRedirectTemplate = template.Must(template.New("index").Parse(appRedirectHTML))
 
 const appRedirectHTML = `
@@ -106,9 +75,10 @@ const appRedirectHTML = `
         var currentUrl = new URL(window.location);
         var currentOrigin = currentUrl.origin;
         var params = new URLSearchParams(currentUrl.search);
-        var stateValue = params.get('state');
-        var subjectValue = params.get('subject');
-        var path = params.get('path');
+        var searchParts = window.location.search.split('=');
+        var stateValue = params.get("state");
+        var subjectValue = params.get("subject");
+        var path = params.get("path");
         if (!stateValue) {
           return;
         }
@@ -120,7 +90,6 @@ const appRedirectHTML = `
           state_value: stateValue,
           cookie_value: hashParts[1],
           subject_cookie_value: subjectValue,
-          required_apps: params.get('required-apps'),
         };
         fetch('/x-teleport-auth', {
           method: 'POST',
@@ -132,11 +101,6 @@ const appRedirectHTML = `
           body: JSON.stringify(data),
         }).then(response => {
           if (response.ok) {
-            const nextAppRedirectUrl = response.headers.get("X-Teleport-NextAppRedirectUrl")
-            if (nextAppRedirectUrl) {
-              window.location.replace(nextAppRedirectUrl)
-              return;
-            }
             try {
               // if a path parameter was passed through the redirect, append that path to the current origin
               if (path) {
@@ -147,11 +111,11 @@ const appRedirectHTML = `
                   window.location.replace(currentOrigin)
                 }
               } else {
-                window.location.replace(currentOrigin)
+                window.location.replace(currentOrigin);
               }
             } catch (error) {
-              // in case of malformed url, return to current origin
-              window.location.replace(currentOrigin)
+                // in case of malformed url, return to origin
+                window.location.replace(currentOrigin)
             }
           }
         });

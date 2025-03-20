@@ -16,8 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ResourceSearchError } from 'teleterm/ui/services/resources';
+import React from 'react';
+
 import { routing } from 'teleterm/ui/uri';
+import { ResourceSearchError } from 'teleterm/ui/services/resources';
 
 import { ResourceSearchErrors } from './ResourceSearchErrors';
 

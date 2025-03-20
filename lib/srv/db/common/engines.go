@@ -20,17 +20,16 @@ package common
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/cloud"
-	"github.com/gravitational/teleport/lib/cloud/awsconfig"
 	"github.com/gravitational/teleport/lib/srv/db/common/enterprise"
 )
 
@@ -104,16 +103,14 @@ type EngineConfig struct {
 	Audit Audit
 	// AuthClient is the cluster auth server client.
 	AuthClient *authclient.Client
-	// AWSConfigProvider provides [aws.Config] for AWS SDK service clients.
-	AWSConfigProvider awsconfig.Provider
-	// GCPClients provides access to Google Cloud API clients.
-	GCPClients cloud.GCPClients
+	// CloudClients provides access to cloud API clients.
+	CloudClients cloud.Clients
 	// Context is the database server close context.
 	Context context.Context
 	// Clock is the clock interface.
 	Clock clockwork.Clock
 	// Log is used for logging.
-	Log *slog.Logger
+	Log logrus.FieldLogger
 	// Users handles database users.
 	Users Users
 	// DataDir is the Teleport data directory
@@ -138,11 +135,8 @@ func (c *EngineConfig) CheckAndSetDefaults() error {
 	if c.AuthClient == nil {
 		return trace.BadParameter("engine config AuthClient is missing")
 	}
-	if c.AWSConfigProvider == nil {
-		return trace.BadParameter("missing AWSConfigProvider")
-	}
-	if c.GCPClients == nil {
-		return trace.BadParameter("engine config GCPClients are missing")
+	if c.CloudClients == nil {
+		return trace.BadParameter("engine config CloudClients are missing")
 	}
 	if c.Context == nil {
 		c.Context = context.Background()
@@ -151,7 +145,7 @@ func (c *EngineConfig) CheckAndSetDefaults() error {
 		c.Clock = clockwork.NewRealClock()
 	}
 	if c.Log == nil {
-		c.Log = slog.Default()
+		c.Log = logrus.StandardLogger()
 	}
 	return nil
 }

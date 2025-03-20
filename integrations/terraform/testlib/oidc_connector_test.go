@@ -27,16 +27,10 @@ import (
 
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/wrappers"
-	"github.com/gravitational/teleport/entitlements"
-	"github.com/gravitational/teleport/lib/modules"
 )
 
 func (s *TerraformSuiteEnterprise) TestOIDCConnector() {
-	oidc := modules.GetProtoEntitlement(s.teleportFeatures, entitlements.OIDC)
-	require.True(s.T(),
-		oidc.Enabled,
-		"Test requires OIDC",
-	)
+	require.True(s.T(), s.teleportFeatures.GetOIDC(), "Test requires OIDC")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.T().Cleanup(cancel)
@@ -90,11 +84,7 @@ func (s *TerraformSuiteEnterprise) TestOIDCConnector() {
 }
 
 func (s *TerraformSuiteEnterprise) TestImportOIDCConnector() {
-	oidc := modules.GetProtoEntitlement(s.teleportFeatures, entitlements.OIDC)
-	require.True(s.T(),
-		oidc.Enabled,
-		"Test requires OIDC",
-	)
+	require.True(s.T(), s.teleportFeatures.GetOIDC(), "Test requires OIDC")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.T().Cleanup(cancel)
@@ -154,11 +144,7 @@ func (s *TerraformSuiteEnterprise) TestImportOIDCConnector() {
 }
 
 func (s *TerraformSuiteEnterprise) TestOIDCConnectorWithoutMaxAge() {
-	oidc := modules.GetProtoEntitlement(s.teleportFeatures, entitlements.OIDC)
-	require.True(s.T(),
-		oidc.Enabled,
-		"Test requires OIDC",
-	)
+	require.True(s.T(), s.teleportFeatures.GetOIDC(), "Test requires OIDC")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.T().Cleanup(cancel)
@@ -201,11 +187,7 @@ func (s *TerraformSuiteEnterprise) TestOIDCConnectorWithoutMaxAge() {
 }
 
 func (s *TerraformSuiteEnterprise) TestImportOIDCConnectorWithoutMaxAge() {
-	oidc := modules.GetProtoEntitlement(s.teleportFeatures, entitlements.OIDC)
-	require.True(s.T(),
-		oidc.Enabled,
-		"Test requires OIDC",
-	)
+	require.True(s.T(), s.teleportFeatures.GetOIDC(), "Test requires OIDC")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.T().Cleanup(cancel)

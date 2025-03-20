@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/lib/ui"
 )
 
 func TestMakeUserGroups(t *testing.T) {
@@ -49,14 +48,14 @@ func TestMakeUserGroups(t *testing.T) {
 				{
 					Name:         "group1",
 					Description:  "group1 desc",
-					Labels:       []ui.Label{{Name: "label1", Value: "value1"}},
+					Labels:       []Label{{Name: "label1", Value: "value1"}},
 					Applications: []ApplicationAndFriendlyName{},
 				},
 				{
 					Name:         "group2",
 					Description:  "group2 desc",
 					FriendlyName: "group2 desc",
-					Labels: []ui.Label{
+					Labels: []Label{
 						{Name: "label2", Value: "value2"},
 						{Name: types.OriginLabel, Value: types.OriginOkta},
 					},
@@ -88,7 +87,7 @@ func TestMakeUserGroups(t *testing.T) {
 				{
 					Name:        "group1",
 					Description: "group1 desc",
-					Labels:      []ui.Label{{Name: "label1", Value: "value1"}},
+					Labels:      []Label{{Name: "label1", Value: "value1"}},
 					Applications: []ApplicationAndFriendlyName{
 						{Name: "1"},
 						{Name: "2", FriendlyName: "2 desc"},
@@ -98,7 +97,7 @@ func TestMakeUserGroups(t *testing.T) {
 					Name:         "group2",
 					Description:  "group2 desc",
 					FriendlyName: "group2 desc",
-					Labels: []ui.Label{
+					Labels: []Label{
 						{Name: "label2", Value: "value2"},
 						{Name: types.OriginLabel, Value: types.OriginOkta},
 					},

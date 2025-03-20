@@ -117,12 +117,8 @@ func awsEKSDiscoveryMatchedCluster(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		for ks := range authC.UnifiedResourceCache.KubernetesServers(ctx, services.UnifiedResourcesIterateParams{}) {
-			if ks.GetCluster().GetName() == expectedClusterName {
-				return true
-			}
-		}
-		return false
+		kubeServers, err := authC.UnifiedResourceCache.GetKubernetesServers(ctx)
+		return err == nil && len(kubeServers) == 1
 	}, 2*time.Minute, time.Second, "wait for the kubernetes service to create a KubernetesServer")
 
 	// kubeClient is a Kubernetes client for the user created above

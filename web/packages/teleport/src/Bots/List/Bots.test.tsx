@@ -16,19 +16,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { MemoryRouter } from 'react-router';
-
 import { render, screen, userEvent, waitFor } from 'design/utils/testing';
 
+import api from 'teleport/services/api';
 import { botsApiResponseFixture } from 'teleport/Bots/fixtures';
-import { ContextProvider } from 'teleport/index';
-import { InfoGuidePanelProvider } from 'teleport/Main/InfoGuideContext';
 import {
   allAccessAcl,
   createTeleportContext,
   noAccess,
 } from 'teleport/mocks/contexts';
-import api from 'teleport/services/api';
+import { ContextProvider } from 'teleport/index';
 import TeleportContext from 'teleport/teleportContext';
 
 import { Bots } from './Bots';
@@ -39,9 +38,7 @@ function renderWithContext(element, ctx?: TeleportContext) {
   }
   return render(
     <MemoryRouter>
-      <InfoGuidePanelProvider>
-        <ContextProvider ctx={ctx}>{element}</ContextProvider>
-      </InfoGuidePanelProvider>
+      <ContextProvider ctx={ctx}>{element}</ContextProvider>
     </MemoryRouter>
   );
 }
@@ -95,7 +92,7 @@ test('calls edit endpoint', async () => {
     ).toBeInTheDocument();
   });
 
-  const actionCells = screen.queryAllByRole('button', { name: 'Options' });
+  const actionCells = screen.queryAllByRole('button', { name: 'OPTIONS' });
   expect(actionCells).toHaveLength(botsApiResponseFixture.items.length);
   await userEvent.click(actionCells[0]);
 
@@ -126,7 +123,7 @@ test('calls delete endpoint', async () => {
     ).toBeInTheDocument();
   });
 
-  const actionCells = screen.queryAllByRole('button', { name: 'Options' });
+  const actionCells = screen.queryAllByRole('button', { name: 'OPTIONS' });
   expect(actionCells).toHaveLength(botsApiResponseFixture.items.length);
   await userEvent.click(actionCells[0]);
 

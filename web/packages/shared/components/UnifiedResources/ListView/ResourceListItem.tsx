@@ -16,24 +16,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import styled from 'styled-components';
 
 import { Box, ButtonIcon, Flex, Label, Text } from 'design';
-import { CheckboxInput } from 'design/Checkbox';
+import { StyledCheckbox } from 'design/Checkbox';
 import { Tags } from 'design/Icon';
 import { ResourceIcon } from 'design/ResourceIcon';
-import { HoverTooltip } from 'design/Tooltip';
 
 import { makeLabelTag } from 'teleport/components/formatters';
 
-import { CopyButton } from '../shared/CopyButton';
-import {
-  BackgroundColorProps,
-  getBackgroundColor,
-} from '../shared/getBackgroundColor';
-import { PinButton } from '../shared/PinButton';
+import { HoverTooltip } from 'shared/components/ToolTip';
+
 import { ResourceItemProps } from '../types';
+import { PinButton } from '../shared/PinButton';
+import { CopyButton } from '../shared/CopyButton';
 
 export function ResourceListItem({
   name,
@@ -49,7 +46,6 @@ export function ResourceListItem({
   selectResource,
   selected,
   expandAllLabels,
-  requiresRequest = false,
 }: Omit<ResourceItemProps, 'cardViewProps'>) {
   const { description, resourceType, addr } = listViewProps;
 
@@ -82,12 +78,7 @@ export function ResourceListItem({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <RowInnerContainer
-        requiresRequest={requiresRequest}
-        alignItems="start"
-        pinned={pinned}
-        selected={selected}
-      >
+      <RowInnerContainer alignItems="start" pinned={pinned} selected={selected}>
         {/* checkbox */}
         <HoverTooltip
           css={`
@@ -95,7 +86,7 @@ export function ResourceListItem({
           `}
           tipContent={selected ? 'Deselect' : 'Select'}
         >
-          <CheckboxInput checked={selected} onChange={selectResource} />
+          <StyledCheckbox checked={selected} onChange={selectResource} />
         </HoverTooltip>
 
         {/* pin button */}
@@ -118,7 +109,6 @@ export function ResourceListItem({
           css={`
             grid-area: icon;
             place-self: center center;
-            opacity: ${requiresRequest ? '0.5' : '1'};
           `}
         />
 
@@ -277,12 +267,12 @@ const RowContainer = styled(Box)`
   transition: all 150ms;
   position: relative;
 
-  &:hover {
+  :hover {
     background-color: ${props => props.theme.colors.levels.surface};
 
     // We use a pseudo element for the shadow with position: absolute in order to prevent
     // the shadow from increasing the size of the layout and causing scrollbar flicker.
-    &:after {
+    :after {
       box-shadow: ${props => props.theme.boxShadow[3]};
       content: '';
       position: absolute;
@@ -295,7 +285,7 @@ const RowContainer = styled(Box)`
   }
 `;
 
-const RowInnerContainer = styled(Flex)<BackgroundColorProps>`
+const RowInnerContainer = styled(Flex)`
   display: grid;
   grid-template-columns: 22px 24px 36px 2fr 1fr 1fr 32px min-content;
   column-gap: ${props => props.theme.space[3]}px;
@@ -314,11 +304,21 @@ const RowInnerContainer = styled(Flex)<BackgroundColorProps>`
   border-bottom: ${props => props.theme.borders[2]}
     ${props => props.theme.colors.spotBackground[0]};
 
-  &:hover {
+  :hover {
     // Make the border invisible instead of removing it, this is to prevent things from shifting due to the size change.
     border-bottom: ${props => props.theme.borders[2]} rgba(0, 0, 0, 0);
   }
 `;
+
+const getBackgroundColor = props => {
+  if (props.selected) {
+    return props.theme.colors.interactive.tonal.primary[2];
+  }
+  if (props.pinned) {
+    return props.theme.colors.interactive.tonal.primary[0];
+  }
+  return 'transparent';
+};
 
 const Name = styled(Text)`
   white-space: nowrap;

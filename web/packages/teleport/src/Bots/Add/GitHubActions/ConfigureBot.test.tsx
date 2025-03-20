@@ -16,18 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
-
 import { render, screen, userEvent } from 'design/utils/testing';
 
 import { ContextProvider } from 'teleport';
-import { allAccessAcl } from 'teleport/mocks/contexts';
-import * as botService from 'teleport/services/bot/bot';
-import { Access, Acl } from 'teleport/services/user';
 import TeleportContext from 'teleport/teleportContext';
+import { allAccessAcl } from 'teleport/mocks/contexts';
 
-import { ConfigureBot } from './ConfigureBot';
+import { Access, Acl } from 'teleport/services/user';
+import * as botService from 'teleport/services/bot/bot';
+
 import { GitHubFlowProvider } from './useGitHubFlow';
+import { ConfigureBot } from './ConfigureBot';
 
 type SetupProps = {
   access?: Acl;

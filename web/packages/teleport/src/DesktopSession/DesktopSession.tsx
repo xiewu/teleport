@@ -21,21 +21,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, ButtonPrimary, ButtonSecondary, Flex, Indicator } from 'design';
 import { Info } from 'design/Alert';
 import Dialog, {
-  DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogContent,
+  DialogFooter,
 } from 'design/Dialog';
-import { Attempt as AsyncAttempt } from 'shared/hooks/useAsync';
 import { Attempt } from 'shared/hooks/useAttemptNext';
 
 import AuthnDialog from 'teleport/components/AuthnDialog';
 import TdpClientCanvas from 'teleport/components/TdpClientCanvas';
 import { TdpClientCanvasRef } from 'teleport/components/TdpClientCanvas/TdpClientCanvas';
 import { useListener } from 'teleport/lib/tdp/client';
-import { MfaState, shouldShowMfaPrompt } from 'teleport/lib/useMfa';
 
-import TopBar from './TopBar';
 import useDesktopSession, {
   clipboardSharingMessage,
   defaultClipboardSharingState,
@@ -43,9 +40,11 @@ import useDesktopSession, {
   directorySharingPossible,
   isSharingClipboard,
   isSharingDirectory,
-  type State,
-  type WebsocketAttempt,
 } from './useDesktopSession';
+import TopBar from './TopBar';
+
+import type { State, WebsocketAttempt } from './useDesktopSession';
+import type { WebAuthnState } from 'teleport/lib/useWebAuthn';
 
 export function DesktopSessionContainer() {
   const state = useDesktopSession();
@@ -60,7 +59,7 @@ declare global {
 
 export function DesktopSession(props: State) {
   const {
-    mfa,
+    webauthn,
     tdpClient: client,
     username,
     hostname,
@@ -117,7 +116,7 @@ export function DesktopSession(props: State) {
         tdpConnection,
         wsConnection,
         showAnotherSessionActiveDialog,
-        mfa
+        webauthn
       )
     );
   }, [
@@ -125,7 +124,7 @@ export function DesktopSession(props: State) {
     tdpConnection,
     wsConnection,
     showAnotherSessionActiveDialog,
-    mfa,
+    webauthn,
   ]);
 
   const tdpClientCanvasRef = useRef<TdpClientCanvasRef>(null);
@@ -251,14 +250,14 @@ export function DesktopSession(props: State) {
         clipboardSharingMessage={clipboardSharingMessage(clipboardSharingState)}
         onShareDirectory={onShareDirectory}
         onCtrlAltDel={onCtrlAltDel}
-        alerts={alerts}
-        onRemoveAlert={onRemoveAlert}
+        warnings={alerts}
+        onRemoveWarning={onRemoveAlert}
       />
 
       {screenState.screen === 'anotherSessionActive' && (
         <AnotherSessionActiveDialog {...props} />
       )}
-      {screenState.screen === 'mfa' && <AuthnDialog mfaState={mfa} />}
+      {screenState.screen === 'mfa' && <MfaDialog webauthn={webauthn} />}
       {screenState.screen === 'alert dialog' && (
         <AlertDialog screenState={screenState} />
       )}
@@ -283,6 +282,24 @@ export function DesktopSession(props: State) {
   );
 }
 
+const MfaDialog = ({ webauthn }: { webauthn: WebAuthnState }) => {
+  return (
+    <AuthnDialog
+      onContinue={webauthn.authenticate}
+      onCancel={() => {
+        webauthn.setState(prevState => {
+          return {
+            ...prevState,
+            errorText:
+              'This session requires multi factor authentication to continue. Please hit "Retry" and follow the prompts given by your browser to complete authentication.',
+          };
+        });
+      }}
+      errorText={webauthn.errorText}
+    />
+  );
+};
+
 const AlertDialog = ({ screenState }: { screenState: ScreenState }) => (
   <Dialog dialogCss={() => ({ width: '484px' })} open={true}>
     <DialogHeader style={{ flexDirection: 'column' }}>
@@ -290,13 +307,9 @@ const AlertDialog = ({ screenState }: { screenState: ScreenState }) => (
     </DialogHeader>
     <DialogContent>
       <>
-        {typeof screenState.alertMessage === 'object' ? (
-          <Info details={screenState.alertMessage.message}>
-            {screenState.alertMessage.title}
-          </Info>
-        ) : (
-          <Info>{screenState.alertMessage}</Info>
-        )}
+        <Info
+          children={<>{screenState.alertMessage || invalidStateMessage}</>}
+        />
         Refresh the page to reconnect.
       </>
     </DialogContent>
@@ -370,7 +383,7 @@ const nextScreenState = (
   tdpConnection: Attempt,
   wsConnection: WebsocketAttempt,
   showAnotherSessionActiveDialog: boolean,
-  mfa: MfaState
+  webauthn: WebAuthnState
 ): ScreenState => {
   // We always want to show the user the first alert that caused the session to fail/end,
   // so if we're already showing an alert, don't change the screen.
@@ -387,11 +400,10 @@ const nextScreenState = (
 
   // Otherwise, calculate a new screen state.
   const showAnotherSessionActive = showAnotherSessionActiveDialog;
-  const showMfa = shouldShowMfaPrompt(mfa);
+  const showMfa = webauthn.requested;
   const showAlert =
     fetchAttempt.status === 'failed' || // Fetch attempt failed
     tdpConnection.status === 'failed' || // TDP connection closed by the remote side.
-    mfa.attempt.status === 'error' || // MFA was canceled
     wsConnection.status === 'closed'; // Websocket closed, means unexpected close.
 
   const atLeastOneAttemptProcessing =
@@ -426,7 +438,6 @@ const nextScreenState = (
         tdpConnection,
         wsConnection,
         showAnotherSessionActiveDialog,
-        mfa.attempt,
         prevState
       ),
       canvasState: { shouldConnect: false, shouldDisplay: false },
@@ -457,17 +468,9 @@ const calculateAlertMessage = (
   tdpConnection: Attempt,
   wsConnection: WebsocketAttempt,
   showAnotherSessionActiveDialog: boolean,
-  mfaAttempt: AsyncAttempt<unknown>,
   prevState: ScreenState
-) => {
+): string => {
   let message = '';
-  // Errors, except for dialog cancellations, are handled within the MFA dialog.
-  if (mfaAttempt.status === 'error') {
-    return {
-      title: 'This session requires multi factor authentication',
-      message: mfaAttempt.statusText,
-    };
-  }
   if (fetchAttempt.status === 'failed') {
     message = fetchAttempt.statusText || 'fetch attempt failed';
   } else if (tdpConnection.status === 'failed') {
@@ -498,7 +501,7 @@ type ScreenState = {
     | 'processing'
     | 'canvas';
 
-  alertMessage?: string | { title: string; message: string };
+  alertMessage?: string;
   canvasState: {
     shouldConnect: boolean;
     shouldDisplay: boolean;

@@ -17,5 +17,4 @@
  */
 
 import DocumentBlank from './DocumentBlank';
-
 export default DocumentBlank;

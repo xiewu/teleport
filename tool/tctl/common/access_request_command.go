@@ -39,8 +39,6 @@ import (
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/tlsca"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // AccessRequestCommand implements `tctl users` set of commands
@@ -78,7 +76,7 @@ type AccessRequestCommand struct {
 }
 
 // Initialize allows AccessRequestCommand to plug itself into the CLI parser
-func (c *AccessRequestCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, config *servicecfg.Config) {
+func (c *AccessRequestCommand) Initialize(app *kingpin.Application, config *servicecfg.Config) {
 	c.config = config
 	requests := app.Command("requests", "Manage access requests.").Alias("request")
 
@@ -127,36 +125,27 @@ func (c *AccessRequestCommand) Initialize(app *kingpin.Application, _ *tctlcfg.G
 }
 
 // TryRun takes the CLI command as an argument (like "access-request list") and executes it.
-func (c *AccessRequestCommand) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (match bool, err error) {
-	var commandFunc func(ctx context.Context, client *authclient.Client) error
+func (c *AccessRequestCommand) TryRun(ctx context.Context, cmd string, client *authclient.Client) (match bool, err error) {
 	switch cmd {
 	case c.requestList.FullCommand():
-		commandFunc = c.List
+		err = c.List(ctx, client)
 	case c.requestGet.FullCommand():
-		commandFunc = c.Get
+		err = c.Get(ctx, client)
 	case c.requestApprove.FullCommand():
-		commandFunc = c.Approve
+		err = c.Approve(ctx, client)
 	case c.requestDeny.FullCommand():
-		commandFunc = c.Deny
+		err = c.Deny(ctx, client)
 	case c.requestCreate.FullCommand():
-		commandFunc = c.Create
+		err = c.Create(ctx, client)
 	case c.requestDelete.FullCommand():
-		commandFunc = c.Delete
+		err = c.Delete(ctx, client)
 	case c.requestCaps.FullCommand():
-		commandFunc = c.Caps
+		err = c.Caps(ctx, client)
 	case c.requestReview.FullCommand():
-		commandFunc = c.Review
+		err = c.Review(ctx, client)
 	default:
 		return false, nil
 	}
-
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	err = commandFunc(ctx, client)
-	closeFn(ctx)
-
 	return true, trace.Wrap(err)
 }
 

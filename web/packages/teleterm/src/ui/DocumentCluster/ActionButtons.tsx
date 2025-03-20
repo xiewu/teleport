@@ -16,46 +16,36 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
-
-import { ButtonBorder, ButtonPrimary, ButtonWithMenu, MenuItem } from 'design';
-import {
-  MenuItemSectionLabel,
-  MenuItemSectionSeparator,
-} from 'design/Menu/MenuItem';
-import { App, PortRange } from 'gen-proto-ts/teleport/lib/teleterm/v1/app_pb';
-import { Cluster } from 'gen-proto-ts/teleport/lib/teleterm/v1/cluster_pb';
-import { Database } from 'gen-proto-ts/teleport/lib/teleterm/v1/database_pb';
-import { Kube } from 'gen-proto-ts/teleport/lib/teleterm/v1/kube_pb';
-import { Server } from 'gen-proto-ts/teleport/lib/teleterm/v1/server_pb';
+import { MenuLogin, MenuLoginProps } from 'shared/components/MenuLogin';
 import { AwsLaunchButton } from 'shared/components/AwsLaunchButton';
-import {
-  MenuInputType,
-  MenuLogin,
-  MenuLoginProps,
-} from 'shared/components/MenuLogin';
+import { ButtonBorder, ButtonWithMenu, MenuItem } from 'design';
 
 import {
-  formatPortRange,
-  getAwsAppLaunchUrl,
-  getSamlAppSsoUrl,
-  getWebAppLaunchUrl,
-  isWebApp,
-} from 'teleterm/services/tshd/app';
-import { GatewayProtocol } from 'teleterm/services/tshd/types';
-import { useAppContext } from 'teleterm/ui/appContextProvider';
-import {
-  captureAppLaunchInBrowser,
-  connectToAppWithVnet,
+  connectToServer,
   connectToDatabase,
   connectToKube,
-  connectToServer,
-  setUpAppGateway,
+  connectToApp,
+  captureAppLaunchInBrowser,
 } from 'teleterm/ui/services/workspacesService';
-import { IAppContext } from 'teleterm/ui/types';
+import { useAppContext } from 'teleterm/ui/appContextProvider';
+import {
+  Server,
+  Kube,
+  GatewayProtocol,
+  Database,
+  App,
+  Cluster,
+} from 'teleterm/services/tshd/types';
+
 import { DatabaseUri, routing } from 'teleterm/ui/uri';
+import { IAppContext } from 'teleterm/ui/types';
 import { retryWithRelogin } from 'teleterm/ui/utils';
-import { useVnetContext, useVnetLauncher } from 'teleterm/ui/Vnet';
+import {
+  getWebAppLaunchUrl,
+  isWebApp,
+  getAwsAppLaunchUrl,
+  getSamlAppSsoUrl,
+} from 'teleterm/services/tshd/app';
 
 export function ConnectServerActionButton(props: {
   server: Server;
@@ -80,7 +70,6 @@ export function ConnectServerActionButton(props: {
 
   return (
     <MenuLogin
-      inputType={MenuInputType.FILTER}
       textTransform="none"
       getLoginItems={() => getSshLogins().map(login => ({ login, url: '' }))}
       onSelect={(e, login) => connect(login)}
@@ -118,22 +107,9 @@ export function ConnectKubeActionButton(props: {
 
 export function ConnectAppActionButton(props: { app: App }): React.JSX.Element {
   const appContext = useAppContext();
-  const { isSupported: isVnetSupported } = useVnetContext();
-  const launchVnet = useVnetLauncher();
 
-  function connectWithVnet(targetPort?: number): void {
-    connectToAppWithVnet(appContext, launchVnet, props.app, targetPort);
-  }
-
-  function setUpGateway(targetPort?: number): void {
-    if (!targetPort && props.app.tcpPorts.length > 0) {
-      targetPort = props.app.tcpPorts[0].port;
-    }
-
-    setUpAppGateway(appContext, props.app.uri, {
-      telemetry: { origin: 'resource_table' },
-      targetPort,
-    });
+  function connect(): void {
+    connectToApp(appContext, props.app, { origin: 'resource_table' });
   }
 
   const rootCluster = appContext.clustersService.findCluster(
@@ -145,12 +121,10 @@ export function ConnectAppActionButton(props: { app: App }): React.JSX.Element {
 
   return (
     <AppButton
-      connectWithVnet={connectWithVnet}
-      setUpGateway={setUpGateway}
+      connect={connect}
       app={props.app}
       cluster={cluster}
       rootCluster={rootCluster}
-      isVnetSupported={isVnetSupported}
       onLaunchUrl={() => {
         captureAppLaunchInBrowser(appContext, props.app, {
           origin: 'resource_table',
@@ -235,10 +209,8 @@ function AppButton(props: {
   app: App;
   cluster: Cluster;
   rootCluster: Cluster;
-  connectWithVnet(targetPort?: number): void;
-  setUpGateway(targetPort?: number): void;
+  connect(): void;
   onLaunchUrl(): void;
-  isVnetSupported: boolean;
 }) {
   if (props.app.awsConsole) {
     return (
@@ -264,14 +236,14 @@ function AppButton(props: {
         onClick={props.onLaunchUrl}
         as="a"
         textTransform="none"
-        title="Log in to the SAML application in the browser"
+        title="Log in to the app in the browser"
         href={getSamlAppSsoUrl({
           app: props.app,
           rootCluster: props.rootCluster,
         })}
         target="_blank"
       >
-        Log In
+        Login
       </ButtonBorder>
     );
   }
@@ -292,112 +264,14 @@ function AppButton(props: {
         target="_blank"
         title="Launch the app in the browser"
       >
-        <MenuItem onClick={() => props.setUpGateway()}>
-          Set up connection
-        </MenuItem>
+        <MenuItem onClick={props.connect}>Set up connection</MenuItem>
       </ButtonWithMenu>
     );
   }
 
-  // TCP app with VNet.
-  if (props.isVnetSupported) {
-    return (
-      <ButtonWithMenu
-        text="Connect"
-        textTransform="none"
-        size="small"
-        onClick={() => props.connectWithVnet()}
-      >
-        <MenuItem onClick={() => props.setUpGateway()}>
-          Connect without VNet
-        </MenuItem>
-        {!!props.app.tcpPorts.length && (
-          <>
-            <MenuItemSectionSeparator />
-            <AvailableTargetPorts
-              tcpPorts={props.app.tcpPorts}
-              onItemClick={port => props.connectWithVnet(port)}
-            />
-          </>
-        )}
-      </ButtonWithMenu>
-    );
-  }
-
-  // Multi-port TCP app without VNet.
-  if (props.app.tcpPorts.length) {
-    return (
-      <ButtonWithMenu
-        text="Connect"
-        textTransform="none"
-        size="small"
-        onClick={() => props.setUpGateway()}
-      >
-        <AvailableTargetPorts
-          tcpPorts={props.app.tcpPorts}
-          onItemClick={port => props.setUpGateway(port)}
-        />
-      </ButtonWithMenu>
-    );
-  }
-
-  // Single-port TCP app without VNet.
   return (
-    <ButtonBorder
-      size="small"
-      onClick={() => props.setUpGateway()}
-      textTransform="none"
-    >
+    <ButtonBorder size="small" onClick={props.connect} textTransform="none">
       Connect
-    </ButtonBorder>
-  );
-}
-
-const AvailableTargetPorts = (props: {
-  tcpPorts: PortRange[];
-  onItemClick: (portRangePort: number) => void;
-}) => (
-  <>
-    <MenuItemSectionLabel>Available target ports</MenuItemSectionLabel>
-    {props.tcpPorts.map((portRange, index) => (
-      <MenuItem
-        // This list can't be dynamically reordered, so index as key is fine. Port ranges are
-        // not guaranteed to be unique, the user might add the same range twice.
-        key={index}
-        title="Start VNet and copy address to clipboard"
-        // In case that portRange represents a range and not a single port, passing the first
-        // port is fine. Otherwise we'd need to somehow offer an input for the user to choose
-        // any port within the range.
-        onClick={() => props.onItemClick(portRange.port)}
-      >
-        {formatPortRange(portRange)}
-      </MenuItem>
-    ))}
-  </>
-);
-
-export function AccessRequestButton(props: {
-  isResourceAdded: boolean;
-  requestStarted: boolean;
-  onClick(): void;
-}) {
-  return props.isResourceAdded ? (
-    <ButtonPrimary
-      textTransform="none"
-      width="124px"
-      size="small"
-      onClick={props.onClick}
-    >
-      Remove
-    </ButtonPrimary>
-  ) : (
-    <ButtonBorder
-      textTransform="none"
-      width="124px"
-      size="small"
-      onClick={props.onClick}
-    >
-      {props.requestStarted ? '+ Add to request' : '+ Request access'}
     </ButtonBorder>
   );
 }

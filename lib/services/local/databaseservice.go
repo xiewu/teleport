@@ -44,10 +44,6 @@ func (s *DatabaseServicesService) UpsertDatabaseService(ctx context.Context, ser
 	if err := services.CheckAndSetDefaults(service); err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if err := types.ValidateNamespaceDefault(service.GetNamespace()); err != nil {
-		return nil, trace.Wrap(err)
-	}
-
 	rev := service.GetRevision()
 	value, err := services.MarshalDatabaseService(service)
 	if err != nil {
@@ -57,9 +53,10 @@ func (s *DatabaseServicesService) UpsertDatabaseService(ctx context.Context, ser
 		Key:      backend.NewKey(databaseServicePrefix, service.GetName()),
 		Value:    value,
 		Expires:  service.Expiry(),
+		ID:       service.GetResourceID(),
 		Revision: rev,
 	}
-	_, err = s.Put(ctx, item)
+	lease, err := s.Put(ctx, item)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -68,6 +65,7 @@ func (s *DatabaseServicesService) UpsertDatabaseService(ctx context.Context, ser
 	}
 	return &types.KeepAlive{
 		Type:      types.KeepAlive_DATABASE_SERVICE,
+		LeaseID:   lease.ID,
 		Namespace: apidefaults.Namespace,
 		Name:      service.GetName(),
 		HostID:    service.GetName(),

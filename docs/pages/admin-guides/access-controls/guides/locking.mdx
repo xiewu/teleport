@@ -3,7 +3,7 @@ title: Session and Identity Locking
 description: How to lock compromised users or agents
 ---
 
-System administrators can disable a compromised user or Teleport Agent—or
+System administrators can disable a compromised user or Teleport agent—or
 prevent access during cluster maintenance—by placing a lock
 on a session, user or host identity.
 
@@ -19,7 +19,7 @@ A lock can target the following objects or attributes:
   ../device-trust/enforcing-device-trust.mdx#locking-a-device) by the device ID
 - an MFA device by the device's UUID
 - an OS/UNIX login
-- a Teleport Agent by the Agent's server UUID (effectively unregistering it from the
+- a Teleport agent by the agent's server UUID (effectively unregistering it from the
   cluster)
 - a Windows desktop by the desktop's name
 - an [Access Request](../access-requests/access-requests.mdx) by UUID
@@ -117,8 +117,6 @@ $ tctl create -f locksmith.yaml
 # role 'locksmith' has been created
 ```
 
-(!docs/pages/includes/create-role-using-web.mdx!)
-
 (!docs/pages/includes/add-role-to-user.mdx role="locksmith"!)
 
 </details>
@@ -196,50 +194,51 @@ the last known locks. This decision strategy is encoded as one of the two modes:
 
 The cluster-wide mode defaults to `best_effort`. You can set up the default
 locking mode via API or CLI using a `cluster_auth_preference` resource or static
-configuration file.
+configuration file:
 
-If your Auth Service configuration (`/etc/teleport.yaml` by default) contains
-an `auth_service.authentication` section, edit the Teleport configuration
-file to contain the following:
+<Tabs>
+  <TabItem label="API or CLI">
 
-```yaml
-auth_service:
-    authentication:
-        locking_mode: best_effort
-```
+    Create a YAML file called `cap.yaml` or get the existing file using
+    `tctl get cap`.
 
-Restart or redeploy the Auth Service for the change to take effect.
+    ```yaml
+    kind: cluster_auth_preference
+    metadata:
+      name: cluster-auth-preference
+    spec:
+      locking_mode: best_effort
+    version: v2
+    ```
 
-If not, edit your cluster authentication preference resource: 
+    Create a resource:
 
-```code
-$ tctl edit cap
-```
+    ```code
+    $ tctl create -f cap.yaml
+    # cluster auth preference has been updated
+    ```
+  </TabItem>
+  <TabItem label="Static Config">
+    Edit `/etc/teleport.yaml` on the Auth Server:
 
-Adjust the file in your editor to include the following:
+    ```yaml
+    auth_service:
+        authentication:
+            locking_mode: best_effort
+    ```
 
-```yaml
-kind: cluster_auth_preference
-metadata:
-  name: cluster-auth-preference
-spec:
-  locking_mode: best_effort
-version: v2
-```
-
-Save and close your editor to apply your changes.
+    Restart the Auth Server for the change to take effect.
+  </TabItem>
+</Tabs>
 
 </TabItem>
-<TabItem scope={["Enterprise"]} label="Teleport Enterprise (Cloud)">
+<TabItem scope={["cloud"]} label="Teleport Enterprise Cloud">
 
 The cluster-wide mode defaults to `best_effort`. You can set up the default
 locking mode via API or CLI using a `cluster_auth_preference` resource:
 
-```code
-$ tctl edit cap
-```
-
-Adjust the file in your editor to include the following:
+Create a YAML file called `cap.yaml` or get the existing file using
+`tctl get cap`.
 
 ```yaml
 kind: cluster_auth_preference
@@ -250,9 +249,15 @@ spec:
 version: v2
 ```
 
-Save and close your editor to apply your changes.
+Create a resource:
+
+```code
+$ tctl create -f cap.yaml
+# cluster auth preference has been updated
+```
 
 </TabItem>
+
 </Tabs>
 
 It is also possible to configure the locking mode for a particular role:

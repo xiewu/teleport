@@ -16,14 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
 
 import { Flex } from 'design';
 
-import { LoadingSkeleton } from '../shared/LoadingSkeleton';
-import { ResourceViewProps } from '../types';
 import { FETCH_MORE_SIZE } from '../UnifiedResources';
+
+import { ResourceViewProps } from '../types';
+
+import { LoadingSkeleton } from '../shared/LoadingSkeleton';
+
 import { LoadingCard } from './LoadingCard';
+
 import { ResourceCard } from './ResourceCard';
 
 export function CardsView({
@@ -49,7 +54,6 @@ export function CardsView({
           cardViewProps={item.cardViewProps}
           labels={item.labels}
           pinned={pinnedResources.includes(key)}
-          requiresRequest={item.requiresRequest}
           pinningSupport={pinningSupport}
           selected={selectedResources.includes(key)}
           selectResource={() => onSelectResource(key)}

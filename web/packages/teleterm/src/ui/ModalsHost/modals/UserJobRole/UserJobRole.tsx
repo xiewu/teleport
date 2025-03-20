@@ -16,10 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import styled from 'styled-components';
-
-import { ButtonIcon, ButtonPrimary, ButtonSecondary, H2, Input } from 'design';
+import {
+  ButtonIcon,
+  ButtonPrimary,
+  ButtonSecondary,
+  Input,
+  Text,
+} from 'design';
 import DialogConfirmation, {
   DialogContent,
   DialogFooter,
@@ -27,6 +32,12 @@ import DialogConfirmation, {
 } from 'design/DialogConfirmation';
 import { Cross } from 'design/Icon';
 import { RadioGroup } from 'design/RadioGroup';
+
+interface UserJobRoleProps {
+  onCancel(): void;
+
+  onSend(jobRole: string): void;
+}
 
 const JOB_OPTIONS = [
   'Software Engineer',
@@ -38,11 +49,7 @@ const JOB_OPTIONS = [
 
 const OTHER_JOB_ROLE = 'Other';
 
-export function UserJobRole(props: {
-  onCancel(): void;
-  onSend(jobRole: string): void;
-  hidden?: boolean;
-}) {
+export function UserJobRole(props: UserJobRoleProps) {
   const inputRef = useRef<HTMLInputElement>();
   const [jobRole, setJobRole] = useState<string | null>(null);
   const [otherJobRole, setOtherJobRole] = useState('');
@@ -66,8 +73,7 @@ export function UserJobRole(props: {
 
   return (
     <DialogConfirmation
-      open={!props.hidden}
-      keepInDOMAfterClose
+      open={true}
       onClose={props.onCancel}
       dialogCss={() => ({
         maxWidth: '400px',
@@ -85,7 +91,9 @@ export function UserJobRole(props: {
           mb={1}
           alignItems="baseline"
         >
-          <H2 mb={4}>What describes your current job role best?</H2>
+          <Text typography="h4" bold>
+            What describes your current job role best?
+          </Text>
           <ButtonIcon
             type="button"
             onClick={props.onCancel}
@@ -101,7 +109,6 @@ export function UserJobRole(props: {
             options={[...JOB_OPTIONS, OTHER_JOB_ROLE]}
             value={jobRole}
             onChange={handleRadioGroupChange}
-            mb={3}
           />
           <StyledInput
             ref={inputRef}

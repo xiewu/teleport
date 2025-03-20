@@ -16,19 +16,20 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { formatDistanceStrict } from 'date-fns';
 
 import { ButtonSecondary, Text } from 'design';
 import Dialog, {
-  DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogContent,
+  DialogFooter,
 } from 'design/Dialog';
 
 import TextSelectCopy from 'teleport/components/TextSelectCopy';
-import cfg from 'teleport/config';
 import { ResetToken } from 'teleport/services/user';
+import cfg from 'teleport/config';
 
 export default function UserTokenLink({
   token,

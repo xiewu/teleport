@@ -81,6 +81,12 @@ var defaultContentSecurityPolicy = CSPMap{
 var defaultFontSrc = CSPMap{"font-src": {"'self'", "data:"}}
 var defaultConnectSrc = CSPMap{"connect-src": {"'self'", "wss:"}}
 
+var stripeSecurityPolicy = CSPMap{
+	// auto-pay plans in Cloud use stripe.com to manage billing information
+	"script-src": {"https://js.stripe.com"},
+	"frame-src":  {"https://js.stripe.com"},
+}
+
 var wasmSecurityPolicy = CSPMap{
 	"script-src": {"'self'", "'wasm-unsafe-eval'"},
 }
@@ -170,8 +176,12 @@ func SetDefaultSecurityHeaders(h http.Header) {
 	h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 }
 
-func getIndexContentSecurityPolicy(withWasm bool) CSPMap {
+func getIndexContentSecurityPolicy(withStripe, withWasm bool) CSPMap {
 	cspMaps := []CSPMap{defaultContentSecurityPolicy, defaultFontSrc, defaultConnectSrc}
+
+	if withStripe {
+		cspMaps = append(cspMaps, stripeSecurityPolicy)
+	}
 
 	if withWasm {
 		cspMaps = append(cspMaps, wasmSecurityPolicy)
@@ -188,25 +198,23 @@ var desktopSessionRe = regexp.MustCompile(`^/web/cluster/[^/]+/desktops/[^/]+/[^
 // which is a route to a desktop recording that uses WASM.
 var recordingRe = regexp.MustCompile(`^/web/cluster/[^/]+/session/[^/]+$`)
 
-// regex for the ssh terminal endpoint /web/cluster/:clusterId/console/node/:sid/:login
-// which is a route to a ssh session that uses WASM.
-var sshSessionRe = regexp.MustCompile(`^/web/cluster/[^/]+/console/node/[^/]+/[^/]+$`)
-
 var indexCSPStringCache *cspCache = newCSPCache()
 
 func getIndexContentSecurityPolicyString(cfg proto.Features, urlPath string) string {
 	// Check for result with this cfg and urlPath in cache
-	if cspString, ok := indexCSPStringCache.get(urlPath); ok {
+	withStripe := cfg.GetIsStripeManaged()
+	key := fmt.Sprintf("%v-%v", withStripe, urlPath)
+	if cspString, ok := indexCSPStringCache.get(key); ok {
 		return cspString
 	}
 
 	// Nothing found in cache, calculate regex and result
-	withWasm := desktopSessionRe.MatchString(urlPath) || recordingRe.MatchString(urlPath) || sshSessionRe.MatchString(urlPath)
+	withWasm := desktopSessionRe.MatchString(urlPath) || recordingRe.MatchString(urlPath)
 	cspString := GetContentSecurityPolicyString(
-		getIndexContentSecurityPolicy(withWasm),
+		getIndexContentSecurityPolicy(withStripe, withWasm),
 	)
 	// Add result to cache
-	indexCSPStringCache.set(urlPath, cspString)
+	indexCSPStringCache.set(key, cspString)
 
 	return cspString
 }
@@ -214,6 +222,35 @@ func getIndexContentSecurityPolicyString(cfg proto.Features, urlPath string) str
 // SetIndexContentSecurityPolicy sets the Content-Security-Policy header for main index.html page
 func SetIndexContentSecurityPolicy(h http.Header, cfg proto.Features, urlPath string) {
 	cspString := getIndexContentSecurityPolicyString(cfg, urlPath)
+	h.Set("Content-Security-Policy", cspString)
+}
+
+// DELETE IN 17.0: Kept for legacy app access.
+var appLaunchCSPStringCache *cspCache = newCSPCache()
+
+// DELETE IN 17.0: Kept for legacy app access.
+func getAppLaunchContentSecurityPolicyString(applicationURL string) string {
+	if cspString, ok := appLaunchCSPStringCache.get(applicationURL); ok {
+		return cspString
+	}
+
+	cspString := GetContentSecurityPolicyString(
+		defaultContentSecurityPolicy,
+		defaultFontSrc,
+		CSPMap{
+			"connect-src": {"'self'", applicationURL},
+		},
+	)
+	appLaunchCSPStringCache.set(applicationURL, cspString)
+
+	return cspString
+}
+
+// DELETE IN 17.0: Kept for legacy app access.
+//
+// SetAppLaunchContentSecurityPolicy sets the Content-Security-Policy header for /web/launch
+func SetAppLaunchContentSecurityPolicy(h http.Header, applicationURL string) {
+	cspString := getAppLaunchContentSecurityPolicyString(applicationURL)
 	h.Set("Content-Security-Policy", cspString)
 }
 

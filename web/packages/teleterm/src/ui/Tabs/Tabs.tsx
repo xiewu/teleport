@@ -16,18 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
-
-import { Box } from 'design';
 import { typography } from 'design/system';
-import { TypographyProps } from 'design/system/typography';
+import { Box } from 'design';
 
-import {
-  Document,
-  getStaticNameAndIcon,
-} from 'teleterm/ui/services/workspacesService';
+import { Document } from 'teleterm/ui/services/workspacesService';
 
-import { NewTabItem, TabItem } from './TabItem';
+import { TabItem, NewTabItem } from './TabItem';
 
 export function Tabs(props: Props) {
   const {
@@ -53,7 +49,6 @@ export function Tabs(props: Props) {
           index={index}
           name={item.title}
           active={active}
-          Icon={getStaticNameAndIcon(item)?.Icon}
           nextActive={nextActive}
           onClick={() => onSelect(item)}
           onClose={() => onClose(item)}
@@ -69,7 +64,7 @@ export function Tabs(props: Props) {
   );
 
   return (
-    <StyledTabs as="nav" {...styledProps}>
+    <StyledTabs as="nav" typography="h5" bold {...styledProps}>
       {$items}
       <NewTabItem tooltip={newTabTooltip} onClick={onNew} />
     </StyledTabs>
@@ -92,8 +87,7 @@ type Props = {
   [index: string]: any;
 };
 
-// TODO(bl-nero): Typography should have a more restrictive type.
-const StyledTabs = styled(Box)<TypographyProps>`
+const StyledTabs = styled(Box)`
   background-color: ${props => props.theme.colors.levels.surface};
   min-height: 32px;
   display: flex;

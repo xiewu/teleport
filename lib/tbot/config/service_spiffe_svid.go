@@ -38,7 +38,6 @@ const (
 	SVIDPEMPath            = "svid.pem"
 	SVIDKeyPEMPath         = "svid_key.pem"
 	SVIDTrustBundlePEMPath = "svid_bundle.pem"
-	SVIDCRLPemPath         = "svid_crl.pem"
 )
 
 // SVIDRequestSANs is the configuration for the SANs of a single SVID request.
@@ -95,25 +94,6 @@ var (
 	_ Initable      = &SPIFFESVIDOutput{}
 )
 
-// JWTSVID the configuration for a single JWT SVID request as part of the SPIFFE
-// SVID output.
-type JWTSVID struct {
-	// FileName is the name of the artifact/file the JWT should be written to.
-	FileName string `yaml:"file_name"`
-	// Audience is the audience of the JWT.
-	Audience string `yaml:"audience"`
-}
-
-func (o JWTSVID) CheckAndSetDefaults() error {
-	switch {
-	case o.Audience == "":
-		return trace.BadParameter("audience: should not be empty")
-	case o.FileName == "":
-		return trace.BadParameter("name: should not be empty")
-	}
-	return nil
-}
-
 // SPIFFESVIDOutput is the configuration for the SPIFFE SVID output.
 // Emulates the output of https://github.com/spiffe/spiffe-helper
 type SPIFFESVIDOutput struct {
@@ -121,13 +101,6 @@ type SPIFFESVIDOutput struct {
 	Destination                  bot.Destination `yaml:"destination"`
 	SVID                         SVIDRequest     `yaml:"svid"`
 	IncludeFederatedTrustBundles bool            `yaml:"include_federated_trust_bundles,omitempty"`
-	// JWTs is an optional list of audiences and file names to write JWT SVIDs
-	// to.
-	JWTs []JWTSVID `yaml:"jwts,omitempty"`
-
-	// CredentialLifetime contains configuration for how long credentials will
-	// last and the frequency at which they'll be renewed.
-	CredentialLifetime CredentialLifetime `yaml:",inline"`
 }
 
 // Init initializes the destination.
@@ -148,17 +121,12 @@ func (o *SPIFFESVIDOutput) CheckAndSetDefaults() error {
 	if err := validateOutputDestination(o.Destination); err != nil {
 		return trace.Wrap(err)
 	}
-	for i, jwt := range o.JWTs {
-		if err := jwt.CheckAndSetDefaults(); err != nil {
-			return trace.Wrap(err, "validating jwts[%d]", i)
-		}
-	}
 	return nil
 }
 
 // Describe returns the file descriptions for the SPIFFE SVID output.
 func (o *SPIFFESVIDOutput) Describe() []FileDescription {
-	fds := []FileDescription{
+	return []FileDescription{
 		{
 			Name: SVIDPEMPath,
 		},
@@ -169,10 +137,6 @@ func (o *SPIFFESVIDOutput) Describe() []FileDescription {
 			Name: SVIDTrustBundlePEMPath,
 		},
 	}
-	for _, jwt := range o.JWTs {
-		fds = append(fds, FileDescription{Name: jwt.FileName})
-	}
-	return nil
 }
 
 func (o *SPIFFESVIDOutput) Type() string {
@@ -198,8 +162,4 @@ func (o *SPIFFESVIDOutput) UnmarshalYAML(node *yaml.Node) error {
 	}
 	o.Destination = dest
 	return nil
-}
-
-func (o *SPIFFESVIDOutput) GetCredentialLifetime() CredentialLifetime {
-	return o.CredentialLifetime
 }

@@ -20,11 +20,11 @@ package local
 
 import (
 	"context"
-	"log/slog"
 	"slices"
 	"time"
 
 	"github.com/gravitational/trace"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/client/proto"
@@ -38,14 +38,14 @@ import (
 // DynamicAccessService manages dynamic RBAC
 type DynamicAccessService struct {
 	backend.Backend
-	logger *slog.Logger
+	log *logrus.Entry
 }
 
 // NewDynamicAccessService returns new dynamic access service instance
 func NewDynamicAccessService(backend backend.Backend) *DynamicAccessService {
 	return &DynamicAccessService{
 		Backend: backend,
-		logger:  slog.With(teleport.ComponentKey, "DynamicAccess"),
+		log:     logrus.WithFields(logrus.Fields{teleport.ComponentKey: "DynamicAccess"}),
 	}
 }
 
@@ -260,7 +260,7 @@ func (s *DynamicAccessService) GetAccessRequests(ctx context.Context, filter typ
 	}
 	var requests []types.AccessRequest
 	for _, item := range result.Items {
-		if !item.Key.HasSuffix(backend.NewKey(paramsPrefix)) {
+		if !item.Key.HasSuffix(backend.Key(paramsPrefix)) {
 			// Item represents a different resource type in the
 			// same namespace.
 			continue
@@ -340,7 +340,7 @@ func (s *DynamicAccessService) ListAccessRequests(ctx context.Context, req *prot
 				return true, nil
 			}
 
-			if !item.Key.HasSuffix(backend.NewKey(paramsPrefix)) {
+			if !item.Key.HasSuffix(backend.Key(paramsPrefix)) {
 				// Item represents a different resource type in the
 				// same namespace.
 				continue
@@ -348,10 +348,7 @@ func (s *DynamicAccessService) ListAccessRequests(ctx context.Context, req *prot
 
 			accessRequest, err := itemToAccessRequest(item)
 			if err != nil {
-				s.logger.WarnContext(ctx, "Failed to unmarshal access request",
-					"key", item.Key,
-					"error", err,
-				)
+				s.log.Warnf("Failed to unmarshal access request at %q: %v", item.Key, err)
 				continue
 			}
 
@@ -451,6 +448,8 @@ func itemFromAccessRequest(req types.AccessRequest) (backend.Item, error) {
 	return backend.Item{
 		Key:      accessRequestKey(req.GetName()),
 		Value:    value,
+		Expires:  req.Expiry(),
+		ID:       req.GetResourceID(),
 		Revision: rev,
 	}, nil
 }
@@ -464,6 +463,7 @@ func itemFromAccessListPromotions(req types.AccessRequest, suggestedItems *types
 		Key:      AccessRequestAllowedPromotionKey(req.GetName()),
 		Value:    value,
 		Expires:  req.Expiry(), // expire the promotion at the same time as the access request
+		ID:       req.GetResourceID(),
 		Revision: req.GetRevision(),
 	}, nil
 }
@@ -471,6 +471,8 @@ func itemFromAccessListPromotions(req types.AccessRequest, suggestedItems *types
 func itemToAccessRequest(item backend.Item, opts ...services.MarshalOption) (*types.AccessRequestV3, error) {
 	opts = append(
 		opts,
+		services.WithResourceID(item.ID),
+		services.WithExpires(item.Expires),
 		services.WithRevision(item.Revision),
 	)
 	req, err := services.UnmarshalAccessRequest(

@@ -16,10 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
-
 import { Box, Text } from 'design';
-import { HoverTooltip } from 'design/Tooltip';
+
+import { HoverTooltip } from 'shared/components/ToolTip';
 
 import { PINNING_NOT_SUPPORTED_MESSAGE } from './UnifiedResources';
 
@@ -51,7 +52,7 @@ export const ResourceTab = ({
   return $tab;
 };
 
-const TabBox = styled(Box)<{ disabled?: boolean; selected?: boolean }>`
+const TabBox = styled(Box)`
   cursor: ${props => (props.disabled ? 'not-allowed' : 'pointer')};
   color: ${props =>
     props.disabled
@@ -61,7 +62,7 @@ const TabBox = styled(Box)<{ disabled?: boolean; selected?: boolean }>`
     props.selected ? `2px solid ${props.theme.colors.brand}` : 'transparent'};
 `;
 
-const TabText = styled(Text)<{ selected?: boolean }>`
+const TabText = styled(Text)`
   font-size: ${props => props.theme.fontSizes[2]};
   font-weight: ${props =>
     props.selected
@@ -70,7 +71,7 @@ const TabText = styled(Text)<{ selected?: boolean }>`
   line-height: 20px;
 
   color: ${props =>
-    props.selected ? props.theme.colors.brand : props.theme.colors.text.main};
+    props.selected ? props.theme.colors.brand : props.theme.colors.main};
 `;
 
 type Props = {

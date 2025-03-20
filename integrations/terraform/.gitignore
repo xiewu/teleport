@@ -1,7 +1,5 @@
 # Build artifacts
 build/*
-docs/
-bin/
 
 # Terraform state
 .terraform

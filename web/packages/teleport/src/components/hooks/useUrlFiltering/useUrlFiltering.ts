@@ -16,15 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useLocation } from 'react-router';
-
 import { SortType } from 'design/DataTable/types';
-import { IncludedResourceMode } from 'shared/components/UnifiedResources';
+
 import { makeAdvancedSearchQueryForLabel } from 'shared/utils/advancedSearchLabelQuery';
 
-import { ResourceFilter, ResourceLabel } from 'teleport/services/agents';
 import history from 'teleport/services/history';
+import { ResourceFilter, ResourceLabel } from 'teleport/services/agents';
 
 import { encodeUrlQueryParams } from './encodeUrlQueryParams';
 
@@ -39,70 +38,36 @@ export interface UrlFilteringState {
   search: string;
 }
 
-type URLResourceFilter = Omit<ResourceFilter, 'includedResourceMode'>;
-
 export function useUrlFiltering(
-  initialParams: URLResourceFilter,
-  includedResourceMode?: IncludedResourceMode
+  initialParams: Partial<ResourceFilter>
 ): UrlFilteringState {
   const { search, pathname } = useLocation();
+  const [params, setParams] = useState<ResourceFilter>({
+    ...initialParams,
+    ...getResourceUrlQueryParams(search),
+  });
 
   function replaceHistory(path: string) {
     history.replace(path);
   }
 
   function setSort(sort: SortType) {
-    replaceHistory(
-      encodeUrlQueryParams({
-        pathname,
-        searchString: params.search || params.query,
-        sort: { ...params.sort, ...sort },
-        kinds: params.kinds,
-        isAdvancedSearch: !!params.query,
-        pinnedOnly: params.pinnedOnly,
-      })
-    );
-  }
-
-  const [initialParamsState] = useState(initialParams);
-  const params = useMemo(() => {
-    const urlParams = getResourceUrlQueryParams(search);
-    return {
-      ...initialParamsState,
-      ...urlParams,
-      includedResourceMode,
-      pinnedOnly:
-        urlParams.pinnedOnly !== undefined
-          ? urlParams.pinnedOnly
-          : initialParamsState.pinnedOnly,
-    };
-  }, [search, includedResourceMode]);
-
-  function setParams(newParams: URLResourceFilter) {
-    replaceHistory(
-      encodeUrlQueryParams({
-        pathname,
-        searchString: newParams.search || newParams.query,
-        sort: newParams.sort,
-        kinds: newParams.kinds,
-        isAdvancedSearch: !!newParams.query,
-        pinnedOnly: newParams.pinnedOnly,
-      })
-    );
+    setParams({ ...params, sort });
   }
 
   const onLabelClick = (label: ResourceLabel) => {
     const queryAfterLabelClick = makeAdvancedSearchQueryForLabel(label, params);
 
+    setParams({ ...params, search: '', query: queryAfterLabelClick });
     replaceHistory(
-      encodeUrlQueryParams({
+      encodeUrlQueryParams(
         pathname,
-        searchString: queryAfterLabelClick,
-        sort: params.sort,
-        kinds: params.kinds,
-        isAdvancedSearch: true,
-        pinnedOnly: params.pinnedOnly,
-      })
+        queryAfterLabelClick,
+        params.sort,
+        params.kinds,
+        true /*isAdvancedSearch*/,
+        params.pinnedOnly
+      )
     );
   };
 
@@ -147,7 +112,6 @@ export default function getResourceUrlQueryParams(
     // Conditionally adds the sort field based on whether it exists or not
     ...(!!processedSortParam && { sort: processedSortParam }),
     // Conditionally adds the pinnedResources field based on whether its true or not
-    pinnedOnly:
-      pinnedOnly === 'true' ? true : pinnedOnly === 'false' ? false : undefined,
+    ...(pinnedOnly === 'true' && { pinnedOnly: true }),
   };
 }

@@ -17,21 +17,22 @@
  */
 
 import React, { useState } from 'react';
-
 import { Box, ButtonPrimary, Flex, Image, Text } from 'design';
 import { Danger } from 'design/Alert';
 import { ArrowBack } from 'design/Icon';
 import { RadioGroup } from 'design/RadioGroup';
-import { StepHeader } from 'design/StepSlider';
 import FieldInput from 'shared/components/FieldInput';
 import Validation, { Validator } from 'shared/components/Validation';
 import { requiredField } from 'shared/components/Validation/rules';
-import { useRefAutoFocus } from 'shared/hooks';
-import { Attempt } from 'shared/hooks/useAttemptNext';
-import { Auth2faType } from 'shared/services';
 import createMfaOptions from 'shared/utils/createMfaOptions';
+import { useRefAutoFocus } from 'shared/hooks';
+import { Auth2faType } from 'shared/services';
+import { OnboardCard } from 'design/Onboard/OnboardCard';
 
-import { OnboardCard } from 'teleport/components/Onboard';
+import { Attempt } from 'shared/hooks/useAttemptNext';
+
+import { StepHeader } from 'design/StepSlider';
+
 import { PasskeyIcons } from 'teleport/components/Passkeys';
 
 export interface NewMfaDeviceFormProps {
@@ -161,7 +162,7 @@ export function NewMfaDeviceForm({
           {submitAttempt.status === 'failed' && (
             <Danger children={submitAttempt.statusText} />
           )}
-          <Text typography="body2" color="text.main" mb={1}>
+          <Text typography="subtitle1" color="text.main" mb={1}>
             Multi-factor type
           </Text>
           <Box mb={3}>
@@ -231,7 +232,7 @@ export function NewMfaDeviceForm({
                 />
                 <Flex flexDirection="column">
                   <Box flex="1">
-                    <Text>
+                    <Text typography="body-2">
                       Scan the QR Code with any authenticator app and enter the
                       generated code.
                     </Text>
@@ -264,7 +265,7 @@ export function NewMfaDeviceForm({
             onClick={e => onBtnClick(e, validator)}
           >
             {mfaType.value === 'webauthn' && !credential
-              ? 'Create an MFA Method'
+              ? 'Create an MFA method'
               : submitButtonText}
           </ButtonPrimary>
         </OnboardCard>

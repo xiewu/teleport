@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/client/proto"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib/modules"
 )
 
@@ -34,9 +33,7 @@ import (
 func TestDesktopAccessDisabled(t *testing.T) {
 	modules.SetTestModules(t, &modules.TestModules{
 		TestFeatures: modules.Features{
-			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-				entitlements.Desktop: {Enabled: false}, // Explicitly turn off desktop access.
-			},
+			Desktop: false, // Explicily turn off desktop access.
 		},
 	})
 

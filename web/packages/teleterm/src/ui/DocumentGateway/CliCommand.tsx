@@ -16,9 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useState } from 'react';
-import styled from 'styled-components';
-
+import React, { useEffect, useState } from 'react';
 import { Box, ButtonPrimary, Flex, Indicator } from 'design';
 import { fade } from 'design/theme/utils/colorManipulator';
 
@@ -59,25 +57,37 @@ export function CliCommand({
       bg="bgTerminal"
       mb={2}
     >
-      <CommandContainer
+      <Flex
         mr="2"
         width="100%"
         shouldDisplayIsLoading={shouldDisplayIsLoading}
+        css={`
+          overflow: auto;
+          white-space: pre;
+          word-break: break-all;
+          font-size: 12px;
+          color: ${props => {
+            // always use light colors
+            const { light } = props.theme.colors;
+            // 0.72 - text.slightlyMuted opacity
+            return props.shouldDisplayIsLoading ? fade(light, 0.72) : light;
+          }};
+          font-family: ${props => props.theme.fonts.mono};
+        `}
       >
         <Box mr="1">{`$`}</Box>
         <span>{cliCommand}</span>
         {shouldDisplayIsLoading && (
           <Indicator
-            size={24}
+            fontSize="14px"
             delay="none"
             css={`
-              line-height: 0;
               display: inline;
               margin: auto 0 auto auto;
             `}
           />
         )}
-      </CommandContainer>
+      </Flex>
       <ButtonPrimary
         onClick={onButtonClick}
         disabled={shouldDisplayIsLoading}
@@ -94,17 +104,3 @@ export function CliCommand({
     </Flex>
   );
 }
-
-const CommandContainer = styled(Flex)<{ shouldDisplayIsLoading?: boolean }>`
-  overflow: auto;
-  white-space: pre;
-  word-break: break-all;
-  font-size: 12px;
-  color: ${props => {
-    // always use light colors
-    const { light } = props.theme.colors;
-    // 0.72 - text.slightlyMuted opacity
-    return props.shouldDisplayIsLoading ? fade(light, 0.72) : light;
-  }};
-  font-family: ${props => props.theme.fonts.mono};
-`;

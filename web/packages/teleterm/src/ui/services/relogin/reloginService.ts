@@ -16,17 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {
-  reloginReasonOneOfIsGatewayCertExpired,
-  reloginReasonOneOfIsVnetCertExpired,
-} from 'teleterm/helpers';
-import { ReloginRequest } from 'teleterm/services/tshdEvents';
 import { MainProcessClient } from 'teleterm/types';
-import { ClustersService } from 'teleterm/ui/services/clusters';
+import { ReloginRequest } from 'teleterm/services/tshdEvents';
 import {
-  ClusterConnectReason,
   ModalsService,
+  ClusterConnectReason,
 } from 'teleterm/ui/services/modals';
+import { ClustersService } from 'teleterm/ui/services/clusters';
+import { reloginReasonOneOfIsGatewayCertExpired } from 'teleterm/helpers';
 
 export class ReloginService {
   constructor(
@@ -40,7 +37,18 @@ export class ReloginService {
     onRequestCancelled: (callback: () => void) => void
   ): Promise<void> {
     this.mainProcessClient.forceFocusWindow();
-    const reason = this.getReason(request);
+    let reason: ClusterConnectReason;
+
+    if (reloginReasonOneOfIsGatewayCertExpired(request.reason)) {
+      const gateway = this.clustersService.findGateway(
+        request.reason.gatewayCertExpired.gatewayUri
+      );
+      reason = {
+        kind: 'reason.gateway-cert-expired',
+        targetUri: request.reason.gatewayCertExpired.targetUri,
+        gateway: gateway,
+      };
+    }
 
     return new Promise((resolve, reject) => {
       // GatewayCertReissuer in tshd makes sure that we only ever have one concurrent request to the
@@ -57,42 +65,5 @@ export class ReloginService {
 
       onRequestCancelled(closeDialog);
     });
-  }
-
-  private getReason(request: ReloginRequest): ClusterConnectReason {
-    // switch followed by a type guard is awkward, but it helps with ensuring that we get type
-    // errors whenever a new request reason is added.
-    //
-    // Type guards must be called because of how protobuf-ts generates types for oneOf in protos.
-    switch (request.reason.oneofKind) {
-      case 'gatewayCertExpired': {
-        if (!reloginReasonOneOfIsGatewayCertExpired(request.reason)) {
-          return;
-        }
-
-        const gateway = this.clustersService.findGateway(
-          request.reason.gatewayCertExpired.gatewayUri
-        );
-        return {
-          kind: 'reason.gateway-cert-expired',
-          targetUri: request.reason.gatewayCertExpired.targetUri,
-          gateway: gateway,
-        };
-      }
-      case 'vnetCertExpired': {
-        if (!reloginReasonOneOfIsVnetCertExpired(request.reason)) {
-          return;
-        }
-
-        return {
-          kind: 'reason.vnet-cert-expired',
-          ...request.reason.vnetCertExpired,
-        };
-      }
-      default: {
-        request.reason satisfies never;
-        return;
-      }
-    }
   }
 }

@@ -17,21 +17,12 @@
  */
 
 import { ResourceIdKind } from 'teleport/services/agents';
-import { KubeResourceKind } from 'teleport/services/kube';
 
 /** Available request kinds for resource-based and role-based access requests. */
-export type RequestableResourceKind =
-  | ResourceIdKind
-  | 'role'
-  | 'resource'
-  | Exclude<KubeResourceKind, '*'>;
+export type ResourceKind = ResourceIdKind | 'role' | 'resource';
 
-/**
- * Maps a resource ID (usually agent name) to resource description (usually the
- * same, but not necessarily).
- */
 export type ResourceMap = {
-  [K in Exclude<RequestableResourceKind, 'resource'>]: Record<string, string>;
+  [K in ResourceIdKind | 'role']: Record<string, string>;
 };
 
 export function getEmptyResourceState(): ResourceMap {
@@ -43,9 +34,5 @@ export function getEmptyResourceState(): ResourceMap {
     user_group: {},
     windows_desktop: {},
     role: {},
-    saml_idp_service_provider: {},
-    namespace: {},
-    aws_ic_account_assignment: {},
-    git_server: {},
   };
 }

@@ -25,12 +25,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/arn"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
-	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/arn"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/service/iam"
+	"github.com/aws/aws-sdk-go/service/iam/iamiface"
 	"github.com/google/go-cmp/cmp"
-	"github.com/gravitational/trace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -317,7 +318,7 @@ func TestMarshalPolicyDocument(t *testing.T) {
 				Principals: map[string]SliceOrString{
 					"Federated": {"arn:aws:iam::123456789012:oidc-provider/proxy.example.com"},
 				},
-				Conditions: map[string]StringOrMap{
+				Conditions: map[string]map[string]SliceOrString{
 					"StringEquals": {
 						"proxy.example.com:aud": SliceOrString{"discover.teleport"},
 					},
@@ -353,8 +354,8 @@ func TestIAMPolicy(t *testing.T) {
 	policy := NewPolicyDocument()
 
 	// Add a new action/resource.
-	updated := policy.EnsureResourceAction(EffectAllow, "action-1", "resource-1", nil)
-	require.True(t, updated)
+	alreadyExisted := policy.Ensure(EffectAllow, "action-1", "resource-1")
+	require.False(t, alreadyExisted)
 	require.Equal(t, &PolicyDocument{
 		Version: PolicyVersion,
 		Statements: []*Statement{
@@ -367,8 +368,8 @@ func TestIAMPolicy(t *testing.T) {
 	}, policy)
 
 	// Add the same action/resource.
-	updated = policy.EnsureResourceAction(EffectAllow, "action-1", "resource-1", nil)
-	require.False(t, updated)
+	alreadyExisted = policy.Ensure(EffectAllow, "action-1", "resource-1")
+	require.True(t, alreadyExisted)
 	require.Equal(t, &PolicyDocument{
 		Version: PolicyVersion,
 		Statements: []*Statement{
@@ -381,8 +382,8 @@ func TestIAMPolicy(t *testing.T) {
 	}, policy)
 
 	// Add a new resource to existing action.
-	updated = policy.EnsureResourceAction(EffectAllow, "action-1", "resource-2", nil)
-	require.True(t, updated)
+	alreadyExisted = policy.Ensure(EffectAllow, "action-1", "resource-2")
+	require.False(t, alreadyExisted)
 	require.Equal(t, &PolicyDocument{
 		Version: PolicyVersion,
 		Statements: []*Statement{
@@ -395,8 +396,8 @@ func TestIAMPolicy(t *testing.T) {
 	}, policy)
 
 	// Add another action/resource.
-	updated = policy.EnsureResourceAction(EffectAllow, "action-2", "resource-3", nil)
-	require.True(t, updated)
+	alreadyExisted = policy.Ensure(EffectAllow, "action-2", "resource-3")
+	require.False(t, alreadyExisted)
 	require.Equal(t, &PolicyDocument{
 		Version: PolicyVersion,
 		Statements: []*Statement{
@@ -414,7 +415,7 @@ func TestIAMPolicy(t *testing.T) {
 	}, policy)
 
 	// Delete existing resource action.
-	policy.DeleteResourceAction(EffectAllow, "action-1", "resource-1", nil)
+	policy.Delete(EffectAllow, "action-1", "resource-1")
 	require.Equal(t, &PolicyDocument{
 		Version: PolicyVersion,
 		Statements: []*Statement{
@@ -432,7 +433,7 @@ func TestIAMPolicy(t *testing.T) {
 	}, policy)
 
 	// Delete last resource from first action, statement should get removed as well.
-	policy.DeleteResourceAction(EffectAllow, "action-1", "resource-2", nil)
+	policy.Delete(EffectAllow, "action-1", "resource-2")
 	require.Equal(t, &PolicyDocument{
 		Version: PolicyVersion,
 		Statements: []*Statement{
@@ -445,7 +446,7 @@ func TestIAMPolicy(t *testing.T) {
 	}, policy)
 
 	// Delete last resource action, policy should be empty.
-	policy.DeleteResourceAction(EffectAllow, "action-2", "resource-3", nil)
+	policy.Delete(EffectAllow, "action-2", "resource-3")
 	require.Equal(t, &PolicyDocument{
 		Version: PolicyVersion,
 	}, policy)
@@ -466,7 +467,7 @@ func TestIAMPolicy(t *testing.T) {
 			},
 		},
 	}
-	policy.DeleteResourceAction(EffectAllow, "action-1", "resource-1", nil)
+	policy.Delete(EffectAllow, "action-1", "resource-1")
 	require.Equal(t, &PolicyDocument{
 		Version: PolicyVersion,
 	}, policy)
@@ -487,7 +488,7 @@ func TestIAMPolicy(t *testing.T) {
 			},
 		},
 	}
-	policy.DeleteResourceAction(EffectAllow, "action-1", "resource-2", nil)
+	policy.Delete(EffectAllow, "action-1", "resource-2")
 	require.Equal(t, &PolicyDocument{
 		Version: PolicyVersion,
 		Statements: []*Statement{
@@ -532,19 +533,6 @@ func TestPolicyEnsureStatements(t *testing.T) {
 			Actions:   []string{"action-1"},
 			Resources: []string{"resource-3"},
 		},
-		// Existing action with different condition and new principals
-		&Statement{
-			Effect:  EffectAllow,
-			Actions: []string{"action-1"},
-			Principals: StringOrMap{
-				"Federated": []string{"arn:aws:iam::123456789012:oidc-provider/example.com"},
-			},
-			Conditions: Conditions{
-				"StringEquals": StringOrMap{
-					"example.com:aud": []string{"discover.teleport"},
-				},
-			},
-		},
 		// New actions and new resources.
 		&Statement{
 			Effect:    EffectAllow,
@@ -579,18 +567,6 @@ func TestPolicyEnsureStatements(t *testing.T) {
 				Resources: []string{"resource-1", "resource-4"},
 			},
 			{
-				Effect:  EffectAllow,
-				Actions: []string{"action-1"},
-				Principals: StringOrMap{
-					"Federated": []string{"arn:aws:iam::123456789012:oidc-provider/example.com"},
-				},
-				Conditions: Conditions{
-					"StringEquals": StringOrMap{
-						"example.com:aud": []string{"discover.teleport"},
-					},
-				},
-			},
-			{
 				Effect:    EffectAllow,
 				Actions:   []string{"action-3", "action-4"},
 				Resources: []string{"resource-4"},
@@ -599,7 +575,7 @@ func TestPolicyEnsureStatements(t *testing.T) {
 	}, policy)
 }
 
-func TestGetPolicyVersions(t *testing.T) {
+func TestRetrievePolicy(t *testing.T) {
 	ctx := context.Background()
 
 	tests := map[string]struct {
@@ -609,23 +585,23 @@ func TestGetPolicyVersions(t *testing.T) {
 	}{
 		"PolicyFound": {
 			iamMock: &iamMock{
-				policy:         &iamtypes.Policy{},
-				policyVersions: []iamtypes.PolicyVersion{{VersionId: aws.String("v1")}},
+				policy:         &iam.Policy{},
+				policyVersions: []*iam.PolicyVersion{{VersionId: aws.String("v1")}},
 			},
 		},
 		"PolicyMatchLabels": {
 			tags: map[string]string{"env": "prod"},
 			iamMock: &iamMock{
-				policy:         &iamtypes.Policy{Tags: []iamtypes.Tag{{Key: aws.String("env"), Value: aws.String("prod")}}},
-				policyVersions: []iamtypes.PolicyVersion{{VersionId: aws.String("v1")}},
+				policy:         &iam.Policy{Tags: []*iam.Tag{{Key: aws.String("env"), Value: aws.String("prod")}}},
+				policyVersions: []*iam.PolicyVersion{{VersionId: aws.String("v1")}},
 			},
 		},
 		"PolicyNotMatchingLabels": {
 			tags:        map[string]string{"env": "prod"},
 			returnError: true,
 			iamMock: &iamMock{
-				policy:         &iamtypes.Policy{},
-				policyVersions: []iamtypes.PolicyVersion{{VersionId: aws.String("v1")}},
+				policy:         &iam.Policy{},
+				policyVersions: []*iam.PolicyVersion{{VersionId: aws.String("v1")}},
 			},
 		},
 		"PolicyNotFound": {
@@ -636,19 +612,18 @@ func TestGetPolicyVersions(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			// getPolicyVersions doesn't use `identity` so we can pass an empty value.
+			// Retrieve doesn't use `identity` so we can pass a nil value.
 			policies := NewPolicies("", "", test.iamMock)
 
-			versions, err := policies.getPolicyVersions(ctx, "", test.tags)
+			policy, versions, err := policies.Retrieve(ctx, "", test.tags)
 			if test.returnError {
 				require.Error(t, err)
 				return
 			}
 
 			require.NoError(t, err)
-			require.Empty(t, cmp.Diff(test.iamMock.policyVersions, versions,
-				cmp.AllowUnexported(iamtypes.PolicyVersion{}),
-			))
+			require.NotNil(t, policy)
+			require.Empty(t, cmp.Diff(test.iamMock.policyVersions, versions))
 		})
 	}
 }
@@ -667,32 +642,32 @@ func TestUpsertPolicy(t *testing.T) {
 		"CreateNewPolicy": {
 			expectedPolicyArn: "expected-arn",
 			iamMock: &iamMock{
-				policyCreated: &iamtypes.Policy{Arn: aws.String("expected-arn")},
+				policyCreated: &iam.Policy{Arn: aws.String("expected-arn")},
 			},
 		},
 		"AddPolicyVersion": {
 			expectedPolicyArn: fmt.Sprintf("arn:aws:iam::%s:policy/", accountID),
 			iamMock: &iamMock{
-				policy: &iamtypes.Policy{Arn: aws.String("expected-arn")},
-				policyVersions: []iamtypes.PolicyVersion{
-					{VersionId: aws.String("v1"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(time.Second))},
+				policy: &iam.Policy{Arn: aws.String("expected-arn")},
+				policyVersions: []*iam.PolicyVersion{
+					{VersionId: aws.String("v1"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(time.Second))},
 				},
-				policyVersionCreated: &iamtypes.PolicyVersion{},
+				policyVersionCreated: &iam.PolicyVersion{},
 			},
 		},
 		"DeleteAndAddPolicyVersion": {
 			expectedPolicyArn: fmt.Sprintf("arn:aws:iam::%s:policy/", accountID),
 			iamMock: &iamMock{
-				policy: &iamtypes.Policy{Arn: aws.String("expected-arn")},
-				policyVersions: []iamtypes.PolicyVersion{
-					{VersionId: aws.String("v1"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(time.Second))},
-					{VersionId: aws.String("v2"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(2 * time.Second))},
-					{VersionId: aws.String("v3"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(3 * time.Second))},
-					{VersionId: aws.String("v4"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(4 * time.Second))},
-					{VersionId: aws.String("v5"), IsDefaultVersion: true, CreateDate: aws.Time(now.Add(5 * time.Second))},
+				policy: &iam.Policy{Arn: aws.String("expected-arn")},
+				policyVersions: []*iam.PolicyVersion{
+					{VersionId: aws.String("v1"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(time.Second))},
+					{VersionId: aws.String("v2"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(2 * time.Second))},
+					{VersionId: aws.String("v3"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(3 * time.Second))},
+					{VersionId: aws.String("v4"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(4 * time.Second))},
+					{VersionId: aws.String("v5"), IsDefaultVersion: aws.Bool(true), CreateDate: aws.Time(now.Add(5 * time.Second))},
 				},
 				policyVersionDeleted: true,
-				policyVersionCreated: &iamtypes.PolicyVersion{},
+				policyVersionCreated: &iam.PolicyVersion{},
 			},
 		},
 		"PolicyCreateError": {
@@ -702,24 +677,24 @@ func TestUpsertPolicy(t *testing.T) {
 		"PolicyVersionCreateError": {
 			returnError: true,
 			iamMock: &iamMock{
-				policy: &iamtypes.Policy{Arn: aws.String("expected-arn")},
-				policyVersions: []iamtypes.PolicyVersion{
-					{VersionId: aws.String("v1"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(time.Second))},
+				policy: &iam.Policy{Arn: aws.String("expected-arn")},
+				policyVersions: []*iam.PolicyVersion{
+					{VersionId: aws.String("v1"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(time.Second))},
 				},
 			},
 		},
 		"PolicyVersionDeleteError": {
 			returnError: true,
 			iamMock: &iamMock{
-				policy: &iamtypes.Policy{Arn: aws.String("expected-arn")},
-				policyVersions: []iamtypes.PolicyVersion{
-					{VersionId: aws.String("v1"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(time.Second))},
-					{VersionId: aws.String("v2"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(2 * time.Second))},
-					{VersionId: aws.String("v3"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(3 * time.Second))},
-					{VersionId: aws.String("v4"), IsDefaultVersion: false, CreateDate: aws.Time(now.Add(4 * time.Second))},
-					{VersionId: aws.String("v5"), IsDefaultVersion: true, CreateDate: aws.Time(now.Add(5 * time.Second))},
+				policy: &iam.Policy{Arn: aws.String("expected-arn")},
+				policyVersions: []*iam.PolicyVersion{
+					{VersionId: aws.String("v1"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(time.Second))},
+					{VersionId: aws.String("v2"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(2 * time.Second))},
+					{VersionId: aws.String("v3"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(3 * time.Second))},
+					{VersionId: aws.String("v4"), IsDefaultVersion: aws.Bool(false), CreateDate: aws.Time(now.Add(4 * time.Second))},
+					{VersionId: aws.String("v5"), IsDefaultVersion: aws.Bool(true), CreateDate: aws.Time(now.Add(5 * time.Second))},
 				},
-				policyVersionCreated: &iamtypes.PolicyVersion{},
+				policyVersionCreated: &iam.PolicyVersion{},
 			},
 		},
 	}
@@ -792,6 +767,58 @@ func TestAttachPolicy(t *testing.T) {
 	}
 }
 
+func TestAttachPolicyBoundary(t *testing.T) {
+	ctx := context.Background()
+
+	tests := map[string]struct {
+		returnError bool
+		identity    Identity
+		iamMock     *iamMock
+	}{
+		"AttachToUser": {
+			identity: userIdentity(),
+			iamMock: &iamMock{
+				attachUserBoundary: true,
+			},
+		},
+		"AttachToRole": {
+			identity: roleIdentity(),
+			iamMock: &iamMock{
+				attachRoleBoundary: true,
+			},
+		},
+		"UnsupportedIdentity": {
+			returnError: true,
+			identity:    unknownIdentity(),
+			iamMock: &iamMock{
+				// "enable" both attach to ensure the error doesn't come from
+				// the IAM client.
+				attachUserBoundary: true,
+				attachRoleBoundary: true,
+			},
+		},
+		"AttachError": {
+			returnError: true,
+			identity:    userIdentity(),
+			iamMock:     &iamMock{},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			policies := NewPolicies("", "", test.iamMock)
+
+			err := policies.AttachBoundary(ctx, "", test.identity)
+			if test.returnError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
 // userIdentity helper function to generate an user `Identity` .
 func userIdentity() Identity {
 	return &User{
@@ -816,75 +843,90 @@ func unknownIdentity() Identity {
 }
 
 type iamMock struct {
-	policy               *iamtypes.Policy
-	policyVersions       []iamtypes.PolicyVersion
-	policyCreated        *iamtypes.Policy
-	policyVersionCreated *iamtypes.PolicyVersion
+	iamiface.IAMAPI
+
+	policy               *iam.Policy
+	policyVersions       []*iam.PolicyVersion
+	policyCreated        *iam.Policy
+	policyVersionCreated *iam.PolicyVersion
 	policyVersionDeleted bool
 
-	attachUserPolicy bool
-	attachRolePolicy bool
+	attachUserPolicy   bool
+	attachRolePolicy   bool
+	attachUserBoundary bool
+	attachRoleBoundary bool
 }
 
-func (m *iamMock) GetPolicy(ctx context.Context, params *iam.GetPolicyInput, optFns ...func(*iam.Options)) (*iam.GetPolicyOutput, error) {
-
+func (m *iamMock) GetPolicyWithContext(context.Context, *iam.GetPolicyInput, ...request.Option) (*iam.GetPolicyOutput, error) {
 	if m.policy == nil {
-		return nil, &iamtypes.NoSuchEntityException{
-			Message: aws.String("not found"),
-		}
+		return nil, awserr.NewRequestFailure(awserr.New(iam.ErrCodeNoSuchEntityException, "not found", nil), 404, "")
 	}
 
 	return &iam.GetPolicyOutput{Policy: m.policy}, nil
 }
 
-func (m *iamMock) ListPolicyVersions(ctx context.Context, params *iam.ListPolicyVersionsInput, optFns ...func(*iam.Options)) (*iam.ListPolicyVersionsOutput, error) {
+func (m *iamMock) ListPolicyVersionsWithContext(context.Context, *iam.ListPolicyVersionsInput, ...request.Option) (*iam.ListPolicyVersionsOutput, error) {
 	if len(m.policyVersions) == 0 {
-		return nil, &iamtypes.NoSuchEntityException{
-			Message: aws.String("not found"),
-		}
+		return nil, awserr.NewRequestFailure(awserr.New(iam.ErrCodeNoSuchEntityException, "not found", nil), 404, "")
 	}
 
 	return &iam.ListPolicyVersionsOutput{Versions: m.policyVersions}, nil
 }
 
-func (m *iamMock) CreatePolicy(ctx context.Context, params *iam.CreatePolicyInput, optFns ...func(*iam.Options)) (*iam.CreatePolicyOutput, error) {
+func (m *iamMock) CreatePolicyWithContext(context.Context, *iam.CreatePolicyInput, ...request.Option) (*iam.CreatePolicyOutput, error) {
 	if m.policyCreated == nil {
-		return nil, trace.NotImplemented("CreatePolicy not implemented")
+		return nil, awserr.NewRequestFailure(awserr.New(iam.ErrCodeServiceNotSupportedException, "not implemented", nil), 501, "")
 	}
 
 	return &iam.CreatePolicyOutput{Policy: m.policyCreated}, nil
 }
 
-func (m *iamMock) CreatePolicyVersion(ctx context.Context, params *iam.CreatePolicyVersionInput, optFns ...func(*iam.Options)) (*iam.CreatePolicyVersionOutput, error) {
+func (m *iamMock) CreatePolicyVersionWithContext(context.Context, *iam.CreatePolicyVersionInput, ...request.Option) (*iam.CreatePolicyVersionOutput, error) {
 	if m.policyVersionCreated == nil {
-		return nil, trace.NotImplemented("CreatePolicyVersion not implemented")
+		return nil, awserr.NewRequestFailure(awserr.New(iam.ErrCodeServiceNotSupportedException, "not implemented", nil), 501, "")
 	}
 
 	return &iam.CreatePolicyVersionOutput{PolicyVersion: m.policyVersionCreated}, nil
 }
 
-func (m *iamMock) DeletePolicyVersion(ctx context.Context, params *iam.DeletePolicyVersionInput, optFns ...func(*iam.Options)) (*iam.DeletePolicyVersionOutput, error) {
+func (m *iamMock) DeletePolicyVersionWithContext(context.Context, *iam.DeletePolicyVersionInput, ...request.Option) (*iam.DeletePolicyVersionOutput, error) {
 	if !m.policyVersionDeleted {
-		return nil, trace.NotImplemented("DeletePolicyVersion not implemented")
+		return nil, awserr.NewRequestFailure(awserr.New(iam.ErrCodeServiceNotSupportedException, "not implemented", nil), 501, "")
 	}
 
 	return &iam.DeletePolicyVersionOutput{}, nil
 }
 
-func (m *iamMock) AttachUserPolicy(ctx context.Context, params *iam.AttachUserPolicyInput, optFns ...func(*iam.Options)) (*iam.AttachUserPolicyOutput, error) {
+func (m *iamMock) AttachUserPolicyWithContext(context.Context, *iam.AttachUserPolicyInput, ...request.Option) (*iam.AttachUserPolicyOutput, error) {
 	if !m.attachUserPolicy {
-		return nil, trace.NotImplemented("AttachUserPolicy not implemented")
+		return nil, awserr.NewRequestFailure(awserr.New(iam.ErrCodeServiceNotSupportedException, "not implemented", nil), 501, "")
 	}
 
 	return &iam.AttachUserPolicyOutput{}, nil
 }
 
-func (m *iamMock) AttachRolePolicy(ctx context.Context, params *iam.AttachRolePolicyInput, optFns ...func(*iam.Options)) (*iam.AttachRolePolicyOutput, error) {
+func (m *iamMock) AttachRolePolicyWithContext(context.Context, *iam.AttachRolePolicyInput, ...request.Option) (*iam.AttachRolePolicyOutput, error) {
 	if !m.attachRolePolicy {
-		return nil, trace.NotImplemented("AttachRolePolicy not implemented")
+		return nil, awserr.NewRequestFailure(awserr.New(iam.ErrCodeServiceNotSupportedException, "not implemented", nil), 501, "")
 	}
 
 	return &iam.AttachRolePolicyOutput{}, nil
+}
+
+func (m *iamMock) PutUserPermissionsBoundaryWithContext(context.Context, *iam.PutUserPermissionsBoundaryInput, ...request.Option) (*iam.PutUserPermissionsBoundaryOutput, error) {
+	if !m.attachUserBoundary {
+		return nil, awserr.NewRequestFailure(awserr.New(iam.ErrCodeServiceNotSupportedException, "not implemented", nil), 501, "")
+	}
+
+	return &iam.PutUserPermissionsBoundaryOutput{}, nil
+}
+
+func (m *iamMock) PutRolePermissionsBoundaryWithContext(context.Context, *iam.PutRolePermissionsBoundaryInput, ...request.Option) (*iam.PutRolePermissionsBoundaryOutput, error) {
+	if !m.attachRoleBoundary {
+		return nil, awserr.NewRequestFailure(awserr.New(iam.ErrCodeServiceNotSupportedException, "not implemented", nil), 501, "")
+	}
+
+	return &iam.PutRolePermissionsBoundaryOutput{}, nil
 }
 
 func TestEqualStatement(t *testing.T) {
@@ -956,13 +998,13 @@ func TestEqualStatement(t *testing.T) {
 		{
 			name: "different number of conditions",
 			statementA: &Statement{
-				Conditions: map[string]StringOrMap{
+				Conditions: map[string]map[string]SliceOrString{
 					"NumericLessThanEquals": {"aws:MultiFactorAuthAge": []string{"3600"}},
 					"StringLike":            {"s3:prefix": []string{"janedoe/*"}},
 				},
 			},
 			statementB: &Statement{
-				Conditions: map[string]StringOrMap{
+				Conditions: map[string]map[string]SliceOrString{
 					"NumericLessThanEquals": {"aws:MultiFactorAuthAge": []string{"3601"}},
 				},
 			},
@@ -971,12 +1013,12 @@ func TestEqualStatement(t *testing.T) {
 		{
 			name: "different conditions",
 			statementA: &Statement{
-				Conditions: map[string]StringOrMap{
+				Conditions: map[string]map[string]SliceOrString{
 					"NumericLessThanEquals": {"aws:MultiFactorAuthAge": []string{"3600"}},
 				},
 			},
 			statementB: &Statement{
-				Conditions: map[string]StringOrMap{
+				Conditions: map[string]map[string]SliceOrString{
 					"NumericLessThanEquals": {"aws:MultiFactorAuthAge": []string{"3601"}},
 				},
 			},
@@ -985,12 +1027,12 @@ func TestEqualStatement(t *testing.T) {
 		{
 			name: "different condition values",
 			statementA: &Statement{
-				Conditions: map[string]StringOrMap{
+				Conditions: map[string]map[string]SliceOrString{
 					"NumericLessThanEquals": {"aws:MultiFactorAuthAge": []string{"3600", "3601"}},
 				},
 			},
 			statementB: &Statement{
-				Conditions: map[string]StringOrMap{
+				Conditions: map[string]map[string]SliceOrString{
 					"NumericLessThanEquals": {"aws:MultiFactorAuthAge": []string{"3600"}},
 				},
 			},
@@ -1015,7 +1057,7 @@ func TestEqualStatement(t *testing.T) {
 				},
 				Actions:   []string{"s3:GetObject"},
 				Resources: []string{"arn:aws:s3:::my-bucket/my-prefix/*"},
-				Conditions: map[string]StringOrMap{
+				Conditions: map[string]map[string]SliceOrString{
 					"StringLike": {"s3:prefix": []string{"my-prefix/*"}},
 				},
 			},
@@ -1026,7 +1068,7 @@ func TestEqualStatement(t *testing.T) {
 				},
 				Actions:   []string{"s3:GetObject"},
 				Resources: []string{"arn:aws:s3:::my-bucket/my-prefix/*"},
-				Conditions: map[string]StringOrMap{
+				Conditions: map[string]map[string]SliceOrString{
 					"StringLike": {"s3:prefix": []string{"my-prefix/*"}},
 				},
 			},

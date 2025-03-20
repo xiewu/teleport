@@ -16,12 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { AwsOidcPolicyPreset } from 'teleport/services/integrations';
-
 import cfg, {
-  UrlAwsConfigureIamScriptParams,
-  UrlAwsOidcConfigureIdp,
   UrlDeployServiceIamConfigureScriptParams,
+  UrlAwsOidcConfigureIdp,
+  UrlAwsConfigureIamScriptParams,
 } from './config';
 
 test('getDeployServiceIamConfigureScriptPath formatting', async () => {
@@ -30,11 +28,10 @@ test('getDeployServiceIamConfigureScriptPath formatting', async () => {
     region: 'us-east-1',
     awsOidcRoleArn: 'oidc-arn',
     taskRoleArn: 'task-arn',
-    accountID: '123456789012',
   };
   const base =
     'http://localhost/v1/webapi/scripts/integrations/configure/deployservice-iam.sh?';
-  const expected = `integrationName=${'int-name'}&awsRegion=${'us-east-1'}&role=${'oidc-arn'}&taskRole=${'task-arn'}&awsAccountID=${'123456789012'}`;
+  const expected = `integrationName=${'int-name'}&awsRegion=${'us-east-1'}&role=${'oidc-arn'}&taskRole=${'task-arn'}`;
   expect(cfg.getDeployServiceIamConfigureScriptUrl(params)).toBe(
     `${base}${expected}`
   );
@@ -44,11 +41,10 @@ test('getAwsOidcConfigureIdpScriptUrl formatting, without s3 fields', async () =
   const params: UrlAwsOidcConfigureIdp = {
     integrationName: 'int-name',
     roleName: 'role-arn',
-    policyPreset: AwsOidcPolicyPreset.Unspecified,
   };
   const base =
     'http://localhost/v1/webapi/scripts/integrations/configure/awsoidc-idp.sh?';
-  const expected = `integrationName=int-name&role=role-arn&policyPreset=`;
+  const expected = `integrationName=int-name&role=role-arn`;
   expect(cfg.getAwsOidcConfigureIdpScriptUrl(params)).toBe(
     `${base}${expected}`
   );
@@ -57,11 +53,10 @@ test('getAwsOidcConfigureIdpScriptUrl formatting, without s3 fields', async () =
 test('getAwsIamConfigureScriptAppAccessUrl formatting', async () => {
   const params: Omit<UrlAwsConfigureIamScriptParams, 'region'> = {
     iamRoleName: 'role-arn',
-    accountID: '123456789012',
   };
   const base =
     'http://localhost/v1/webapi/scripts/integrations/configure/aws-app-access-iam.sh?';
-  const expected = `role=role-arn&awsAccountID=123456789012`;
+  const expected = `role=role-arn`;
   expect(cfg.getAwsIamConfigureScriptAppAccessUrl(params)).toBe(
     `${base}${expected}`
   );

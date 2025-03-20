@@ -60,10 +60,13 @@ func UnmarshalReverseTunnel(bytes []byte, opts ...MarshalOption) (types.ReverseT
 	case types.V2:
 		var r types.ReverseTunnelV2
 		if err := utils.FastUnmarshal(bytes, &r); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 		if err := ValidateReverseTunnel(&r); err != nil {
 			return nil, trace.Wrap(err)
+		}
+		if cfg.ID != 0 {
+			r.SetResourceID(cfg.ID)
 		}
 		if cfg.Revision != "" {
 			r.SetRevision(cfg.Revision)
@@ -89,7 +92,7 @@ func MarshalReverseTunnel(reverseTunnel types.ReverseTunnel, opts ...MarshalOpti
 
 	switch reverseTunnel := reverseTunnel.(type) {
 	case *types.ReverseTunnelV2:
-		return utils.FastMarshal(maybeResetProtoRevision(cfg.PreserveRevision, reverseTunnel))
+		return utils.FastMarshal(maybeResetProtoResourceID(cfg.PreserveResourceID, reverseTunnel))
 	default:
 		return nil, trace.BadParameter("unrecognized reverse tunnel version %T", reverseTunnel)
 	}

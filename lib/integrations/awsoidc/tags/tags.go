@@ -19,16 +19,14 @@
 package tags
 
 import (
-	"cmp"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 
 	athenatypes "github.com/aws/aws-sdk-go-v2/service/athena/types"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
-	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	ecsTypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	iamTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 
@@ -41,6 +39,7 @@ type AWSTags map[string]string
 func (d AWSTags) String() string {
 	tagsString := make([]string, 0, len(d))
 	for k, v := range d {
+		k, v := k, v
 		tagsString = append(tagsString, fmt.Sprintf("%s:%s", k, v))
 	}
 
@@ -60,38 +59,34 @@ func DefaultResourceCreationTags(clusterName, integrationName string) AWSTags {
 	}
 }
 
-// ToECSTags returns the default tags using the expected type for ECS resources: [ecstypes.Tag]
-func (d AWSTags) ToECSTags() []ecstypes.Tag {
-	ecsTags := make([]ecstypes.Tag, 0, len(d))
+// ToECSTags returns the default tags using the expected type for ECS resources: [ecsTypes.Tag]
+func (d AWSTags) ToECSTags() []ecsTypes.Tag {
+	ecsTags := make([]ecsTypes.Tag, 0, len(d))
 	for k, v := range d {
-		ecsTags = append(ecsTags, ecstypes.Tag{
+		k, v := k, v
+		ecsTags = append(ecsTags, ecsTypes.Tag{
 			Key:   &k,
 			Value: &v,
 		})
 	}
-	slices.SortFunc(ecsTags, func(a, b ecstypes.Tag) int {
-		return cmp.Compare(*a.Key, *b.Key)
-	})
 	return ecsTags
 }
 
-// ToEC2Tags the default tags using the expected type for EC2 resources: [ec2types.Tag]
-func (d AWSTags) ToEC2Tags() []ec2types.Tag {
-	ec2Tags := make([]ec2types.Tag, 0, len(d))
+// ToEC2Tags the default tags using the expected type for EC2 resources: [ec2Types.Tag]
+func (d AWSTags) ToEC2Tags() []ec2Types.Tag {
+	ec2Tags := make([]ec2Types.Tag, 0, len(d))
 	for k, v := range d {
-		ec2Tags = append(ec2Tags, ec2types.Tag{
+		k, v := k, v
+		ec2Tags = append(ec2Tags, ec2Types.Tag{
 			Key:   &k,
 			Value: &v,
 		})
 	}
-	slices.SortFunc(ec2Tags, func(a, b ec2types.Tag) int {
-		return cmp.Compare(*a.Key, *b.Key)
-	})
 	return ec2Tags
 }
 
 // MatchesECSTags checks if the AWSTags are present and have the same value in resourceTags.
-func (d AWSTags) MatchesECSTags(resourceTags []ecstypes.Tag) bool {
+func (d AWSTags) MatchesECSTags(resourceTags []ecsTypes.Tag) bool {
 	resourceTagsMap := make(map[string]string, len(resourceTags))
 	for _, tag := range resourceTags {
 		resourceTagsMap[*tag.Key] = *tag.Value
@@ -108,7 +103,7 @@ func (d AWSTags) MatchesECSTags(resourceTags []ecstypes.Tag) bool {
 }
 
 // MatchesIAMTags checks if the AWSTags are present and have the same value in resourceTags.
-func (d AWSTags) MatchesIAMTags(resourceTags []iamtypes.Tag) bool {
+func (d AWSTags) MatchesIAMTags(resourceTags []iamTypes.Tag) bool {
 	resourceTagsMap := make(map[string]string, len(resourceTags))
 	for _, tag := range resourceTags {
 		resourceTagsMap[*tag.Key] = *tag.Value
@@ -124,18 +119,16 @@ func (d AWSTags) MatchesIAMTags(resourceTags []iamtypes.Tag) bool {
 	return true
 }
 
-// ToIAMTags returns the default tags using the expected type for IAM resources: [iamtypes.Tag]
-func (d AWSTags) ToIAMTags() []iamtypes.Tag {
-	iamTags := make([]iamtypes.Tag, 0, len(d))
+// ToIAMTags returns the default tags using the expected type for IAM resources: [iamTypes.Tag]
+func (d AWSTags) ToIAMTags() []iamTypes.Tag {
+	iamTags := make([]iamTypes.Tag, 0, len(d))
 	for k, v := range d {
-		iamTags = append(iamTags, iamtypes.Tag{
+		k, v := k, v
+		iamTags = append(iamTags, iamTypes.Tag{
 			Key:   &k,
 			Value: &v,
 		})
 	}
-	slices.SortFunc(iamTags, func(a, b iamtypes.Tag) int {
-		return cmp.Compare(*a.Key, *b.Key)
-	})
 	return iamTags
 }
 
@@ -143,14 +136,12 @@ func (d AWSTags) ToIAMTags() []iamtypes.Tag {
 func (d AWSTags) ToS3Tags() []s3types.Tag {
 	s3Tags := make([]s3types.Tag, 0, len(d))
 	for k, v := range d {
+		k, v := k, v
 		s3Tags = append(s3Tags, s3types.Tag{
 			Key:   &k,
 			Value: &v,
 		})
 	}
-	slices.SortFunc(s3Tags, func(a, b s3types.Tag) int {
-		return cmp.Compare(*a.Key, *b.Key)
-	})
 	return s3Tags
 }
 
@@ -158,14 +149,12 @@ func (d AWSTags) ToS3Tags() []s3types.Tag {
 func (d AWSTags) ToAthenaTags() []athenatypes.Tag {
 	athenaTags := make([]athenatypes.Tag, 0, len(d))
 	for k, v := range d {
+		k, v := k, v
 		athenaTags = append(athenaTags, athenatypes.Tag{
 			Key:   &k,
 			Value: &v,
 		})
 	}
-	slices.SortFunc(athenaTags, func(a, b athenatypes.Tag) int {
-		return cmp.Compare(*a.Key, *b.Key)
-	})
 	return athenaTags
 }
 
@@ -173,14 +162,12 @@ func (d AWSTags) ToAthenaTags() []athenatypes.Tag {
 func (d AWSTags) ToSSMTags() []ssmtypes.Tag {
 	ssmTags := make([]ssmtypes.Tag, 0, len(d))
 	for k, v := range d {
+		k, v := k, v
 		ssmTags = append(ssmTags, ssmtypes.Tag{
 			Key:   &k,
 			Value: &v,
 		})
 	}
-	slices.SortFunc(ssmTags, func(a, b ssmtypes.Tag) int {
-		return cmp.Compare(*a.Key, *b.Key)
-	})
 	return ssmTags
 }
 

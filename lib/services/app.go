@@ -69,7 +69,7 @@ func MarshalApp(app types.Application, opts ...MarshalOption) ([]byte, error) {
 			return nil, trace.Wrap(err)
 		}
 
-		return utils.FastMarshal(maybeResetProtoRevision(cfg.PreserveRevision, app))
+		return utils.FastMarshal(maybeResetProtoResourceID(cfg.PreserveResourceID, app))
 	default:
 		return nil, trace.BadParameter("unsupported app resource %T", app)
 	}
@@ -92,10 +92,13 @@ func UnmarshalApp(data []byte, opts ...MarshalOption) (types.Application, error)
 	case types.V3:
 		var app types.AppV3
 		if err := utils.FastUnmarshal(data, &app); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 		if err := app.CheckAndSetDefaults(); err != nil {
 			return nil, trace.Wrap(err)
+		}
+		if cfg.ID != 0 {
+			app.SetResourceID(cfg.ID)
 		}
 		if cfg.Revision != "" {
 			app.SetRevision(cfg.Revision)
@@ -121,7 +124,7 @@ func MarshalAppServer(appServer types.AppServer, opts ...MarshalOption) ([]byte,
 			return nil, trace.Wrap(err)
 		}
 
-		return utils.FastMarshal(maybeResetProtoRevision(cfg.PreserveRevision, appServer))
+		return utils.FastMarshal(maybeResetProtoResourceID(cfg.PreserveResourceID, appServer))
 	default:
 		return nil, trace.BadParameter("unsupported app server resource %T", appServer)
 	}
@@ -144,10 +147,13 @@ func UnmarshalAppServer(data []byte, opts ...MarshalOption) (types.AppServer, er
 	case types.V3:
 		var s types.AppServerV3
 		if err := utils.FastUnmarshal(data, &s); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 		if err := s.CheckAndSetDefaults(); err != nil {
 			return nil, trace.Wrap(err)
+		}
+		if cfg.ID != 0 {
+			s.SetResourceID(cfg.ID)
 		}
 		if cfg.Revision != "" {
 			s.SetRevision(cfg.Revision)
@@ -164,7 +170,7 @@ func UnmarshalAppServer(data []byte, opts ...MarshalOption) (types.AppServer, er
 // It transforms service fields and annotations into appropriate Teleport app fields.
 // Service labels are copied to app labels.
 func NewApplicationFromKubeService(service corev1.Service, clusterName, protocol string, port corev1.ServicePort) (types.Application, error) {
-	appURI := buildAppURI(protocol, GetServiceFQDN(service), service.GetAnnotations()[types.DiscoveryPathLabel], port.Port)
+	appURI := buildAppURI(protocol, GetServiceFQDN(service), port.Port)
 
 	rewriteConfig, err := getAppRewriteConfig(service.GetAnnotations())
 	if err != nil {
@@ -210,11 +216,10 @@ func GetServiceFQDN(service corev1.Service) string {
 	return fmt.Sprintf("%s.%s.svc.%s", service.GetName(), service.GetNamespace(), clusterDomainResolver())
 }
 
-func buildAppURI(protocol, serviceFQDN, path string, port int32) string {
+func buildAppURI(protocol, serviceFQDN string, port int32) string {
 	return (&url.URL{
 		Scheme: protocol,
 		Host:   fmt.Sprintf("%s:%d", serviceFQDN, port),
-		Path:   path,
 	}).String()
 }
 

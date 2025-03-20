@@ -46,6 +46,7 @@ lint:
       - proto/teleport/lib/teleterm/v1/label.proto
       - proto/teleport/lib/teleterm/v1/server.proto
       - proto/teleport/lib/teleterm/v1/service.proto
+      - proto/teleport/lib/teleterm/v1/tshd_events_service.proto
       - proto/teleport/lib/teleterm/v1/usage_events.proto
     COMMENT_RPC:
       - proto/prehog
@@ -56,12 +57,10 @@ lint:
     PACKAGE_DIRECTORY_MATCH:
       - api/proto/teleport/legacy/client/proto/joinservice.proto
       - api/proto/teleport/legacy/types/device.proto
-      - api/proto/teleport/legacy/types/trusted_device_requirement.proto
       - api/proto/teleport/legacy/types/webauthn/webauthn.proto
     PACKAGE_VERSION_SUFFIX:
       - api/proto/teleport/legacy/client/proto/joinservice.proto
       - api/proto/teleport/legacy/types/device.proto
-      - api/proto/teleport/legacy/types/trusted_device_requirement.proto
       - api/proto/teleport/legacy/types/webauthn/webauthn.proto
     RPC_REQUEST_STANDARD_NAME:
       - proto/teleport/lib/teleterm/v1/service.proto
@@ -71,7 +70,6 @@ lint:
       - api/proto/teleport/legacy/client/proto/joinservice.proto
       - api/proto/teleport/transport/v1/transport_service.proto
       - api/proto/teleport/access_graph/v1/secrets_service.proto
-      - api/proto/teleport/workloadidentity/v1/revocation_service.proto
       - proto/accessgraph/v1alpha/access_graph_service.proto
       - proto/teleport/lib/teleterm/v1/service.proto
   disallow_comment_ignores: true

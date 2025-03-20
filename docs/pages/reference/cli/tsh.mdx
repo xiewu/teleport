@@ -317,7 +317,6 @@ $ tsh login [<flags>] [<cluster>]
 | Name | Default Value(s) | Allowed Value(s) | Description |
 | - | - | - | - |
 | `--bind-addr` | none | host:port | Address in the form of host:port to bind to for login command webhook |
-| `--callback` | none | host:port | Override the base URL (host:port) of the link shown when opening a browser for cluster logins. Must be used with --bind-addr.
 | `-o, --out` | none | filepath | Identity output filepath |
 | `--format` | `file` | `file`, `openssh` or `kubernetes` | Identity format: file, openssh (for OpenSSH compatibility) or kubernetes (for kubeconfig) |
 | `--browser` | none | `none` | Set to 'none' to suppress opening system default browser for `tsh login` commands |
@@ -500,23 +499,22 @@ $ tsh mfa rm <device-name>
 Plays back a prior session:
 
 ```code
-$ tsh play [<flags>] <id-or-file>
+$ tsh play [<flags>] <session-id>
 ```
 
 ### Arguments
 
-`<id-or-file>`
+`<session-id>`
 
-- `id-or-file` The UUID of a past Teleport session, or the path to a local recording file.
+- `session-id` The UUID of a past Teleport Session obtained by `teleport status` within
+  the session or from the Web UI.
 
 ### Flags
 
 | Name | Default Value(s) | Allowed Value(s) | Description |
 | - | - | - | - |
-| `--cluster` | none   | a cluster_name                 | Specify the cluster to connect |
-| `--format`  | `pty`  | `json`, `yaml`, `pty`, `text`  | Format for playback |
-| `--speed`   | `1x`   | `0.5x`, `1x`, `2x`, `4x`, `8x` | Playback speed |
-| `--skip-idle-time` | `false` | `true, `false` | Skip idle time during playback |
+| `--cluster` | none | a cluster_name | Specify the cluster to connect |
+| `--format`  | `pty`  | json, pty | Format for playback |
 
 ### Global flags
 
@@ -528,17 +526,11 @@ Run `tsh help <subcommand>` or see the [Global Flags section](#tsh-global-flags)
 ```code
 $ tsh --proxy proxy.example.com play <session-id>
 
-# Playing back a session streamed from the server.
-$ tsh play 1fe153d1-ce8b-4ef4-9908-6539457ba4ad
+# Playing back a session using pty format using a downloaded session recording.
+$ tsh play --format=pty 1fe153d1-ce8b-4ef4-9908-6539457ba4ad.tar
 
-# Playing back a local session in JSON format using jq to filter on events
+# Playing back a session in json format using jq to filter on events
 $ tsh play --format=json ~/play/0c0b81ed-91a9-4a2a-8d7c-7495891a6ca0.tar | jq '.event
-
-# Playing back a session at 2x speed while also skipping idle time
-$ tsh play --speed=2x --skip-idle-time 1fe153d1-ce8b-4ef4-9908-6539457ba4ad
-
-# Dump an SSH session recording to standard out, without respecting timing data.
-$ tsh play --format=text 1fe153d1-ce8b-4ef4-9908-6539457ba4ad
 ```
 
 ## tsh proxy app
@@ -592,6 +584,7 @@ $ tsh proxy aws [<flags>]
 | - | - | - | - |
 | `--app` | Currently logged in AWS app | string | Optional name of the AWS application (as shown in `tsh apps ls`) to use if logged in to multiple |
 | `-p`, `--port` | none | port number | Specify the source port for the local proxy |
+| `-e`, `--endpoint-url` | HTTP Proxy | Endpoint URL | Run the local proxy to serve as an AWS endpoint URL. If not specified, the local proxy serves as an HTTPS proxy. |
 | `-f`, `--format` | unix | `text`, `unix`, `command-prompt`, or `powershell` | Optional format for printing environment variables for the AWS proxy |
 
 ### [Global Flags](#tsh-global-flags)
@@ -899,7 +892,7 @@ in their [storage backend](../../reference/backends.mdx).
 The following error can occur if a session recording file is not available or
 when employing multiple auth servers with directory storage backend for recorded
 sessions. When using a directory storage backend for audit logs and recorded sessions,
-only the Auth Service with that recorded session can retrieve it.
+only the auth server with that recorded session can retrieve it.
 
 ```code
 $ tsh play c8e1b2c5-322a-4095-89e3-391edfd2da9b
@@ -953,7 +946,7 @@ lifetime.
 
 ## tsh request drop
 
-Drop one or more Access Requests from current identity
+Drop one or more access requests from current identity
 
 ```code
 $ tsh request drop [<request-id>...]
@@ -1130,36 +1123,6 @@ $ tsh ssh -o AddKeysToAgent=yes root@grav-00
 $ tsh ssh root@env=aws hostname
 ```
 
-## tsh sessions ls
-
-List active sessions. The resulting list includes only the sessions that the
-caller has permission to join, unless they have a role with explicit `list`
-access on the `session_tracker` resource.
-
-```code
-$ tsh sessions ls
-```
-
-### Flags
-
-| Name | Default Value(s) | Allowed Value(s) | Description |
-| - | - | - | - |
-| `-f, --format` | text | text, json, yaml | Format for output |
-| `--kind` | none | ssh, k8s, db, app, desktop | Optionally filter by session kind(s) |
-
-### Examples
-
-```code
-# list all active sessions
-$ tsh sessions ls
-
-# list all SSH and desktop sessions
-$ tsh sessions ls --kind=ssh --kind=desktop
-
-# list all Kubernetes sessions in JSON format
-$ tsh sessions ls --kind=k8s --format=json
-```
-
 ## tsh status
 
 Display the list of proxy servers and retrieved certificates:
@@ -1229,3 +1192,4 @@ Only display the `tsh` binary version:
 $ tsh version --client
 Teleport v(=teleport.version=) git: go(=teleport.golang=)
 ```
+

@@ -17,14 +17,15 @@
  */
 
 import {
-  addDays,
   addHours,
+  addDays,
+  isAfter,
   addWeeks,
   differenceInHours,
-  isAfter,
 } from 'date-fns';
 
 import { Option } from 'shared/components/Select';
+
 import { AccessRequest } from 'shared/services/accessRequests';
 
 import { getFormattedDurationTxt } from '../Shared/utils';

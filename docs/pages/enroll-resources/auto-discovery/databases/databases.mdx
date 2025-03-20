@@ -42,8 +42,6 @@ information such as:
   - Imported database tags
   - Database location/region
   - Cloud account information, e.g. AWS Account ID / Azure Subscription ID
-  - The type of database discovered corresponding to the matcher type, e.g.
-    "rds", "redshift", etc.
 - *Endpoint Info*: Connection endpoint the database can be reached at
 
 <Admonition type="tip">
@@ -75,6 +73,14 @@ Here's an example database discovery configuration for the Discovery Service:
 ```yaml
 discovery_service:
     enabled: true
+    # discovery_group is used to group discovered resources into different
+    # sets. This is required when you have multiple Teleport Discovery services
+    # running. It prevents discovered services from colliding in Teleport when
+    # managing discovered resources.
+    # If two Discovery Services match the same resources, they must be in the
+    # same discovery group.
+    # If two Discovery Services match different resources, they must be in
+    # different discovery groups.
     discovery_group: "disc-group"
     # poll_interval is the cadence at which the discovery server will run each of its
     # discovery cycles. The default is 5m.
@@ -90,7 +96,6 @@ discovery_service:
       # 'elasticache' - Amazon ElastiCache Redis databases.
       # 'memorydb' - Amazon MemoryDB Redis databases.
       # 'opensearch' - Amazon OpenSearch Redis databases.
-      # 'docdb' - Amazon DocumentDB databases.
     - types: ["rds"]
       # AWS regions to search for resources from
       regions: ["us-east-1","us-west-1"]
@@ -144,9 +149,9 @@ Here's how it works in detail:
   the us-east-1 and us-west-1 regions and register `db` resources in your
   Teleport cluster for any RDS databases that have the AWS tag "env: prod".
 
-For more information about Discovery Service configuration, refer to
-[one of the guides above](#supported-clouds) or the
-[Discovery Service Config File Reference](../../../reference/config.mdx).
+For more information about Discovery Service configuration, refer to [one of the
+guides above](#supported-clouds) or the [Discovery Service Config File
+Reference](../../../reference/config.mdx).
 
 ## How the Database Service works
 

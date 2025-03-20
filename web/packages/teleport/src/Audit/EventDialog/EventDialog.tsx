@@ -16,16 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import PropTypes from 'prop-types';
-
-import { ButtonSecondary } from 'design';
+import TextEditor from 'shared/components/TextEditor';
 import Dialog, {
-  DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogContent,
 } from 'design/Dialog';
-import TextEditor from 'shared/components/TextEditor';
+
+import { ButtonSecondary } from 'design';
 
 import { Event } from 'teleport/services/audit';
 
@@ -46,7 +47,9 @@ function EventDialog(props: EventDialogProps) {
       open={true}
     >
       <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
+        <DialogTitle typography="body1" caps={true} bold>
+          {title}
+        </DialogTitle>
       </DialogHeader>
       <DialogContent>
         <TextEditor readOnly={true} data={[{ content: json, type: 'json' }]} />

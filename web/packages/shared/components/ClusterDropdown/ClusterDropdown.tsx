@@ -16,16 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { useEffect, useState } from 'react';
-import { useHistory } from 'react-router';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-
+import { useHistory } from 'react-router';
 import { Box, ButtonSecondary, Flex, Menu, MenuItem, Text } from 'design';
 import { ChevronDown } from 'design/Icon';
-import { HoverTooltip } from 'design/Tooltip';
-
 import cfg from 'teleport/config';
 import { Cluster } from 'teleport/services/clusters';
+
+import { HoverTooltip } from 'shared/components/ToolTip';
 
 export interface ClusterDropdownProps {
   clusterLoader: ClusterLoader;
@@ -151,7 +150,15 @@ export function ClusterDropdown({
   return (
     <Flex textAlign="center" alignItems="center" mb={mb}>
       <HoverTooltip tipContent={'Select cluster'}>
-        <ButtonSecondary size="small" onClick={handleOpen}>
+        <ButtonSecondary
+          px={2}
+          css={`
+            border-color: ${props => props.theme.colors.spotBackground[0]};
+          `}
+          textTransform="none"
+          size="small"
+          onClick={handleOpen}
+        >
           Cluster: {selectedOption.label}
           <ChevronDown ml={2} size="small" color="text.slightlyMuted" />
         </ButtonSecondary>
@@ -239,7 +246,7 @@ const ClusterFilter = styled.input(
     border: none;
   }
 
-  &::placeholder {
+  ::placeholder {
     color: ${theme.colors.text.muted};
     opacity: 1;
   }

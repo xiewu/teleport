@@ -19,6 +19,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 
 import cfg from 'teleport/config';
+
 // Imports to be mocked
 import { fetchClusterAlerts } from 'teleport/services/alerts'; // eslint-disable-line
 import useStickyClusterId from 'teleport/useStickyClusterId'; // eslint-disable-line

@@ -19,27 +19,18 @@
 import React from 'react';
 import { useLocation } from 'react-router';
 import { Prompt } from 'react-router-dom';
+import { Box } from 'design';
 
-import { Box, Flex } from 'design';
-
-import { FeatureBox } from 'teleport/components/Layout';
-import { InfoGuideWrapper } from 'teleport/components/SlidingSidePanel/InfoGuideSidePanel';
-import { findViewAtIndex } from 'teleport/components/Wizard/flow';
 import { Navigation } from 'teleport/components/Wizard/Navigation';
-import cfg from 'teleport/config';
-import type { View } from 'teleport/Discover/flow';
+import { FeatureBox } from 'teleport/components/Layout';
 import { SelectResource } from 'teleport/Discover/SelectResource/SelectResource';
-import { DiscoverBox } from 'teleport/Discover/Shared';
-import { DiscoverEvent } from 'teleport/services/userEvent';
+import cfg from 'teleport/config';
+import { findViewAtIndex } from 'teleport/components/Wizard/flow';
 
-import { getOverview } from './Overview/Overview';
-import { DiscoverIcon } from './SelectResource/icons';
 import { EViewConfigs } from './types';
-import {
-  DiscoverProvider,
-  DiscoverUpdateProps,
-  useDiscover,
-} from './useDiscover';
+
+import { DiscoverProvider, useDiscover } from './useDiscover';
+import { DiscoverIcon } from './SelectResource/icons';
 
 function DiscoverContent() {
   const {
@@ -50,43 +41,19 @@ function DiscoverContent() {
     ...agentProps
   } = useDiscover();
 
-  let currentView: View | undefined;
-  let content: React.ReactNode;
-
+  let content;
   const hasSelectedResource = Boolean(viewConfig);
-
   if (hasSelectedResource) {
-    currentView = findViewAtIndex(indexedViews, currentStep);
+    const view = findViewAtIndex(indexedViews, currentStep);
 
-    const Component = currentView.component;
+    const Component = view.component;
 
-    const overview = getOverview({ resourceSpec: agentProps.resourceSpec });
-
-    if (!overview) {
-      content = (
-        <DiscoverBox>
-          <Component {...agentProps} />
-        </DiscoverBox>
-      );
-    } else {
-      content = (
-        <Flex alignItems="flex-start" gap={2}>
-          <DiscoverBox>
-            <Component {...agentProps} />
-          </DiscoverBox>
-          <Box mt={1}>
-            <InfoGuideWrapper guide={overview} />
-          </Box>
-        </Flex>
-      );
-    }
+    content = <Component {...agentProps} />;
 
     if (viewConfig.wrapper) {
       content = viewConfig.wrapper(content);
     }
   } else {
-    currentView = undefined;
-
     content = (
       <SelectResource onSelect={resource => onSelectResource(resource)} />
     );
@@ -96,7 +63,7 @@ function DiscoverContent() {
     <>
       <FeatureBox>
         {hasSelectedResource && (
-          <Box mt={3} mb={6}>
+          <Box mt={2} mb={7}>
             <Navigation
               currentStep={currentStep}
               views={indexedViews}
@@ -118,12 +85,8 @@ function DiscoverContent() {
           }}
           when={
             viewConfig.shouldPrompt
-              ? viewConfig.shouldPrompt(
-                  currentStep,
-                  currentView,
-                  agentProps.resourceSpec
-                )
-              : currentView?.eventName !== DiscoverEvent.Completed
+              ? viewConfig.shouldPrompt(currentStep, agentProps.resourceSpec)
+              : true
           }
         />
       )}
@@ -131,17 +94,10 @@ function DiscoverContent() {
   );
 }
 
-export function DiscoverComponent({
-  eViewConfigs = [],
-  updateFlow,
-}: DiscoverComponentProps) {
+export function DiscoverComponent({ eViewConfigs = [] }: Props) {
   const location = useLocation();
   return (
-    <DiscoverProvider
-      eViewConfigs={eViewConfigs}
-      key={location.key}
-      updateFlow={updateFlow}
-    >
+    <DiscoverProvider eViewConfigs={eViewConfigs} key={location.key}>
       <DiscoverContent />
     </DiscoverProvider>
   );
@@ -151,7 +107,6 @@ export function Discover() {
   return <DiscoverComponent />;
 }
 
-export type DiscoverComponentProps = {
+type Props = {
   eViewConfigs?: EViewConfigs;
-  updateFlow?: DiscoverUpdateProps;
 };

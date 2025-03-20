@@ -16,18 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-import { Link, MemoryRouter } from 'react-router-dom';
+import React, { useState } from 'react';
+import { MemoryRouter, Link } from 'react-router-dom';
 
 import { Box, ButtonPrimary, ButtonText } from 'design';
+
 import { Option } from 'shared/components/Select';
 
 import { dryRunResponse } from '../../fixtures';
 import { useSpecifiableFields } from '../useSpecifiableFields';
-import {
-  RequestCheckoutWithSlider,
-  RequestCheckoutWithSliderProps,
-} from './RequestCheckout';
+
+import { RequestCheckout, RequestCheckoutProps } from './RequestCheckout';
 
 export default {
   title: 'Shared/AccessRequests/Checkout',
@@ -66,7 +65,7 @@ export const Loaded = () => {
 
   return (
     <MemoryRouter>
-      <RequestCheckoutWithSlider {...baseProps} {...props} />
+      <RequestCheckout {...baseProps} {...props} />
     </MemoryRouter>
   );
 };
@@ -77,9 +76,9 @@ export const Empty = () => {
 
   return (
     <MemoryRouter>
-      <RequestCheckoutWithSlider
+      <RequestCheckout
         {...baseProps}
-        pendingAccessRequests={[]}
+        data={[]}
         selectedReviewers={selectedReviewers}
         setSelectedReviewers={setSelectedReviewers}
         maxDuration={maxDuration}
@@ -93,7 +92,7 @@ export const Empty = () => {
 
 export const Failed = () => (
   <MemoryRouter>
-    <RequestCheckoutWithSlider
+    <RequestCheckout
       {...baseProps}
       requireReason={false}
       createAttempt={{
@@ -114,7 +113,7 @@ export const LoadedResourceRequest = () => {
     useState(baseProps.resourceRequestRoles);
   return (
     <MemoryRouter>
-      <RequestCheckoutWithSlider
+      <RequestCheckout
         {...baseProps}
         isResourceRequest={true}
         fetchResourceRequestRolesAttempt={{ status: 'success' }}
@@ -129,7 +128,7 @@ export const LoadedResourceRequest = () => {
 
 export const ProcessingResourceRequest = () => (
   <MemoryRouter>
-    <RequestCheckoutWithSlider
+    <RequestCheckout
       {...baseProps}
       isResourceRequest={true}
       fetchResourceRequestRolesAttempt={{ status: 'processing' }}
@@ -139,7 +138,7 @@ export const ProcessingResourceRequest = () => (
 
 export const FailedResourceRequest = () => (
   <MemoryRouter>
-    <RequestCheckoutWithSlider
+    <RequestCheckout
       {...baseProps}
       isResourceRequest={true}
       fetchResourceRequestRolesAttempt={{
@@ -150,35 +149,9 @@ export const FailedResourceRequest = () => (
   </MemoryRouter>
 );
 
-export const FailedUnsupportedKubeResourceKindWithTooltip = () => (
-  <MemoryRouter>
-    <RequestCheckoutWithSlider
-      {...baseProps}
-      isResourceRequest={true}
-      fetchResourceRequestRolesAttempt={{
-        status: 'failed',
-        statusText: `your Teleport role's "request.kubernetes_resources" field did not allow requesting to some or all of the requested Kubernetes resources. allowed kinds for each requestable roles: test-role-1: [deployment], test-role-2: [pod secret configmap service serviceaccount kube_node persistentvolume persistentvolumeclaim deployment replicaset statefulset daemonset clusterrole kube_role clusterrolebinding rolebinding cronjob job certificatesigningrequest ingress]`,
-      }}
-    />
-  </MemoryRouter>
-);
-
-export const FailedUnsupportedKubeResourceKindWithoutTooltip = () => (
-  <MemoryRouter>
-    <RequestCheckoutWithSlider
-      {...baseProps}
-      isResourceRequest={true}
-      fetchResourceRequestRolesAttempt={{
-        status: 'failed',
-        statusText: `your Teleport role's "request.kubernetes_resources" field did not allow requesting to some or all of the requested Kubernetes resources. allowed kinds for each requestable roles: test-role-1: [deployment]`,
-      }}
-    />
-  </MemoryRouter>
-);
-
 export const Success = () => (
   <MemoryRouter initialEntries={['']}>
-    <RequestCheckoutWithSlider
+    <RequestCheckout
       {...baseProps}
       requireReason={false}
       createAttempt={{ status: 'success' }}
@@ -187,14 +160,7 @@ export const Success = () => (
   </MemoryRouter>
 );
 
-const baseProps: RequestCheckoutWithSliderProps = {
-  fetchKubeNamespaces: async () => [
-    'namespace1',
-    'namespace2',
-    'namespace3',
-    'namespace4',
-  ],
-  updateNamespacesForKubeCluster: () => null,
+const baseProps: RequestCheckoutProps = {
   createAttempt: { status: '' },
   fetchResourceRequestRolesAttempt: { status: '' },
   isResourceRequest: false,
@@ -208,7 +174,7 @@ const baseProps: RequestCheckoutWithSliderProps = {
   ],
   setSelectedReviewers: () => null,
   createRequest: () => null,
-  pendingAccessRequests: [
+  data: [
     {
       kind: 'app',
       name: 'app-name',
@@ -233,16 +199,6 @@ const baseProps: RequestCheckoutWithSliderProps = {
       kind: 'windows_desktop',
       name: 'desktop-name',
       id: 'app-name',
-    },
-    {
-      kind: 'saml_idp_service_provider',
-      name: 'app-saml',
-      id: 'app-name',
-    },
-    {
-      kind: 'aws_ic_account_assignment',
-      name: 'account1',
-      id: 'admin-on-account1',
     },
   ],
   clearAttempt: () => null,

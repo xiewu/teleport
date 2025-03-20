@@ -28,7 +28,6 @@ export interface AccessStrategy {
 export interface AccessCapabilities {
   requestableRoles: string[];
   suggestedReviewers: string[];
-  requireReason: boolean;
 }
 
 export interface UserContext {
@@ -72,7 +71,6 @@ export interface AccessWithUse extends Access {
 
 export interface Acl {
   directorySharingEnabled: boolean;
-  reviewRequests: boolean;
   desktopSessionRecordingEnabled: boolean;
   clipboardSharingEnabled: boolean;
   authConnectors: Access;
@@ -94,11 +92,11 @@ export interface Acl {
   connectionDiagnostic: Access;
   license: Access;
   download: Access;
-  discoverConfigs: Access;
   plugins: Access;
   integrations: AccessWithUse;
   deviceTrust: Access;
   lock: Access;
+  assist: Access;
   samlIdpServiceProvider: Access;
   accessList: Access;
   auditQuery: Access;
@@ -107,9 +105,6 @@ export interface Acl {
   accessGraph: Access;
   bots: Access;
   accessMonitoringRule: Access;
-  contacts: Access;
-  fileTransferAccess: boolean;
-  gitServers: Access;
 }
 
 // AllTraits represent all the traits defined for a user.

@@ -68,7 +68,7 @@ func TestPing(t *testing.T) {
 			},
 			assertResp: func(cap types.AuthPreference, resp *webclient.PingResponse) {
 				assert.Equal(t, cap.GetType(), resp.Auth.Type)
-				assert.Equal(t, constants.SecondFactorOn, resp.Auth.SecondFactor)
+				assert.Equal(t, cap.GetSecondFactor(), resp.Auth.SecondFactor)
 				assert.NotEmpty(t, cap.GetPreferredLocalMFA(), "preferred local MFA empty")
 				assert.NotNil(t, resp.Auth.Local, "Auth.Local expected")
 
@@ -79,48 +79,6 @@ func TestPing(t *testing.T) {
 				webCfg, _ := cap.GetWebauthn()
 				require.NotNil(t, resp.Auth.Webauthn)
 				assert.Equal(t, webCfg.RPID, resp.Auth.Webauthn.RPID)
-
-				assert.Equal(t, types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_UNSPECIFIED, resp.Auth.SignatureAlgorithmSuite)
-			},
-		},
-		{
-			name: "OK local auth SecondFactors",
-			spec: &types.AuthPreferenceSpecV2{
-				Type: constants.Local,
-				SecondFactors: []types.SecondFactorType{
-					types.SecondFactorType_SECOND_FACTOR_TYPE_WEBAUTHN,
-				},
-				U2F: &types.U2F{
-					AppID: "https://example.com",
-				},
-				Webauthn: &types.Webauthn{
-					RPID: "example.com",
-				},
-			},
-			assertResp: func(cap types.AuthPreference, resp *webclient.PingResponse) {
-				assert.Equal(t, cap.GetType(), resp.Auth.Type)
-				assert.Equal(t, constants.SecondFactorWebauthn, resp.Auth.SecondFactor)
-				assert.NotEmpty(t, cap.GetPreferredLocalMFA(), "preferred local MFA empty")
-				assert.NotNil(t, resp.Auth.Local, "Auth.Local expected")
-
-				u2f, _ := cap.GetU2F()
-				require.NotNil(t, resp.Auth.U2F)
-				assert.Equal(t, u2f.AppID, resp.Auth.U2F.AppID)
-
-				webCfg, _ := cap.GetWebauthn()
-				require.NotNil(t, resp.Auth.Webauthn)
-				assert.Equal(t, webCfg.RPID, resp.Auth.Webauthn.RPID)
-
-				assert.Equal(t, types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_UNSPECIFIED, resp.Auth.SignatureAlgorithmSuite)
-			},
-		},
-		{
-			name: "OK signature algorithm suite",
-			spec: &types.AuthPreferenceSpecV2{
-				SignatureAlgorithmSuite: types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1,
-			},
-			assertResp: func(cap types.AuthPreference, resp *webclient.PingResponse) {
-				assert.Equal(t, types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1, resp.Auth.SignatureAlgorithmSuite)
 			},
 		},
 		{
@@ -168,6 +126,7 @@ func TestPing(t *testing.T) {
 				},
 			},
 			assertResp: func(_ types.AuthPreference, resp *webclient.PingResponse) {
+				assert.True(t, resp.Auth.DeviceTrustDisabled, "Auth.DeviceTrustDisabled")
 				assert.True(t, resp.Auth.DeviceTrust.Disabled, "Auth.DeviceTrust.Disabled")
 			},
 		},
@@ -185,6 +144,7 @@ func TestPing(t *testing.T) {
 				},
 			},
 			assertResp: func(_ types.AuthPreference, resp *webclient.PingResponse) {
+				assert.False(t, resp.Auth.DeviceTrustDisabled, "Auth.DeviceTrustDisabled")
 				assert.False(t, resp.Auth.DeviceTrust.Disabled, "Auth.DeviceTrust.Disabled")
 			},
 		},
@@ -203,6 +163,7 @@ func TestPing(t *testing.T) {
 				},
 			},
 			assertResp: func(_ types.AuthPreference, resp *webclient.PingResponse) {
+				assert.False(t, resp.Auth.DeviceTrustDisabled, "Auth.DeviceTrustDisabled")
 				assert.False(t, resp.Auth.DeviceTrust.Disabled, "Auth.DeviceTrust.Disabled")
 				assert.True(t, resp.Auth.DeviceTrust.AutoEnroll, "Auth.DeviceTrust.AutoEnroll")
 			},
@@ -299,69 +260,26 @@ func TestPing_autoUpdateResources(t *testing.T) {
 		name     string
 		config   *autoupdatev1pb.AutoUpdateConfigSpec
 		version  *autoupdatev1pb.AutoUpdateVersionSpec
-		rollout  *autoupdatev1pb.AutoUpdateAgentRolloutSpec
 		cleanup  bool
 		expected webclient.AutoUpdateSettings
 	}{
 		{
 			name: "resources not defined",
 			expected: webclient.AutoUpdateSettings{
-				ToolsVersion:             api.Version,
-				ToolsAutoUpdate:          false,
-				AgentUpdateJitterSeconds: DefaultAgentUpdateJitterSeconds,
-				AgentAutoUpdate:          false,
-				AgentVersion:             api.Version,
+				ToolsVersion:    api.Version,
+				ToolsAutoUpdate: false,
 			},
 		},
 		{
-			name: "enable tools auto update",
+			name: "enable auto update",
 			config: &autoupdatev1pb.AutoUpdateConfigSpec{
 				Tools: &autoupdatev1pb.AutoUpdateConfigSpecTools{
 					Mode: autoupdate.ToolsUpdateModeEnabled,
 				},
 			},
 			expected: webclient.AutoUpdateSettings{
-				ToolsAutoUpdate:          true,
-				ToolsVersion:             api.Version,
-				AgentUpdateJitterSeconds: DefaultAgentUpdateJitterSeconds,
-				AgentAutoUpdate:          false,
-				AgentVersion:             api.Version,
-			},
-			cleanup: true,
-		},
-		{
-			name: "enable agent auto update, immediate schedule",
-			rollout: &autoupdatev1pb.AutoUpdateAgentRolloutSpec{
-				AutoupdateMode: autoupdate.AgentsUpdateModeEnabled,
-				Strategy:       autoupdate.AgentsStrategyHaltOnError,
-				Schedule:       autoupdate.AgentsScheduleImmediate,
-				StartVersion:   "1.2.3",
-				TargetVersion:  "1.2.4",
-			},
-			expected: webclient.AutoUpdateSettings{
-				ToolsVersion:             api.Version,
-				ToolsAutoUpdate:          false,
-				AgentUpdateJitterSeconds: DefaultAgentUpdateJitterSeconds,
-				AgentAutoUpdate:          true,
-				AgentVersion:             "1.2.4",
-			},
-			cleanup: true,
-		},
-		{
-			name: "agent rollout present but AU mode is disabled",
-			rollout: &autoupdatev1pb.AutoUpdateAgentRolloutSpec{
-				AutoupdateMode: autoupdate.AgentsUpdateModeDisabled,
-				Strategy:       autoupdate.AgentsStrategyHaltOnError,
-				Schedule:       autoupdate.AgentsScheduleImmediate,
-				StartVersion:   "1.2.3",
-				TargetVersion:  "1.2.4",
-			},
-			expected: webclient.AutoUpdateSettings{
-				ToolsVersion:             api.Version,
-				ToolsAutoUpdate:          false,
-				AgentUpdateJitterSeconds: DefaultAgentUpdateJitterSeconds,
-				AgentAutoUpdate:          false,
-				AgentVersion:             "1.2.4",
+				ToolsAutoUpdate: true,
+				ToolsVersion:    api.Version,
 			},
 			cleanup: true,
 		},
@@ -370,11 +288,8 @@ func TestPing_autoUpdateResources(t *testing.T) {
 			config:  &autoupdatev1pb.AutoUpdateConfigSpec{},
 			version: &autoupdatev1pb.AutoUpdateVersionSpec{},
 			expected: webclient.AutoUpdateSettings{
-				ToolsVersion:             api.Version,
-				ToolsAutoUpdate:          false,
-				AgentUpdateJitterSeconds: DefaultAgentUpdateJitterSeconds,
-				AgentAutoUpdate:          false,
-				AgentVersion:             api.Version,
+				ToolsVersion:    api.Version,
+				ToolsAutoUpdate: false,
 			},
 			cleanup: true,
 		},
@@ -386,11 +301,8 @@ func TestPing_autoUpdateResources(t *testing.T) {
 				},
 			},
 			expected: webclient.AutoUpdateSettings{
-				ToolsVersion:             "1.2.3",
-				ToolsAutoUpdate:          false,
-				AgentUpdateJitterSeconds: DefaultAgentUpdateJitterSeconds,
-				AgentAutoUpdate:          false,
-				AgentVersion:             api.Version,
+				ToolsVersion:    "1.2.3",
+				ToolsAutoUpdate: false,
 			},
 			cleanup: true,
 		},
@@ -407,11 +319,8 @@ func TestPing_autoUpdateResources(t *testing.T) {
 				},
 			},
 			expected: webclient.AutoUpdateSettings{
-				ToolsAutoUpdate:          true,
-				ToolsVersion:             "1.2.3",
-				AgentUpdateJitterSeconds: DefaultAgentUpdateJitterSeconds,
-				AgentAutoUpdate:          false,
-				AgentVersion:             api.Version,
+				ToolsAutoUpdate: true,
+				ToolsVersion:    "1.2.3",
 			},
 		},
 		{
@@ -427,11 +336,8 @@ func TestPing_autoUpdateResources(t *testing.T) {
 				},
 			},
 			expected: webclient.AutoUpdateSettings{
-				ToolsAutoUpdate:          false,
-				ToolsVersion:             "3.2.1",
-				AgentUpdateJitterSeconds: DefaultAgentUpdateJitterSeconds,
-				AgentAutoUpdate:          false,
-				AgentVersion:             api.Version,
+				ToolsAutoUpdate: false,
+				ToolsVersion:    "3.2.1",
 			},
 		},
 	}
@@ -447,12 +353,6 @@ func TestPing_autoUpdateResources(t *testing.T) {
 				version, err := autoupdate.NewAutoUpdateVersion(tc.version)
 				require.NoError(t, err)
 				_, err = env.server.Auth().UpsertAutoUpdateVersion(ctx, version)
-				require.NoError(t, err)
-			}
-			if tc.rollout != nil {
-				rollout, err := autoupdate.NewAutoUpdateAgentRollout(tc.rollout)
-				require.NoError(t, err)
-				_, err = env.server.Auth().UpsertAutoUpdateAgentRollout(ctx, rollout)
 				require.NoError(t, err)
 			}
 
@@ -473,7 +373,6 @@ func TestPing_autoUpdateResources(t *testing.T) {
 			if tc.cleanup {
 				require.NotErrorIs(t, env.server.Auth().DeleteAutoUpdateConfig(ctx), &trace.NotFoundError{})
 				require.NotErrorIs(t, env.server.Auth().DeleteAutoUpdateVersion(ctx), &trace.NotFoundError{})
-				require.NotErrorIs(t, env.server.Auth().DeleteAutoUpdateAgentRollout(ctx), &trace.NotFoundError{})
 			}
 		})
 	}

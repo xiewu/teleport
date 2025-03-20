@@ -31,7 +31,7 @@ func TestIsFIPSEnabled(t *testing.T) {
 	tests := []struct {
 		name        string
 		fips        bool
-		envVarValue string // value for the _DISABLE_FIPS environment variable
+		envVarValue string
 		want        bool
 	}{
 		{

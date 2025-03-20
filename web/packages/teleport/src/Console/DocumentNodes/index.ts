@@ -17,5 +17,4 @@
  */
 
 import DocumentNodes from './DocumentNodes';
-
 export default DocumentNodes;

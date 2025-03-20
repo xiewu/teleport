@@ -3,10 +3,6 @@ title: Application Access Reference Documentation
 description: Configuration and CLI reference documentation for Teleport application access.
 ---
 
-This guide describes interfaces and options for interacting with the Teleport
-Application Service, including the static configuration file for the `teleport`
-binary, the dynamic `app` resource, and `tsh apps` commands.
-
 ## Configuration
 
 (!docs/pages/includes/backup-warning.mdx!)
@@ -39,14 +35,6 @@ app_service:
     public_addr: "grafana.teleport.example.com"
     # Rewrites section.
     rewrite:
-      # Specify whether to include roles or traits in the JWT.
-      # Options:
-      # - roles-and-traits: include both roles and traits
-      # - roles: include only roles
-      # - traits: include only traits
-      # - none: exclude both roles and traits from the JWT token
-      # Default: roles-and-traits
-      jwt_claims: roles-and-traits
       # Rewrite the "Location" header on redirect responses replacing the
       # host with the public address of this application.
       redirect:
@@ -76,7 +64,7 @@ app_service:
 ```
 
 For full details on configuring Teleport roles, including how Teleport
-populates the `external` traits, see the [Access Controls
+populates the `external` traits, see the [Teleport Access Controls
 Reference](../access-controls/roles.mdx).
 
 ## Application resource

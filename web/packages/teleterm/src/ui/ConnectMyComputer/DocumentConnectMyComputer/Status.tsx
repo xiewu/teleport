@@ -16,47 +16,48 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { useCallback, useRef } from 'react';
-import { Transition } from 'react-transition-group';
-import styled, { css } from 'styled-components';
-
+import React, { useCallback } from 'react';
 import {
   Alert,
   Box,
   ButtonPrimary,
-  ButtonSecondary,
   Flex,
-  H1,
   Label,
+  Link,
   MenuItem,
   Text,
+  ButtonSecondary,
 } from 'design';
-import * as icons from 'design/Icon';
-import type { IconProps } from 'design/Icon/Icon';
-import Indicator from 'design/Indicator';
-import { MenuIcon } from 'shared/components/MenuAction';
+import styled, { css } from 'styled-components';
+import { Transition } from 'react-transition-group';
 
 import { makeLabelTag } from 'teleport/components/formatters';
-import type * as tsh from 'teleterm/services/tshd/types';
-import { useAppContext } from 'teleterm/ui/appContextProvider';
+import { MenuIcon } from 'shared/components/MenuAction';
+import * as icons from 'design/Icon';
+import Indicator from 'design/Indicator';
+
 import {
   AgentProcessError,
   CurrentAction,
   NodeWaitJoinTimeout,
   useConnectMyComputerContext,
 } from 'teleterm/ui/ConnectMyComputer';
-import { useWorkspaceContext } from 'teleterm/ui/Documents';
-import { connectToServer } from 'teleterm/ui/services/workspacesService';
 import { assertUnreachable } from 'teleterm/ui/utils';
 import { codeOrSignal } from 'teleterm/ui/utils/process';
+import { connectToServer } from 'teleterm/ui/services/workspacesService';
+import { useAppContext } from 'teleterm/ui/appContextProvider';
+import { useWorkspaceContext } from 'teleterm/ui/Documents';
 
-import { CompatibilityError, useVersions } from '../CompatibilityPromise';
+import { useAgentProperties } from '../useAgentProperties';
 import { Logs } from '../Logs';
+import { CompatibilityError, useVersions } from '../CompatibilityPromise';
 import {
   shouldShowAgentUpgradeSuggestion,
   UpgradeAgentSuggestion,
 } from '../UpgradeAgentSuggestion';
-import { useAgentProperties } from '../useAgentProperties';
+
+import type * as tsh from 'teleterm/services/tshd/types';
+import type { IconProps } from 'design/Icon/Icon';
 
 export function Status(props: { closeDocument?: () => void }) {
   const ctx = useAppContext();
@@ -79,7 +80,7 @@ export function Status(props: { closeDocument?: () => void }) {
   const downloadAndStartAgentAndIgnoreErrors = useCallback(async () => {
     try {
       await downloadAndStartAgent();
-    } catch {
+    } catch (error) {
       // Ignore the error, it'll be shown in the UI by inspecting the attempts.
     }
   }, [downloadAndStartAgent]);
@@ -145,8 +146,6 @@ export function Status(props: { closeDocument?: () => void }) {
     isRemoved ||
     isAgentIncompatibleOrUnknown;
 
-  const transitionRef = useRef<HTMLDivElement>();
-
   return (
     <Box maxWidth="680px" mx="auto" mt="4" px="5" width="100%">
       {shouldShowAgentUpgradeSuggestion(proxyVersion, {
@@ -160,20 +159,30 @@ export function Status(props: { closeDocument?: () => void }) {
       )}
       {isAgentConfiguredAttempt.status === 'error' && (
         <Alert
-          primaryAction={{
-            content: 'Run setup again',
-            onClick: replaceWithSetup,
-          }}
-          details={isAgentConfiguredAttempt.statusText}
+          css={`
+            display: block;
+          `}
         >
-          An error occurred while reading the agent config file
+          An error occurred while reading the agent config file:{' '}
+          {isAgentConfiguredAttempt.statusText}. <br />
+          You can try to{' '}
+          <Link
+            onClick={replaceWithSetup}
+            css={`
+              cursor: pointer;
+            `}
+          >
+            run the setup
+          </Link>{' '}
+          again.
         </Alert>
       )}
 
       <Flex flexDirection="column" gap={3}>
         <Flex flexDirection="column" gap={1}>
           <Flex justifyContent="space-between">
-            <H1
+            <Text
+              typography="h3"
               css={`
                 display: flex;
               `}
@@ -181,7 +190,7 @@ export function Status(props: { closeDocument?: () => void }) {
               <icons.Laptop mr={2} />
               {/** The node name can be changed, so it might be different from the system hostname. */}
               {agentNode?.hostname || hostname}
-            </H1>
+            </Text>
             <MenuIcon
               Icon={icons.MoreVert}
               buttonIconProps={{
@@ -210,13 +219,12 @@ export function Status(props: { closeDocument?: () => void }) {
 
           <Transition
             in={!!agentNode}
-            nodeRef={transitionRef}
             timeout={1_800}
             mountOnEnter
             unmountOnExit
           >
             {state => (
-              <LabelsContainer gap={1} className={state} ref={transitionRef}>
+              <LabelsContainer gap={1} className={state}>
                 {/* Explicitly check for existence of agentNode because Transition doesn't seem to
                 unmount immediately when `in` becomes falsy. */}
                 {agentNode?.labels && renderLabels(agentNode.labels)}
@@ -226,7 +234,7 @@ export function Status(props: { closeDocument?: () => void }) {
         </Flex>
 
         <Flex flexDirection="column" gap={2}>
-          <Flex gap={1} alignItems="center" minHeight="32px">
+          <Flex gap={1} display="flex" alignItems="center" minHeight="32px">
             {prettyCurrentAction.Icon && (
               <prettyCurrentAction.Icon size="medium" />
             )}

@@ -20,14 +20,13 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"log/slog"
 	"os"
+	"time"
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport"
-	"github.com/gravitational/teleport/integrations/access/common"
 	"github.com/gravitational/teleport/integrations/access/pagerduty"
 	"github.com/gravitational/teleport/integrations/lib"
 	"github.com/gravitational/teleport/integrations/lib/logger"
@@ -66,13 +65,12 @@ func main() {
 		if err := run(*path, *debug); err != nil {
 			lib.Bail(err)
 		} else {
-			slog.InfoContext(context.Background(), "Successfully shut down")
+			logger.Standard().Info("Successfully shut down")
 		}
 	}
 }
 
 func run(configPath string, debug bool) error {
-	ctx := context.Background()
 	conf, err := pagerduty.LoadConfig(configPath)
 	if err != nil {
 		return trace.Wrap(err)
@@ -86,7 +84,7 @@ func run(configPath string, debug bool) error {
 		return err
 	}
 	if debug {
-		slog.DebugContext(ctx, "DEBUG logging enabled")
+		logger.Standard().Debugf("DEBUG logging enabled")
 	}
 
 	app, err := pagerduty.NewApp(*conf)
@@ -94,11 +92,9 @@ func run(configPath string, debug bool) error {
 		return trace.Wrap(err)
 	}
 
-	go lib.ServeSignals(app, common.PluginShutdownTimeout)
+	go lib.ServeSignals(app, 15*time.Second)
 
-	slog.InfoContext(ctx, "Starting Teleport Access PagerDuty Plugin",
-		"version", teleport.Version,
-		"git_ref", teleport.Gitref,
+	return trace.Wrap(
+		app.Run(context.Background()),
 	)
-	return trace.Wrap(app.Run(ctx))
 }

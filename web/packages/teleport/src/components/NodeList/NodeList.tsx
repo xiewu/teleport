@@ -17,34 +17,17 @@
  */
 
 import React from 'react';
-
 import Table, { Cell, ClickableLabelCell } from 'design/DataTable';
 import { FetchStatus, SortType } from 'design/DataTable/types';
-import {
-  LoginItem,
-  MenuInputType,
-  MenuLogin,
-} from 'shared/components/MenuLogin';
+import { LoginItem, MenuLogin } from 'shared/components/MenuLogin';
+
+import { Node } from 'teleport/services/nodes';
+import { ResourceLabel, ResourceFilter } from 'teleport/services/agents';
+import ServersideSearchPanel from 'teleport/components/ServersideSearchPanel';
 
 import type { PageIndicators } from 'teleport/components/hooks/useServersidePagination';
-import { ServersideSearchPanelWithPageIndicator } from 'teleport/components/ServersideSearchPanel';
-import { ResourceFilter, ResourceLabel } from 'teleport/services/agents';
-import { Node } from 'teleport/services/nodes';
 
-export function NodeList(props: {
-  nodes: Node[];
-  onLoginMenuOpen(serverId: string): { login: string; url: string }[];
-  onLoginSelect(e: React.SyntheticEvent, login: string, serverId: string): void;
-  fetchNext: () => void;
-  fetchPrev: () => void;
-  fetchStatus: FetchStatus;
-  pageSize?: number;
-  params: ResourceFilter;
-  setParams: (params: ResourceFilter) => void;
-  setSort: (sort: SortType) => void;
-  onLabelClick: (label: ResourceLabel) => void;
-  pageIndicators: PageIndicators;
-}) {
+function NodeList(props: Props) {
   const {
     nodes = [],
     onLoginMenuOpen,
@@ -56,6 +39,8 @@ export function NodeList(props: {
     params,
     setParams,
     setSort,
+    pathname,
+    replaceHistory,
     onLabelClick,
     pageIndicators,
   } = props;
@@ -100,11 +85,14 @@ export function NodeList(props: {
         sort: params.sort,
         setSort,
         serversideSearchPanel: (
-          <ServersideSearchPanelWithPageIndicator
+          <ServersideSearchPanel
             pageIndicators={pageIndicators}
             params={params}
             setParams={setParams}
+            pathname={pathname}
+            replaceHistory={replaceHistory}
             disabled={fetchStatus === 'loading'}
+            bigInputSize={true}
           />
         ),
       }}
@@ -132,7 +120,6 @@ const renderLoginCell = (
   return (
     <Cell align="right">
       <MenuLogin
-        inputType={MenuInputType.FILTER}
         getLoginItems={handleOnOpen}
         onSelect={handleOnSelect}
         transformOrigin={{
@@ -148,7 +135,7 @@ const renderLoginCell = (
   );
 };
 
-const renderAddressCell = ({ addr, tunnel }: Node) => (
+export const renderAddressCell = ({ addr, tunnel }: Node) => (
   <Cell>{tunnel ? renderTunnel() : addr}</Cell>
 );
 
@@ -162,3 +149,22 @@ function renderTunnel() {
     </span>
   );
 }
+
+type Props = {
+  nodes: Node[];
+  onLoginMenuOpen(serverId: string): { login: string; url: string }[];
+  onLoginSelect(e: React.SyntheticEvent, login: string, serverId: string): void;
+  fetchNext: () => void;
+  fetchPrev: () => void;
+  fetchStatus: FetchStatus;
+  pageSize?: number;
+  params: ResourceFilter;
+  setParams: (params: ResourceFilter) => void;
+  setSort: (sort: SortType) => void;
+  pathname: string;
+  replaceHistory: (path: string) => void;
+  onLabelClick: (label: ResourceLabel) => void;
+  pageIndicators: PageIndicators;
+};
+
+export default NodeList;

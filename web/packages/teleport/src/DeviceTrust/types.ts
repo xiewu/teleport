@@ -22,9 +22,7 @@ export type TrustedDevice = {
   id: string;
   assetTag: string;
   osType: TrustedDeviceOSType;
-  enrollStatus: 'enrolled' | 'not enrolled';
-  owner: string;
-  createTime?: Date;
+  enrollStatus: string;
 };
 
 export type TrustedDeviceOSType = 'Windows' | 'Linux' | 'macOS';

@@ -44,7 +44,7 @@ $ docker stop teleport
     $ sudo killall teleport
     ```
   </TabItem>
-  <TabItem label="macOS">
+  <TabItem label="MacOS">
 
     Instruct `launchd` to stop the Teleport process, and disable it from automatically starting:
 
@@ -133,22 +133,6 @@ Follow the instructions for your Linux distribution:
   </Admonition>
 
   </TabItem>
-  <TabItem label="SUSE Linux Enterprise Server (zypper)">
-
-  Uninstall the Teleport binary using zypper:
-
-  ```code
-  # Change the package name to "teleport" for Teleport Community Edition
-  $ sudo zypper -y remove teleport-ent
-  ```
-
-  Uninstall the Teleport zypper repo:
-
-  ```code
-  $ sudo zypper removerepo teleport
-  ```
-
-  </TabItem>
   <TabItem label="Linux Tarball">
 
   <Admonition type="note">
@@ -176,7 +160,7 @@ Follow the instructions for your Linux distribution:
   You can use `dirname $(which teleport)` to look this up automatically.
   </Admonition>
 
-  Remove the Teleport binaries and links to Teleport software from the machine:
+  Remove the Teleport binaries from the machine:
 
   ```code
   $ sudo rm -f /usr/local/bin/tbot
@@ -186,29 +170,21 @@ Follow the instructions for your Linux distribution:
   $ sudo rm -f /usr/local/bin/fdpass-teleport
   ```
 
-  <Admonition type="note" title="Uninstall macOS client tools">
-
-  You may have Teleport software in the `/Applications` folder if you:
-  - Installed from a macOS tarball for v17+ that includes `tsh.app` and `tctl.app`
-  - Installed the macOS `tsh` client-only package for v16 or older versions.
-  - Installed Teleport Connect for macOS  
-     
-  You can remove those with these commands:
+  <Admonition type="note" title="Uninstall MacOS client tools">
+  If you installed the MacOS `tsh` client-only package and/or Teleport Connect for MacOS, you can optionally remove those too:
 
   ```code
   $ sudo rm -rf /Applications/tsh.app
-  $ sudo rm -rf /Applications/tctl.app
   $ sudo rm -rf /Applications/Teleport\ Connect.app
   ```
   </Admonition>
 
 ### Windows
 
-  Remove the `tsh.exe` and `tctl.exe` binaries from the machine:
+  Remove the `tsh.exe` binary from the machine:
 
   ```code
   $ del C:\Path\To\tsh.exe
-  $ del C:\Path\To\tctl.exe
   ```
 (!docs/pages/includes/uninstall-teleport-connect-windows.mdx!)
 

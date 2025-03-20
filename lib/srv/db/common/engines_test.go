@@ -20,17 +20,16 @@ package common
 
 import (
 	"context"
-	"log/slog"
 	"testing"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/cloud"
-	"github.com/gravitational/teleport/lib/cloud/mocks"
 )
 
 // TestRegisterEngine verifies database engine registration.
@@ -44,14 +43,13 @@ func TestRegisterEngine(t *testing.T) {
 	cloudClients, err := cloud.NewClients()
 	require.NoError(t, err)
 	ec := EngineConfig{
-		Context:           context.Background(),
-		Clock:             clockwork.NewFakeClock(),
-		Log:               slog.Default(),
-		Auth:              &testAuth{},
-		Audit:             &testAudit{},
-		AuthClient:        &authclient.Client{},
-		AWSConfigProvider: &mocks.AWSConfigProvider{},
-		GCPClients:        cloudClients,
+		Context:      context.Background(),
+		Clock:        clockwork.NewFakeClock(),
+		Log:          logrus.StandardLogger(),
+		Auth:         &testAuth{},
+		Audit:        &testAudit{},
+		AuthClient:   &authclient.Client{},
+		CloudClients: cloudClients,
 	}
 	require.NoError(t, ec.CheckAndSetDefaults())
 

@@ -28,7 +28,6 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 
-	"github.com/gravitational/teleport/lib/cloud/mocks"
 	libsecrets "github.com/gravitational/teleport/lib/srv/db/secrets"
 )
 
@@ -40,10 +39,9 @@ func TestBaseUser(t *testing.T) {
 	mockCloudResource := newMockCloudResource()
 
 	secrets, err := libsecrets.NewAWSSecretsManager(libsecrets.AWSSecretsManagerConfig{
-		Client: mocks.NewSecretsManagerClient(mocks.SecretsManagerClientConfig{
+		Client: libsecrets.NewMockSecretsManagerClient(libsecrets.MockSecretsManagerClientConfig{
 			Clock: clock,
 		}),
-		ClusterName: "example.teleport.sh",
 	})
 	require.NoError(t, err)
 

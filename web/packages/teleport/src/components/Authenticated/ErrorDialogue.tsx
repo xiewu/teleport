@@ -16,12 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Alert, ButtonSecondary, Text } from 'design';
+import React from 'react';
+import { Text, Alert, ButtonSecondary } from 'design';
 import Dialog, {
-  DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogContent,
+  DialogFooter,
 } from 'design/Dialog';
 
 import history from 'teleport/services/history';
@@ -41,11 +42,7 @@ export function ErrorDialog({ errMsg }: { errMsg: string }) {
       </DialogContent>
       <DialogFooter>
         <ButtonSecondary
-          onClick={() =>
-            history.goToLogin({
-              rememberLocation: true,
-            })
-          }
+          onClick={() => history.goToLogin(true /* rememberLocation */)}
         >
           Go to Login
         </ButtonSecondary>

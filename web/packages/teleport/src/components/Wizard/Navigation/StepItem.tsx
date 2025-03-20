@@ -16,13 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+
 import {
-  StepsContainer,
   StepTitle,
+  StepsContainer,
 } from 'teleport/components/Wizard/Navigation';
 import { Bullet } from 'teleport/components/Wizard/Navigation/Bullet';
 
 import { BaseView } from '../flow';
+
 import { StepList } from './StepList';
 
 export function StepItem<T>(props: {
@@ -54,11 +57,7 @@ export function StepItem<T>(props: {
   return (
     <StepsContainer active={isDone || isActive}>
       <StepTitle>
-        <Bullet
-          isDone={isDone}
-          isActive={isActive}
-          stepNumber={props.view.displayIndex ?? index + 1}
-        />
+        <Bullet isDone={isDone} isActive={isActive} stepNumber={index + 1} />
         {props.view.title}
       </StepTitle>
     </StepsContainer>

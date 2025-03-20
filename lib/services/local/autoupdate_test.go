@@ -93,11 +93,8 @@ func TestAutoUpdateServiceConfigCRUD(t *testing.T) {
 	var notFoundError *trace.NotFoundError
 	require.ErrorAs(t, err, &notFoundError)
 
-	// If we try to conditionally update a missing resource, we receive
-	// a CompareFailed instead of a NotFound.
-	var revisionMismatchError *trace.CompareFailedError
 	_, err = service.UpdateAutoUpdateConfig(ctx, config)
-	require.ErrorAs(t, err, &revisionMismatchError)
+	require.ErrorAs(t, err, &notFoundError)
 }
 
 // TestAutoUpdateServiceVersionCRUD verifies get/create/update/upsert/delete methods of the backend service
@@ -158,11 +155,8 @@ func TestAutoUpdateServiceVersionCRUD(t *testing.T) {
 	var notFoundError *trace.NotFoundError
 	require.ErrorAs(t, err, &notFoundError)
 
-	// If we try to conditionally update a missing resource, we receive
-	// a CompareFailed instead of a NotFound.
-	var revisionMismatchError *trace.CompareFailedError
 	_, err = service.UpdateAutoUpdateVersion(ctx, version)
-	require.ErrorAs(t, err, &revisionMismatchError)
+	require.ErrorAs(t, err, &notFoundError)
 }
 
 // TestAutoUpdateServiceInvalidNameCreate verifies that configuration and version

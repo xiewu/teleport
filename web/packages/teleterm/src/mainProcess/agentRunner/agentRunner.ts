@@ -16,19 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ChildProcess, fork, spawn } from 'node:child_process';
-import fs from 'node:fs/promises';
+import { spawn, fork, ChildProcess } from 'node:child_process';
 import os from 'node:os';
+import fs from 'node:fs/promises';
 
 import stripAnsi from 'strip-ansi';
 
 import Logger from 'teleterm/logger';
-import { createFileLoggerService, LoggerColor } from 'teleterm/services/logger';
 import { RootClusterUri } from 'teleterm/ui/uri';
+import { createFileLoggerService, LoggerColor } from 'teleterm/services/logger';
 
 import { generateAgentConfigPaths } from '../createAgentConfigFile';
-import { terminateWithTimeout } from '../terminateWithTimeout';
 import { AgentProcessState, RuntimeSettings } from '../types';
+import { terminateWithTimeout } from '../terminateWithTimeout';
 
 const MAX_STDERR_LINES = 10;
 

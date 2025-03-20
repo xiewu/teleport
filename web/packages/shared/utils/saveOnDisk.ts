@@ -1,6 +1,6 @@
 /**
  * Teleport
- * Copyright (C) 2023  Gravitational, Inc.
+ * Copyright (C) 2024  Gravitational, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -18,19 +18,17 @@
 
 /**
  * saveOnDisk saves content to local disk.
- * @param content content to download (string or Blob).
+ * @param content content to download.
  * @param filename preset file name.
  * @param fileType file type.
  */
 export function saveOnDisk(
-  content: string | Blob,
+  content: string,
   filename: string,
   fileType: string
 ): void {
   const a = document.createElement('a');
-
-  const blob =
-    content instanceof Blob ? content : new Blob([content], { type: fileType });
+  const blob = new Blob([content], { type: fileType });
   a.href = window.URL.createObjectURL(blob);
   a.download = filename;
   document.body.appendChild(a);

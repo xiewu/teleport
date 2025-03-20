@@ -246,7 +246,7 @@ func TestSPIFFEFederationService_DeleteSPIFFEFederation(t *testing.T) {
 		require.True(t, trace.IsNotFound(err))
 	})
 	t.Run("not found", func(t *testing.T) {
-		err := service.DeleteSPIFFEFederation(ctx, "foo.example.com")
+		_, err := service.GetSPIFFEFederation(ctx, "foo.example.com")
 		require.Error(t, err)
 		require.True(t, trace.IsNotFound(err))
 	})
@@ -301,7 +301,7 @@ func TestSPIFFEFederationService_UpdateSPIFFEFederation(t *testing.T) {
 			want,
 			updated,
 			protocmp.Transform(),
-			protocmp.IgnoreFields(&headerv1.Metadata{}, "revision"),
+			protocmp.IgnoreFields(&headerv1.Metadata{}, "revision", "id"),
 		))
 
 		got, err := service.GetSPIFFEFederation(ctx, "example.com")
@@ -310,7 +310,7 @@ func TestSPIFFEFederationService_UpdateSPIFFEFederation(t *testing.T) {
 			want,
 			got,
 			protocmp.Transform(),
-			protocmp.IgnoreFields(&headerv1.Metadata{}, "revision"),
+			protocmp.IgnoreFields(&headerv1.Metadata{}, "revision", "id"),
 		))
 		require.Equal(t, updated.Metadata.Revision, got.Metadata.Revision)
 	})

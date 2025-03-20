@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { RequestableResourceKind } from 'shared/components/AccessRequests/NewRequest/resource';
+import { ResourceIdKind } from 'teleport/services/agents';
 
 export type RequestState =
   | 'NONE'
@@ -76,7 +76,7 @@ export type Resource = {
 // ResourceID is a unique identifier for a teleport resource.
 export type ResourceId = {
   // kind is the resource (agent) kind.
-  kind: RequestableResourceKind;
+  kind: ResourceIdKind;
   // name is the name of the specific resource.
   name: string;
   // clusterName is the name of cluster.

@@ -25,18 +25,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/externalauditstorage"
 	"github.com/gravitational/teleport/api/types/header"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib/backend/memory"
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/services/local"
@@ -46,7 +46,7 @@ func testOIDCIntegration(t *testing.T) *types.IntegrationV1 {
 	oidcIntegration, err := types.NewIntegrationAWSOIDC(
 		types.Metadata{Name: "aws-integration-1"},
 		&types.AWSOIDCIntegrationSpecV1{
-			RoleARN: "arn:aws:iam::account:role/role1",
+			RoleARN: "role1",
 		},
 	)
 	require.NoError(t, err)
@@ -102,10 +102,8 @@ func TestConfiguratorIsUsed(t *testing.T) {
 			name: "cloud enterprise without config",
 			modules: &modules.TestModules{
 				TestFeatures: modules.Features{
-					Cloud: true,
-					Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-						entitlements.ExternalAuditStorage: {Enabled: true},
-					},
+					Cloud:                true,
+					ExternalAuditStorage: true,
 				},
 			},
 			wantIsUsed: false,
@@ -114,10 +112,8 @@ func TestConfiguratorIsUsed(t *testing.T) {
 			name: "cloud enterprise with only draft",
 			modules: &modules.TestModules{
 				TestFeatures: modules.Features{
-					Cloud: true,
-					Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-						entitlements.ExternalAuditStorage: {Enabled: true},
-					},
+					Cloud:                true,
+					ExternalAuditStorage: true,
 				},
 			},
 			// Just create draft, External Audit Storage should be disabled, it's
@@ -133,10 +129,8 @@ func TestConfiguratorIsUsed(t *testing.T) {
 			name: "cloud enterprise with cluster config",
 			modules: &modules.TestModules{
 				TestFeatures: modules.Features{
-					Cloud: true,
-					Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-						entitlements.ExternalAuditStorage: {Enabled: true},
-					},
+					Cloud:                true,
+					ExternalAuditStorage: true,
 				},
 			},
 			// Create draft and promote it to cluster.
@@ -178,15 +172,14 @@ func TestConfiguratorIsUsed(t *testing.T) {
 }
 
 func TestCredentialsCache(t *testing.T) {
+	logrus.SetLevel(logrus.DebugLevel)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	modules.SetTestModules(t, &modules.TestModules{
 		TestFeatures: modules.Features{
-			Cloud: true,
-			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-				entitlements.ExternalAuditStorage: {Enabled: true},
-			},
+			Cloud:                true,
+			ExternalAuditStorage: true,
 		},
 	})
 
@@ -231,12 +224,17 @@ func TestCredentialsCache(t *testing.T) {
 	})
 
 	provider := c.CredentialsProvider()
+	providerV1 := c.CredentialsProviderSDKV1()
 
 	checkRetrieveCredentials := func(t require.TestingT, expectErr error) {
+		_, err = providerV1.RetrieveWithContext(ctx)
+		assert.ErrorIs(t, err, expectErr)
 		_, err := provider.Retrieve(ctx)
 		assert.ErrorIs(t, err, expectErr)
 	}
 	checkRetrieveCredentialsWithExpiry := func(t require.TestingT, expectExpiry time.Time) {
+		_, err = providerV1.RetrieveWithContext(ctx)
+		assert.NoError(t, err)
 		creds, err := provider.Retrieve(ctx)
 		assert.NoError(t, err)
 		if err == nil {
@@ -340,10 +338,8 @@ func TestDraftConfigurator(t *testing.T) {
 
 	modules.SetTestModules(t, &modules.TestModules{
 		TestFeatures: modules.Features{
-			Cloud: true,
-			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-				entitlements.ExternalAuditStorage: {Enabled: true},
-			},
+			Cloud:                true,
+			ExternalAuditStorage: true,
 		},
 	})
 

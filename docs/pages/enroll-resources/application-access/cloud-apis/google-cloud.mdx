@@ -305,13 +305,8 @@ claims.
 
 </Admonition>
 
-### Dynamic identities
-
-If you are using dynamic identities, the approach you choose depends on whether
-you use local or SSO Teleport users:
-
-<Tabs>
-<TabItem label="Local Users">
+<Tabs dropdownCaption="Approach">
+<TabItem options="Dynamic Identities" label="Local Users">
 
 Create a file called `google-cloud-cli-access.yaml` with the following content:
 
@@ -334,8 +329,7 @@ Cloud CLI via Teleport, the Teleport Auth Service populates the
 service accounts you have assigned to the user.
 
 Assign the target service account we created earlier (or another service
-account) to your Teleport user by running the following command, setting 
-<Var name ="teleport-user" /> to the name of your Teleport user:
+account) to your Teleport user by running the following command:
 
 ```code
 $ tctl users update <Var name="teleport-user" /> \
@@ -353,10 +347,8 @@ Create the role:
 $ tctl create -f google-cloud-cli-access.yaml
 ```
 
-(!docs/pages/includes/create-role-using-web.mdx!)
-
 </TabItem>
-<TabItem label="SAML/OIDC Connectors">
+<TabItem options="Dynamic Identities" label="SAML/OIDC Connectors">
 
 In your identity provider, define a custom SAML attribute or OIDC claim called
 `gcp_service_accounts`. Each user's `gcp_service_accounts` attribute or claim
@@ -400,14 +392,8 @@ Create the role:
 $ tctl create -f google-cloud-cli-access
 ```
 
-(!docs/pages/includes/create-role-using-web.mdx!)
-
 </TabItem>
-</Tabs>
-
-### Static identities
-
-If you are using static identities, complete the following instructions.
+<TabItem options="Static Identities" label="All Authentication Methods">
 
 Define a role with access to specific Google Cloud service accounts, which means
 that Teleport users who assume this role can use those (and only those)
@@ -439,6 +425,9 @@ Create the role:
 ```code
 $ tctl create -f google-cloud-cli-access.yaml
 ```
+
+</TabItem>
+</Tabs>
 
 <details>
 <summary>Denying access to Google Cloud service accounts</summary>
@@ -650,6 +639,6 @@ command.
   [`gsutil`](https://cloud.google.com/storage/docs/gsutil).
 - For full details on how Teleport populates the `internal` and `external`
   traits we illustrated in the Teleport roles within this guide, see
-  the [Access Controls
+  the [Teleport Access Controls
   Reference](../../../reference/access-controls/roles.mdx).
 

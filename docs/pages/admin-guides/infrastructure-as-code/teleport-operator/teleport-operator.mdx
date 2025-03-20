@@ -26,21 +26,16 @@ could cause instability and non-deterministic behaviour.
 </Admonition>
 
 Currently supported Teleport resources are:
-- Users (`TeleportUser`)
-- Roles
+- users (`TeleportUser`)
+- roles
   - `TeleportRole` creates role v5
   - `TeleportRoleV6` creates role v6
   - `TeleportRoleV7` creates role v7
-- OIDC Connectors (`TeleportOIDCConnector`)
-- SAML Connectors (`TeleportSAMLConnector`)
-- GitHub Connectors (`TeleportGithubConnector`)
-- Provision Tokens (`TeleportProvisionToken`)
-- Login Rules (`TeleportLoginRule`)
-- Access Lists (`TeleportAccessList`)
-- Okta Import Rules (`TeleportOktaImportRule`)
-- OpenSSHEICE Servers (`TeleportOpenSSHEICEServerV2`)
-- OpenSSH Servers (`TeleportOpenSSHServerV2`)
-- Trusted Clusters (`TeleportTrustedClusterV2`)
+- OIDC connectors (`TeleportOIDCConnector`)
+- SAML connectors (`TeleportSAMLConnector`)
+- GitHub connectors (`TeleportGithubConnector`)
+- provision tokens (`TeleportProvisionToken`)
+- Login Rules (`TeleportLoginRules`)
 
 ### Setting up the operator
 
@@ -76,17 +71,6 @@ The finalizer will stay and the deletion be blocked until you patch the resource
 finalizer or remove the ignore annotation.
 
 Possible values are `"true"` or `"false"` (those are strings, as Booleans are not valid label values in Kubernetes).
-
-### Look up values from secrets
-
-Some Teleport resources might contain sensitive values. Select CR fields can reference an existing
-Kubernetes secret and the operator will retrieve the value from the secret when reconciling.
-
-Even when you store sensitive values out of CRs, the CRs must still be considered as critical as
-the Kubernetes secrets themselves. Many CRs configure Teleport RBAC. Someone with CR editing permissions can become a
-Teleport administrator and retrieve the sensitive values from Teleport.
-
-See [the dedicated guide](secret-lookup.mdx) for more details.
 
 ### Troubleshooting
 

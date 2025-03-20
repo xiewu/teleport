@@ -72,7 +72,7 @@ func (d createDBAuthority) Up(ctx context.Context, b backend.Backend) error {
 		return trace.Wrap(err)
 	}
 
-	localClusterName, err := configSvc.GetClusterName(ctx)
+	localClusterName, err := configSvc.GetClusterName()
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -110,6 +110,13 @@ func (d createDBAuthority) Down(ctx context.Context, b backend.Backend) error {
 
 	trustSvc := d.trustServiceFn(b)
 	return trace.Wrap(trustSvc.DeleteAllCertAuthorities(types.DatabaseCA))
+}
+
+// MigrateDBClientAuthority performs a migration which creates the db_client CA
+// as a copy of the existing db CA for backwards compatibility.
+func MigrateDBClientAuthority(ctx context.Context, trustSvc services.Trust, cluster string) error {
+	err := migrateDBAuthority(ctx, trustSvc, cluster, types.DatabaseCA, types.DatabaseClientCA)
+	return trace.Wrap(err)
 }
 
 // migrateDBAuthority performs a migration which creates a new CA from an

@@ -16,12 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Alert, ButtonSecondary, ButtonWarning, P1, Text } from 'design';
+import React from 'react';
+import { ButtonSecondary, ButtonWarning, Text, Alert } from 'design';
 import Dialog, {
-  DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogContent,
+  DialogFooter,
 } from 'design/DialogConfirmation';
 import useAttempt from 'shared/hooks/useAttemptNext';
 
@@ -43,13 +44,13 @@ export default function DeleteRoleDialog(props: Props) {
       </DialogHeader>
       <DialogContent width="450px">
         {attempt.status === 'failed' && <Alert children={attempt.statusText} />}
-        <P1>
+        <Text typography="paragraph" mb="6">
           Are you sure you want to delete role{' '}
           <Text as="span" bold color="text.main">
             {name}
-          </Text>
+          </Text>{' '}
           ?
-        </P1>
+        </Text>
       </DialogContent>
       <DialogFooter>
         <ButtonWarning mr="3" disabled={isDisabled} onClick={onOk}>

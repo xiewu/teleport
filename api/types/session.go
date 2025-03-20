@@ -61,14 +61,10 @@ type WebSession interface {
 	SetUser(string)
 	// GetPub is returns public certificate signed by auth server
 	GetPub() []byte
-	// GetSSHPriv returns private SSH key used to auth with SSH nodes.
-	GetSSHPriv() []byte
-	// SetSSHPriv sets SSH private key.
-	SetSSHPriv([]byte)
-	// GetTLSPriv returns private TLS key.
-	GetTLSPriv() []byte
-	// SetTLSPriv sets TLS private key.
-	SetTLSPriv([]byte)
+	// GetPriv returns private OpenSSH key used to auth with SSH nodes
+	GetPriv() []byte
+	// SetPriv sets private key
+	SetPriv([]byte)
 	// GetTLSCert returns PEM encoded TLS certificate associated with session
 	GetTLSCert() []byte
 	// GetBearerToken is a special bearer token used for additional
@@ -98,23 +94,6 @@ type WebSession interface {
 	SetSAMLSession(*SAMLSessionData)
 	// GetSAMLSession gets the SAML session data. Is considered secret.
 	GetSAMLSession() *SAMLSessionData
-	// SetDeviceWebToken sets the session's DeviceWebToken.
-	// The token is considered a secret.
-	SetDeviceWebToken(*DeviceWebToken)
-	// GetDeviceWebToken returns the session's DeviceWebToken, if any.
-	// The token is considered a secret.
-	GetDeviceWebToken() *DeviceWebToken
-	// GetHasDeviceExtensions returns the HasDeviceExtensions value.
-	// If true the session's TLS and SSH certificates are augmented with device
-	// extensions.
-	GetHasDeviceExtensions() bool
-	// SetTrustedDeviceRequirement sets the session's trusted device requirement.
-	// See [TrustedDeviceRequirement].
-	SetTrustedDeviceRequirement(r TrustedDeviceRequirement)
-	// GetTrustedDeviceRequirement returns the session's trusted device
-	// requirement.
-	// See [TrustedDeviceRequirement].
-	GetTrustedDeviceRequirement() TrustedDeviceRequirement
 }
 
 // NewWebSession returns new instance of the web session based on the V2 spec
@@ -178,6 +157,16 @@ func (ws *WebSessionV2) GetMetadata() Metadata {
 	return ws.Metadata
 }
 
+// GetResourceID gets ResourceID
+func (ws *WebSessionV2) GetResourceID() int64 {
+	return ws.Metadata.GetID()
+}
+
+// SetResourceID sets ResourceID
+func (ws *WebSessionV2) SetResourceID(id int64) {
+	ws.Metadata.SetID(id)
+}
+
 // GetRevision returns the revision
 func (ws *WebSessionV2) GetRevision() string {
 	return ws.Metadata.GetRevision()
@@ -193,13 +182,11 @@ func (ws *WebSessionV2) GetIdleTimeout() time.Duration {
 	return ws.Spec.IdleTimeout.Duration()
 }
 
-// WithoutSecrets returns a copy of the WebSession without secrets.
+// WithoutSecrets returns copy of the object but without secrets
 func (ws *WebSessionV2) WithoutSecrets() WebSession {
 	cp := *ws
 	cp.Spec.Priv = nil
-	cp.Spec.TLSPriv = nil
 	cp.Spec.SAMLSession = nil
-	cp.Spec.DeviceWebToken = nil
 	return &cp
 }
 
@@ -221,36 +208,6 @@ func (ws *WebSessionV2) SetSAMLSession(samlSession *SAMLSessionData) {
 // GetSAMLSession gets the SAML session data. Is considered secret.
 func (ws *WebSessionV2) GetSAMLSession() *SAMLSessionData {
 	return ws.Spec.SAMLSession
-}
-
-// SetDeviceWebToken sets the session's DeviceWebToken.
-// The token is considered a secret.
-func (ws *WebSessionV2) SetDeviceWebToken(webToken *DeviceWebToken) {
-	ws.Spec.DeviceWebToken = webToken
-}
-
-// GetDeviceWebToken returns the session's DeviceWebToken, if any.
-// The token is considered a secret.
-func (ws *WebSessionV2) GetDeviceWebToken() *DeviceWebToken {
-	return ws.Spec.DeviceWebToken
-}
-
-// GetHasDeviceExtensions returns the HasDeviceExtensions value.
-// If true the session's TLS and SSH certificates are augmented with device
-// extensions.
-func (ws *WebSessionV2) GetHasDeviceExtensions() bool {
-	return ws.Spec.HasDeviceExtensions
-}
-
-// SetTrustedDeviceRequirement sets the session's trusted device requirement.
-func (ws *WebSessionV2) SetTrustedDeviceRequirement(r TrustedDeviceRequirement) {
-	ws.Spec.TrustedDeviceRequirement = r
-}
-
-// GetTrustedDeviceRequirement returns the session's trusted device
-// requirement.
-func (ws *WebSessionV2) GetTrustedDeviceRequirement() TrustedDeviceRequirement {
-	return ws.Spec.TrustedDeviceRequirement
 }
 
 // setStaticFields sets static resource header and metadata fields.
@@ -305,30 +262,14 @@ func (ws *WebSessionV2) GetPub() []byte {
 	return ws.Spec.Pub
 }
 
-// GetSSHPriv returns private SSH key.
-func (ws *WebSessionV2) GetSSHPriv() []byte {
+// GetPriv returns private OpenSSH key used to auth with SSH nodes
+func (ws *WebSessionV2) GetPriv() []byte {
 	return ws.Spec.Priv
 }
 
-// SetSSHPriv sets private SSH key.
-func (ws *WebSessionV2) SetSSHPriv(priv []byte) {
+// SetPriv sets private key
+func (ws *WebSessionV2) SetPriv(priv []byte) {
 	ws.Spec.Priv = priv
-}
-
-// GetTLSPriv returns private TLS key.
-func (ws *WebSessionV2) GetTLSPriv() []byte {
-	// TODO(nklaassen): DELETE IN 18.0.0 when all auth servers are writing web session TLS key.
-	if ws.Spec.TLSPriv == nil {
-		// An older auth instance may have written this web session before the
-		// SSH and TLS keys were split.
-		return ws.Spec.Priv
-	}
-	return ws.Spec.TLSPriv
-}
-
-// SetTLSPriv sets private TLS key.
-func (ws *WebSessionV2) SetTLSPriv(priv []byte) {
-	ws.Spec.TLSPriv = priv
 }
 
 // GetBearerToken gets a special bearer token used for additional
@@ -404,6 +345,38 @@ func (r *GetSAMLIdPSessionRequest) Check() error {
 	if r.SessionID == "" {
 		return trace.BadParameter("session ID missing")
 	}
+	return nil
+}
+
+// CreateAppSessionRequest contains the parameters needed to request
+// creating an application web session.
+type CreateAppSessionRequest struct {
+	// Username is the identity of the user requesting the session.
+	Username string `json:"username"`
+	// PublicAddr is the public address of the application.
+	PublicAddr string `json:"public_addr"`
+	// ClusterName is the name of the cluster within which the application is running.
+	ClusterName string `json:"cluster_name"`
+	// AWSRoleARN is AWS role this the user wants to assume.
+	AWSRoleARN string `json:"aws_role_arn"`
+	// AzureIdentity is Azure identity this the user wants to assume.
+	AzureIdentity string `json:"azure_identity"`
+	// GCPServiceAccount is GCP service account this the user wants to assume.
+	GCPServiceAccount string `json:"gcp_service_account"`
+}
+
+// Check validates the request.
+func (r CreateAppSessionRequest) Check() error {
+	if r.Username == "" {
+		return trace.BadParameter("username missing")
+	}
+	if r.PublicAddr == "" {
+		return trace.BadParameter("public address missing")
+	}
+	if r.ClusterName == "" {
+		return trace.BadParameter("cluster name missing")
+	}
+
 	return nil
 }
 
@@ -550,6 +523,16 @@ func (r *WebTokenV3) GetName() string {
 // SetName sets the token value
 func (r *WebTokenV3) SetName(name string) {
 	r.Metadata.Name = name
+}
+
+// GetResourceID returns the token resource ID
+func (r *WebTokenV3) GetResourceID() int64 {
+	return r.Metadata.GetID()
+}
+
+// SetResourceID sets the token resource ID
+func (r *WebTokenV3) SetResourceID(id int64) {
+	r.Metadata.SetID(id)
 }
 
 // GetRevision returns the revision

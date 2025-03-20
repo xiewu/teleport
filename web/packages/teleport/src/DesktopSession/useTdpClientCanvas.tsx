@@ -22,21 +22,21 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { NotificationItem } from 'shared/components/Notification';
 import { Attempt } from 'shared/hooks/useAttemptNext';
 
-import cfg from 'teleport/config';
 import { ButtonState, ScrollAxis, TdpClient } from 'teleport/lib/tdp';
 import { ClipboardData } from 'teleport/lib/tdp/codec';
-import { Sha256Digest } from 'teleport/lib/util';
 import { getHostName } from 'teleport/services/api';
+import cfg from 'teleport/config';
+import { Sha256Digest } from 'teleport/lib/util';
 
-import { KeyboardHandler } from './KeyboardHandler';
 import { TopBarHeight } from './TopBar';
 import {
-  clipboardSharingPossible,
   ClipboardSharingState,
   DirectorySharingState,
   isSharingClipboard,
   Setter,
+  clipboardSharingPossible,
 } from './useDesktopSession';
+import { KeyboardHandler } from './KeyboardHandler';
 
 declare global {
   interface Navigator {

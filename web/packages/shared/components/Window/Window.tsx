@@ -18,8 +18,8 @@
 
 import React from 'react';
 
-import { WindowContainer, WindowContentContainer } from './WindowComponents';
 import { WindowTitleBar } from './WindowTitleBar';
+import { WindowContainer, WindowContentContainer } from './WindowComponents';
 
 interface WindowProps {
   title: string;

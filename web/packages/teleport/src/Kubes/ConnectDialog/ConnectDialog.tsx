@@ -16,20 +16,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Box, ButtonPrimary, ButtonSecondary, Flex, H3, Text } from 'design';
+import React from 'react';
 import Dialog, {
-  DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogContent,
 } from 'design/Dialog';
-import { NewTab as NewTabIcon } from 'design/Icon';
-import { ResourceIcon } from 'design/ResourceIcon';
-import { TextSelectCopy } from 'shared/components/TextSelectCopy';
+import { Text, Box, ButtonSecondary } from 'design';
 
-import cfg from 'teleport/config';
-import { generateTshLoginCommand, openNewTab } from 'teleport/lib/util';
+import TextSelectCopy from 'teleport/components/TextSelectCopy';
 import { AuthType } from 'teleport/services/user';
+import { generateTshLoginCommand } from 'teleport/lib/util';
 
 function ConnectDialog(props: Props) {
   const {
@@ -41,15 +39,6 @@ function ConnectDialog(props: Props) {
     accessRequestId,
   } = props;
 
-  const startKubeExecSession = () => {
-    const url = cfg.getKubeExecConnectRoute({
-      clusterId,
-      kubeId: kubeConnectName,
-    });
-
-    openNewTab(url);
-  };
-
   return (
     <Dialog
       dialogCss={dialogCss}
@@ -57,35 +46,15 @@ function ConnectDialog(props: Props) {
       onClose={onClose}
       open={true}
     >
-      <DialogHeader mb={4}>
-        <DialogTitle>
-          <Flex gap={2}>
-            Connect to:
-            <Flex gap={1}>
-              <ResourceIcon name="kube" width="24px" height="24px" />
-              {kubeConnectName}
-            </Flex>
-          </Flex>
-        </DialogTitle>
+      <DialogHeader>
+        <DialogTitle>connect to kubernetes cluster</DialogTitle>
       </DialogHeader>
-      <DialogContent minHeight="240px" flex="0 0 auto">
-        <Box borderBottom={1} mb={4} pb={4}>
-          <Text mb={3} bold>
-            Open Teleport-authenticated session in the browser:
-          </Text>
-          <ButtonPrimary size="large" gap={2} onClick={startKubeExecSession}>
-            Exec in the browser
-            <NewTabIcon />
-          </ButtonPrimary>
-        </Box>
+      <DialogContent>
         <Box mb={4}>
-          <H3 mt={1} mb={2}>
-            Or connect in the CLI using tsh and kubectl:
-          </H3>
           <Text bold as="span">
             Step 1
           </Text>
-          {' - Log in to Teleport'}
+          {' - Login to Teleport'}
           <TextSelectCopy
             mt="2"
             text={generateTshLoginCommand({

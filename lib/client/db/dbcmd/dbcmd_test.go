@@ -19,7 +19,6 @@
 package dbcmd
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -94,8 +93,8 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			execer:       &fakeExec{},
 			cmd: []string{"psql",
 				"postgres://myUser@localhost:12345/mydb?sslrootcert=/tmp/keys/example.com/cas/root.pem&" +
-					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql.crt&" +
-					"sslkey=/tmp/keys/example.com/bob-db/db.example.com/mysql.key&sslmode=verify-full"},
+					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem&" +
+					"sslkey=/tmp/keys/example.com/bob&sslmode=verify-full"},
 			wantErr: false,
 		},
 		{
@@ -116,8 +115,8 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			execer:       &fakeExec{},
 			cmd: []string{"psql",
 				"\"postgres://myUser@localhost:12345/mydb?sslrootcert=/tmp/keys/example.com/cas/root.pem&" +
-					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql.crt&" +
-					"sslkey=/tmp/keys/example.com/bob-db/db.example.com/mysql.key&sslmode=verify-full\""},
+					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem&" +
+					"sslkey=/tmp/keys/example.com/bob&sslmode=verify-full\""},
 			wantErr: false,
 		},
 		{
@@ -131,8 +130,8 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			},
 			cmd: []string{"cockroach", "sql", "--url",
 				"postgres://myUser@localhost:12345/mydb?sslrootcert=/tmp/keys/example.com/cas/root.pem&" +
-					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql.crt&" +
-					"sslkey=/tmp/keys/example.com/bob-db/db.example.com/mysql.key&sslmode=verify-full"},
+					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem&" +
+					"sslkey=/tmp/keys/example.com/bob&sslmode=verify-full"},
 			wantErr: false,
 		},
 		{
@@ -161,8 +160,8 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			},
 			cmd: []string{"cockroach", "sql", "--url",
 				"\"postgres://myUser@localhost:12345/mydb?sslrootcert=/tmp/keys/example.com/cas/root.pem&" +
-					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql.crt&" +
-					"sslkey=/tmp/keys/example.com/bob-db/db.example.com/mysql.key&sslmode=verify-full\""},
+					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem&" +
+					"sslkey=/tmp/keys/example.com/bob&sslmode=verify-full\""},
 			wantErr: false,
 		},
 		{
@@ -172,8 +171,8 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			execer:       &fakeExec{},
 			cmd: []string{"psql",
 				"postgres://myUser@localhost:12345/mydb?sslrootcert=/tmp/keys/example.com/cas/root.pem&" +
-					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql.crt&" +
-					"sslkey=/tmp/keys/example.com/bob-db/db.example.com/mysql.key&sslmode=verify-full"},
+					"sslcert=/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem&" +
+					"sslkey=/tmp/keys/example.com/bob&sslmode=verify-full"},
 			wantErr: false,
 		},
 		{
@@ -191,9 +190,9 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 				"--port", "12345",
 				"--host", "localhost",
 				"--protocol", "TCP",
-				"--ssl-key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key",
+				"--ssl-key", "/tmp/keys/example.com/bob",
 				"--ssl-ca", "/tmp/keys/example.com/cas/root.pem",
-				"--ssl-cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt",
+				"--ssl-cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem",
 				"--ssl-verify-server-cert"},
 			wantErr: false,
 		},
@@ -230,9 +229,9 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 				"--port", "12345",
 				"--host", "localhost",
 				"--protocol", "TCP",
-				"--ssl-key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key",
+				"--ssl-key", "/tmp/keys/example.com/bob",
 				"--ssl-ca", "/tmp/keys/example.com/cas/root.pem",
-				"--ssl-cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt",
+				"--ssl-cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem",
 				"--ssl-verify-server-cert"},
 			wantErr: false,
 		},
@@ -313,9 +312,9 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 				"--database", "mydb",
 				"--port", "3036",
 				"--host", "proxy.example.com",
-				"--ssl-key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key",
+				"--ssl-key", "/tmp/keys/example.com/bob",
 				"--ssl-ca", "/tmp/keys/example.com/cas/root.pem",
-				"--ssl-cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt",
+				"--ssl-cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem",
 				"--ssl-verify-server-cert"},
 			wantErr: false,
 		},
@@ -323,7 +322,6 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			name:         "mongodb (legacy)",
 			dbProtocol:   defaults.ProtocolMongoDB,
 			databaseName: "mydb",
-			opts:         []ConnectCommandFunc{withMongoDBAtlasDatabase()},
 			execer: &fakeExec{
 				execOutput: map[string][]byte{
 					"mongo": []byte("legacy"),
@@ -331,7 +329,7 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			},
 			cmd: []string{"mongo",
 				"--ssl",
-				"--sslPEMKeyFile", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt",
+				"--sslPEMKeyFile", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem",
 				"mongodb://localhost:12345/mydb?directConnection=true&serverSelectionTimeoutMS=5000",
 			},
 			wantErr: false,
@@ -340,7 +338,7 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			name:         "mongodb no TLS (legacy)",
 			dbProtocol:   defaults.ProtocolMongoDB,
 			databaseName: "mydb",
-			opts:         []ConnectCommandFunc{WithNoTLS(), withMongoDBAtlasDatabase()},
+			opts:         []ConnectCommandFunc{WithNoTLS()},
 			execer: &fakeExec{
 				execOutput: map[string][]byte{
 					"mongo": []byte("legacy"),
@@ -355,7 +353,6 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			name:         "mongosh no CA",
 			dbProtocol:   defaults.ProtocolMongoDB,
 			databaseName: "mydb",
-			opts:         []ConnectCommandFunc{withMongoDBAtlasDatabase()},
 			execer: &fakeExec{
 				execOutput: map[string][]byte{
 					"mongosh": []byte("1.1.6"),
@@ -363,7 +360,7 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			},
 			cmd: []string{"mongosh",
 				"--tls",
-				"--tlsCertificateKeyFile", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt",
+				"--tlsCertificateKeyFile", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem",
 				"--tlsUseSystemCA",
 				"mongodb://localhost:12345/mydb?directConnection=true&serverSelectionTimeoutMS=5000",
 			},
@@ -373,9 +370,7 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			dbProtocol:   defaults.ProtocolMongoDB,
 			databaseName: "mydb",
 			opts: []ConnectCommandFunc{
-				WithLocalProxy("localhost", 12345, "/tmp/keys/example.com/cas/example.com.pem"),
-				withMongoDBAtlasDatabase(),
-			},
+				WithLocalProxy("localhost", 12345, "/tmp/keys/example.com/cas/example.com.pem")},
 			execer: &fakeExec{
 				execOutput: map[string][]byte{
 					"mongosh": []byte("1.1.6"),
@@ -383,7 +378,7 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			},
 			cmd: []string{"mongosh",
 				"--tls",
-				"--tlsCertificateKeyFile", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt",
+				"--tlsCertificateKeyFile", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem",
 				"--tlsCAFile", "/tmp/keys/example.com/cas/example.com.pem",
 				"mongodb://localhost:12345/mydb?directConnection=true&serverSelectionTimeoutMS=5000",
 			},
@@ -392,7 +387,7 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			name:         "mongosh no TLS",
 			dbProtocol:   defaults.ProtocolMongoDB,
 			databaseName: "mydb",
-			opts:         []ConnectCommandFunc{WithNoTLS(), withMongoDBAtlasDatabase()},
+			opts:         []ConnectCommandFunc{WithNoTLS()},
 			execer: &fakeExec{
 				execOutput: map[string][]byte{
 					"mongosh": []byte("1.1.6"),
@@ -406,46 +401,13 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 			name:         "mongosh preferred",
 			dbProtocol:   defaults.ProtocolMongoDB,
 			databaseName: "mydb",
-			opts:         []ConnectCommandFunc{WithNoTLS(), withMongoDBAtlasDatabase()},
+			opts:         []ConnectCommandFunc{WithNoTLS()},
 			execer: &fakeExec{
 				execOutput: map[string][]byte{}, // Cannot find either bin.
 			},
 			cmd: []string{"mongosh",
 				"mongodb://localhost:12345/mydb?directConnection=true&serverSelectionTimeoutMS=5000",
 			},
-		},
-		{
-			name:         "DocumentDB",
-			dbProtocol:   defaults.ProtocolMongoDB,
-			databaseName: "docdb",
-			opts:         []ConnectCommandFunc{WithNoTLS(), withDocumentDBDatabase()},
-			execer: &fakeExec{
-				execOutput: map[string][]byte{
-					// When both are available, legacy mongo is preferred.
-					"mongo":   []byte("legacy"),
-					"mongosh": []byte("1.1.6"),
-				},
-			},
-			cmd: []string{"mongo",
-				"mongodb://localhost:12345/docdb?directConnection=true&serverSelectionTimeoutMS=5000",
-			},
-			wantErr: false,
-		},
-		{
-			name:         "DocumentDB mongosh",
-			dbProtocol:   defaults.ProtocolMongoDB,
-			databaseName: "docdb",
-			opts:         []ConnectCommandFunc{WithNoTLS(), withDocumentDBDatabase()},
-			execer: &fakeExec{
-				execOutput: map[string][]byte{
-					"mongosh": []byte("1.1.6"),
-				},
-			},
-			cmd: []string{"mongosh",
-				"mongodb://localhost:12345/docdb?directConnection=true&serverSelectionTimeoutMS=5000",
-				"--retryWrites=false",
-			},
-			wantErr: false,
 		},
 		{
 			name:         "sqlserver",
@@ -485,8 +447,8 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 				"-h", "localhost",
 				"-p", "12345",
 				"--tls",
-				"--key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key",
-				"--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt"},
+				"--key", "/tmp/keys/example.com/bob",
+				"--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem"},
 			wantErr: false,
 		},
 		{
@@ -498,8 +460,8 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 				"-h", "localhost",
 				"-p", "12345",
 				"--tls",
-				"--key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key",
-				"--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt",
+				"--key", "/tmp/keys/example.com/bob",
+				"--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem",
 				"-n", "2"},
 			wantErr: false,
 		},
@@ -522,8 +484,8 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 				"-h", "proxy.example.com",
 				"-p", "3080",
 				"--tls",
-				"--key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key",
-				"--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt",
+				"--key", "/tmp/keys/example.com/bob",
+				"--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem",
 				"--sni", "proxy.example.com"},
 			wantErr: false,
 		},
@@ -787,7 +749,7 @@ func TestCLICommandBuilderGetConnectCommand(t *testing.T) {
 
 			c := NewCmdBuilder(tc, profile, database, "root", opts...)
 			c.uid = utils.NewFakeUID()
-			got, err := c.GetConnectCommand(context.Background())
+			got, err := c.GetConnectCommand()
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -841,7 +803,7 @@ func TestCLICommandBuilderGetConnectCommandAlternatives(t *testing.T) {
 			opts:         []ConnectCommandFunc{},
 			execer:       &fakeExec{},
 			databaseName: "warehouse1",
-			cmd:          map[string][]string{"run single request with curl": {"curl", "https://localhost:12345/", "--key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key", "--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt"}},
+			cmd:          map[string][]string{"run single request with curl": {"curl", "https://localhost:12345/", "--key", "/tmp/keys/example.com/bob", "--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem"}},
 			wantErr:      false,
 		},
 		{
@@ -855,7 +817,7 @@ func TestCLICommandBuilderGetConnectCommandAlternatives(t *testing.T) {
 			},
 			databaseName: "warehouse1",
 			cmd: map[string][]string{
-				"run single request with curl": {"curl", "https://localhost:12345/", "--key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key", "--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt"}},
+				"run single request with curl": {"curl", "https://localhost:12345/", "--key", "/tmp/keys/example.com/bob", "--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem"}},
 			wantErr: false,
 		},
 		{
@@ -882,7 +844,7 @@ func TestCLICommandBuilderGetConnectCommandAlternatives(t *testing.T) {
 			execer:       &fakeExec{},
 			databaseName: "warehouse1",
 			cmd: map[string][]string{
-				"run request with curl": {"curl", "https://localhost:12345/", "--key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key", "--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt"}},
+				"run request with curl": {"curl", "https://localhost:12345/", "--key", "/tmp/keys/example.com/bob", "--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem"}},
 			wantErr: false,
 		},
 		{
@@ -906,8 +868,8 @@ func TestCLICommandBuilderGetConnectCommandAlternatives(t *testing.T) {
 			},
 			databaseName: "warehouse1",
 			cmd: map[string][]string{
-				"run request with curl":           {"curl", "https://localhost:12345/", "--key", "/tmp/keys/example.com/bob-db/db.example.com/mysql.key", "--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql.crt"},
-				"run request with opensearch-cli": {"opensearch-cli", "--profile", "teleport", "--config", "/tmp/mysql/opensearch-cli/7e266ec0.yml", "curl", "get", "--path", "/"}},
+				"run request with curl":           {"curl", "https://localhost:12345/", "--key", "/tmp/keys/example.com/bob", "--cert", "/tmp/keys/example.com/bob-db/db.example.com/mysql-x509.pem"},
+				"run request with opensearch-cli": {"opensearch-cli", "--profile", "teleport", "--config", "/tmp/mysql/opensearch-cli/fb135a4d.yml", "curl", "get", "--path", "/"}},
 
 			wantErr: false,
 		},
@@ -951,7 +913,7 @@ func TestCLICommandBuilderGetConnectCommandAlternatives(t *testing.T) {
 			c := NewCmdBuilder(tc, profile, database, "root", opts...)
 			c.uid = utils.NewFakeUID()
 
-			commandOptions, err := c.GetConnectCommandAlternatives(context.Background())
+			commandOptions, err := c.GetConnectCommandAlternatives()
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -1039,7 +1001,7 @@ func TestConvertCommandError(t *testing.T) {
 			c := NewCmdBuilder(tc, profile, database, "root", opts...)
 			c.uid = utils.NewFakeUID()
 
-			cmd, err := c.GetConnectCommand(context.Background())
+			cmd, err := c.GetConnectCommand()
 			require.NoError(t, err)
 
 			// make sure the expected test bin is the command bin we got
@@ -1053,34 +1015,4 @@ func TestConvertCommandError(t *testing.T) {
 			require.ErrorContains(t, convertedErr, tt.wantStdErr)
 		})
 	}
-}
-
-func withMongoDBAtlasDatabase() ConnectCommandFunc {
-	return WithGetDatabaseFunc(func(context.Context, *client.TeleportClient, string) (types.Database, error) {
-		db, err := types.NewDatabaseV3(
-			types.Metadata{
-				Name: "mongodb-atlas",
-			},
-			types.DatabaseSpecV3{
-				Protocol: types.DatabaseProtocolMongoDB,
-				URI:      "mongodb+srv://my-cluster.abcdefy.mongodb.net",
-			},
-		)
-		return db, trace.Wrap(err)
-	})
-}
-
-func withDocumentDBDatabase() ConnectCommandFunc {
-	return WithGetDatabaseFunc(func(context.Context, *client.TeleportClient, string) (types.Database, error) {
-		db, err := types.NewDatabaseV3(
-			types.Metadata{
-				Name: "docdb",
-			},
-			types.DatabaseSpecV3{
-				Protocol: types.DatabaseProtocolMongoDB,
-				URI:      "my-documentdb-cluster-id.cluster-abcdefghijklmnop.us-east-1.docdb.amazonaws.com:27017",
-			},
-		)
-		return db, trace.Wrap(err)
-	})
 }

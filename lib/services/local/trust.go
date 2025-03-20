@@ -28,7 +28,6 @@ import (
 
 	"github.com/gravitational/trace"
 
-	"github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/services"
@@ -262,6 +261,7 @@ func (s *CA) UpdateCertAuthority(ctx context.Context, ca types.CertAuthority) (t
 
 	ca = ca.Clone()
 	ca.SetRevision(lease.Revision)
+	ca.SetResourceID(lease.ID)
 	return ca, nil
 }
 
@@ -463,7 +463,7 @@ func (s *CA) getCertAuthority(ctx context.Context, id types.CertAuthID, loadSign
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	ca, err := services.UnmarshalCertAuthority(item.Value, services.WithExpires(item.Expires), services.WithRevision(item.Revision))
+	ca, err := services.UnmarshalCertAuthority(item.Value, services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -503,7 +503,7 @@ func (s *CA) GetCertAuthorities(ctx context.Context, caType types.CertAuthType, 
 	// Marshal values into a []types.CertAuthority slice.
 	cas := make([]types.CertAuthority, len(result.Items))
 	for i, item := range result.Items {
-		ca, err := services.UnmarshalCertAuthority(item.Value, services.WithExpires(item.Expires), services.WithRevision(item.Revision))
+		ca, err := services.UnmarshalCertAuthority(item.Value, services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))
 		if err != nil {
 			slog.WarnContext(ctx, "Failed to unmarshal cert authority", "key", item.Key, "error", err)
 			continue
@@ -601,7 +601,7 @@ func (s *CA) CreateTrustedCluster(ctx context.Context, tc types.TrustedCluster, 
 	rev, err := s.AtomicWrite(ctx, condacts)
 	if err != nil {
 		if errors.Is(err, backend.ErrConditionFailed) {
-			if _, err := s.GetRemoteCluster(ctx, tc.GetName()); err == nil {
+			if _, err := s.GetRemoteCluster(tc.GetName()); err == nil {
 				return "", trace.BadParameter("cannot create trusted cluster with same name as remote cluster %q, bidirectional trust is not supported", tc.GetName())
 			}
 
@@ -697,7 +697,7 @@ func (s *CA) GetTrustedCluster(ctx context.Context, name string) (types.TrustedC
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	return services.UnmarshalTrustedCluster(item.Value, services.WithExpires(item.Expires), services.WithRevision(item.Revision))
+	return services.UnmarshalTrustedCluster(item.Value, services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))
 }
 
 // GetTrustedClusters returns all TrustedClusters in the backend.
@@ -710,7 +710,7 @@ func (s *CA) GetTrustedClusters(ctx context.Context) ([]types.TrustedCluster, er
 	out := make([]types.TrustedCluster, len(result.Items))
 	for i, item := range result.Items {
 		tc, err := services.UnmarshalTrustedCluster(item.Value,
-			services.WithExpires(item.Expires), services.WithRevision(item.Revision))
+			services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -778,6 +778,7 @@ func (s *CA) UpsertTunnelConnection(conn types.TunnelConnection) error {
 		Key:      backend.NewKey(tunnelConnectionsPrefix, conn.GetClusterName(), conn.GetName()),
 		Value:    value,
 		Expires:  conn.Expiry(),
+		ID:       conn.GetResourceID(),
 		Revision: rev,
 	})
 	if err != nil {
@@ -796,7 +797,7 @@ func (s *CA) GetTunnelConnection(clusterName, connectionName string, opts ...ser
 		return nil, trace.Wrap(err)
 	}
 	conn, err := services.UnmarshalTunnelConnection(item.Value,
-		services.AddOptions(opts, services.WithExpires(item.Expires), services.WithRevision(item.Revision))...)
+		services.AddOptions(opts, services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))...)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -816,7 +817,7 @@ func (s *CA) GetTunnelConnections(clusterName string, opts ...services.MarshalOp
 	conns := make([]types.TunnelConnection, len(result.Items))
 	for i, item := range result.Items {
 		conn, err := services.UnmarshalTunnelConnection(item.Value,
-			services.AddOptions(opts, services.WithExpires(item.Expires), services.WithRevision(item.Revision))...)
+			services.AddOptions(opts, services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))...)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -838,6 +839,7 @@ func (s *CA) GetAllTunnelConnections(opts ...services.MarshalOption) ([]types.Tu
 	for i, item := range result.Items {
 		conn, err := services.UnmarshalTunnelConnection(item.Value,
 			services.AddOptions(opts,
+				services.WithResourceID(item.ID),
 				services.WithExpires(item.Expires),
 				services.WithRevision(item.Revision))...)
 		if err != nil {
@@ -878,14 +880,9 @@ func (s *CA) DeleteAllTunnelConnections() error {
 }
 
 // CreateRemoteCluster creates a remote cluster
-func (s *CA) CreateRemoteCluster(ctx context.Context, rc types.RemoteCluster) (types.RemoteCluster, error) {
-	rev, err := s.CreateRemoteClusterInternal(ctx, rc, nil)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	rc.SetRevision(rev)
-	return rc, nil
+func (s *CA) CreateRemoteCluster(rc types.RemoteCluster) error {
+	_, err := s.CreateRemoteClusterInternal(context.TODO(), rc, nil)
+	return trace.Wrap(err)
 }
 
 // CreateRemoteCluster atomically creates a new remote cluster along with associated resources.
@@ -946,102 +943,45 @@ func (s *CA) CreateRemoteClusterInternal(ctx context.Context, rc types.RemoteClu
 
 // UpdateRemoteCluster updates selected remote cluster fields: expiry and labels
 // other changed fields will be ignored by the method
-func (s *CA) UpdateRemoteCluster(ctx context.Context, rc types.RemoteCluster) (types.RemoteCluster, error) {
+func (s *CA) UpdateRemoteCluster(ctx context.Context, rc types.RemoteCluster) error {
 	if err := services.CheckAndSetDefaults(rc); err != nil {
-		return nil, trace.Wrap(err)
+		return trace.Wrap(err)
+	}
+	existingItem, update, err := s.getRemoteCluster(ctx, rc.GetName())
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	update.SetExpiry(rc.Expiry())
+	update.SetLastHeartbeat(rc.GetLastHeartbeat())
+	update.SetConnectionStatus(rc.GetConnectionStatus())
+	update.SetMetadata(rc.GetMetadata())
+
+	rev := update.GetRevision()
+	updateValue, err := services.MarshalRemoteCluster(update)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	updateItem := backend.Item{
+		Key:      backend.NewKey(remoteClustersPrefix, update.GetName()),
+		Value:    updateValue,
+		Expires:  update.Expiry(),
+		Revision: rev,
 	}
 
-	// Small retry loop to catch cases where there's a concurrent update which
-	// could cause conditional update to fail. This is needed because of the
-	// unusual way updates are handled in this method meaning that the revision
-	// in the provided remote cluster is not used. We should eventually make a
-	// breaking change to this behavior.
-	const iterationLimit = 3
-	for i := 0; i < iterationLimit; i++ {
-		existing, err := s.GetRemoteCluster(ctx, rc.GetName())
-		if err != nil {
-			return nil, trace.Wrap(err)
+	_, err = s.CompareAndSwap(ctx, *existingItem, updateItem)
+	if err != nil {
+		if trace.IsCompareFailed(err) {
+			return trace.CompareFailed("remote cluster %v has been updated by another client, try again", rc.GetName())
 		}
-		existing.SetExpiry(rc.Expiry())
-		existing.SetLastHeartbeat(rc.GetLastHeartbeat())
-		existing.SetConnectionStatus(rc.GetConnectionStatus())
-		existing.SetMetadata(rc.GetMetadata())
-
-		item, err := remoteClusterToItem(existing)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-
-		lease, err := s.ConditionalUpdate(ctx, item)
-		if err != nil {
-			if trace.IsCompareFailed(err) {
-				// Retry!
-				continue
-			}
-			return nil, trace.Wrap(err)
-		}
-		existing.SetRevision(lease.Revision)
-		return existing, nil
+		return trace.Wrap(err)
 	}
-	return nil, trace.CompareFailed("failed to update remote cluster within %v iterations", iterationLimit)
-}
-
-// PatchRemoteCluster fetches a remote cluster and then calls updateFn
-// to apply any changes, before persisting the updated remote cluster.
-func (s *CA) PatchRemoteCluster(
-	ctx context.Context,
-	name string,
-	updateFn func(types.RemoteCluster) (types.RemoteCluster, error),
-) (types.RemoteCluster, error) {
-	// Retry to update the remote cluster in case of a conflict.
-	const iterationLimit = 3
-	for i := 0; i < 3; i++ {
-		existing, err := s.GetRemoteCluster(ctx, name)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-
-		updated, err := updateFn(existing.Clone())
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-
-		switch {
-		case updated.GetName() != name:
-			return nil, trace.BadParameter("metadata.name: cannot be patched")
-		case updated.GetRevision() != existing.GetRevision():
-			// We don't allow revision to be specified when performing a patch.
-			// This is because it creates some complex semantics. Instead they
-			// should use the Update method if they wish to specify the
-			// revision.
-			return nil, trace.BadParameter("metadata.revision: cannot be patched")
-		}
-
-		item, err := remoteClusterToItem(updated)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-
-		lease, err := s.ConditionalUpdate(ctx, item)
-		if err != nil {
-			if trace.IsCompareFailed(err) {
-				// Retry!
-				continue
-			}
-			return nil, trace.Wrap(err)
-		}
-		updated.SetRevision(lease.Revision)
-		return updated, nil
-	}
-	return nil, trace.CompareFailed("failed to update remote cluster within %v iterations", iterationLimit)
+	return nil
 }
 
 // GetRemoteClusters returns a list of remote clusters
-// Prefer ListRemoteClusters. This will eventually be deprecated.
-// TODO(noah): REMOVE IN 17.0.0 - replace calls with ListRemoteClusters
-func (s *CA) GetRemoteClusters(ctx context.Context) ([]types.RemoteCluster, error) {
+func (s *CA) GetRemoteClusters(opts ...services.MarshalOption) ([]types.RemoteCluster, error) {
 	startKey := backend.ExactKey(remoteClustersPrefix)
-	result, err := s.GetRange(ctx, startKey, backend.RangeEnd(startKey), backend.NoLimit)
+	result, err := s.GetRange(context.TODO(), startKey, backend.RangeEnd(startKey), backend.NoLimit)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -1049,9 +989,7 @@ func (s *CA) GetRemoteClusters(ctx context.Context) ([]types.RemoteCluster, erro
 	clusters := make([]types.RemoteCluster, len(result.Items))
 	for i, item := range result.Items {
 		cluster, err := services.UnmarshalRemoteCluster(item.Value,
-			services.WithExpires(item.Expires),
-			services.WithRevision(item.Revision),
-		)
+			services.AddOptions(opts, services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))...)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -1060,70 +998,30 @@ func (s *CA) GetRemoteClusters(ctx context.Context) ([]types.RemoteCluster, erro
 	return clusters, nil
 }
 
-// ListRemoteClusters returns a page of remote clusters
-func (s *CA) ListRemoteClusters(
-	ctx context.Context, pageSize int, pageToken string,
-) ([]types.RemoteCluster, string, error) {
-	rangeStart := backend.NewKey(remoteClustersPrefix, pageToken)
-	rangeEnd := backend.RangeEnd(backend.ExactKey(remoteClustersPrefix))
-
-	// Adjust page size, so it can't be too large.
-	if pageSize <= 0 || pageSize > defaults.DefaultChunkSize {
-		pageSize = defaults.DefaultChunkSize
-	}
-
-	limit := pageSize + 1
-
-	result, err := s.GetRange(ctx, rangeStart, rangeEnd, limit)
-	if err != nil {
-		return nil, "", trace.Wrap(err)
-	}
-
-	clusters := make([]types.RemoteCluster, 0, len(result.Items))
-	for _, item := range result.Items {
-		cluster, err := services.UnmarshalRemoteCluster(item.Value,
-			services.WithExpires(item.Expires),
-			services.WithRevision(item.Revision),
-		)
-		if err != nil {
-			slog.WarnContext(ctx, "Skipping item during ListRemoteClusters because conversion from backend item failed", "key", item.Key, "error", err)
-			continue
-		}
-		clusters = append(clusters, cluster)
-	}
-
-	next := ""
-	if len(clusters) > pageSize {
-		next = backend.GetPaginationKey(clusters[pageSize])
-		clear(clusters[pageSize:])
-		// Truncate the last item that was used to determine next row existence.
-		clusters = clusters[:pageSize]
-	}
-	return clusters, next, nil
-}
-
-// GetRemoteCluster returns a remote cluster by name
-func (s *CA) GetRemoteCluster(
-	ctx context.Context, clusterName string,
-) (types.RemoteCluster, error) {
+// getRemoteCluster returns a remote cluster in raw form and unmarshaled
+func (s *CA) getRemoteCluster(ctx context.Context, clusterName string) (*backend.Item, types.RemoteCluster, error) {
 	if clusterName == "" {
-		return nil, trace.BadParameter("missing parameter cluster name")
+		return nil, nil, trace.BadParameter("missing parameter cluster name")
 	}
 	item, err := s.Get(ctx, backend.NewKey(remoteClustersPrefix, clusterName))
 	if err != nil {
 		if trace.IsNotFound(err) {
-			return nil, trace.NotFound("remote cluster %q is not found", clusterName)
+			return nil, nil, trace.NotFound("remote cluster %q is not found", clusterName)
 		}
-		return nil, trace.Wrap(err)
+		return nil, nil, trace.Wrap(err)
 	}
 	rc, err := services.UnmarshalRemoteCluster(item.Value,
-		services.WithExpires(item.Expires),
-		services.WithRevision(item.Revision),
-	)
+		services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))
 	if err != nil {
-		return nil, trace.Wrap(err)
+		return nil, nil, trace.Wrap(err)
 	}
-	return rc, nil
+	return item, rc, nil
+}
+
+// GetRemoteCluster returns a remote cluster by name
+func (s *CA) GetRemoteCluster(clusterName string) (types.RemoteCluster, error) {
+	_, rc, err := s.getRemoteCluster(context.TODO(), clusterName)
+	return rc, trace.Wrap(err)
 }
 
 // DeleteRemoteCluster deletes remote cluster by name
@@ -1168,9 +1066,9 @@ func (s *CA) DeleteRemoteClusterInternal(ctx context.Context, name string, ids [
 }
 
 // DeleteAllRemoteClusters deletes all remote clusters
-func (s *CA) DeleteAllRemoteClusters(ctx context.Context) error {
+func (s *CA) DeleteAllRemoteClusters() error {
 	startKey := backend.ExactKey(remoteClustersPrefix)
-	err := s.DeleteRange(ctx, startKey, backend.RangeEnd(startKey))
+	err := s.DeleteRange(context.TODO(), startKey, backend.RangeEnd(startKey))
 	return trace.Wrap(err)
 }
 
@@ -1185,6 +1083,7 @@ func caToItem(key backend.Key, ca types.CertAuthority) (backend.Item, error) {
 		Key:      key,
 		Value:    value,
 		Expires:  ca.Expiry(),
+		ID:       ca.GetResourceID(),
 		Revision: ca.GetRevision(),
 	}, nil
 }

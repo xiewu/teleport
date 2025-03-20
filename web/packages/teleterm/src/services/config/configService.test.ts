@@ -17,7 +17,6 @@
  */
 
 import Logger, { NullService } from 'teleterm/logger';
-import { makeRuntimeSettings } from 'teleterm/mainProcess/fixtures/mocks';
 import { createMockFileStorage } from 'teleterm/services/fileStorage/fixtures/mocks';
 
 import { createConfigService } from './configService';
@@ -32,7 +31,7 @@ test('stored and default values are combined', () => {
   const configService = createConfigService({
     configFile,
     jsonSchemaFile: createMockFileStorage(),
-    settings: makeRuntimeSettings(),
+    platform: 'darwin',
   });
 
   expect(configService.getConfigError()).toBeUndefined();
@@ -52,7 +51,7 @@ test('in case of invalid value a default one is returned', () => {
   const configService = createConfigService({
     configFile: configFile,
     jsonSchemaFile: createMockFileStorage(),
-    settings: makeRuntimeSettings(),
+    platform: 'darwin',
   });
 
   expect(configService.getConfigError()).toStrictEqual({
@@ -85,7 +84,7 @@ test('if config file failed to load correctly the error is returned', () => {
   const configService = createConfigService({
     configFile,
     jsonSchemaFile: createMockFileStorage(),
-    settings: makeRuntimeSettings(),
+    platform: 'darwin',
   });
 
   expect(configService.getConfigError()).toStrictEqual({
@@ -99,7 +98,7 @@ test('calling set updated the value in store', () => {
   const configService = createConfigService({
     configFile,
     jsonSchemaFile: createMockFileStorage(),
-    settings: makeRuntimeSettings(),
+    platform: 'darwin',
   });
 
   configService.set('usageReporting.enabled', true);
@@ -120,7 +119,7 @@ test('field linking to the json schema and the json schema itself are updated', 
   createConfigService({
     configFile,
     jsonSchemaFile,
-    settings: makeRuntimeSettings(),
+    platform: 'darwin',
   });
 
   expect(configFile.get('$schema')).toBe('config_schema.json');

@@ -16,7 +16,7 @@ The `teleport-cluster` chart runs three Teleport services, split into two sets o
 | Teleport service | Running in | Purpose | Documentation |
 | - | - | - | - |
 | `auth_service` | auth `Deployment` | Authenticates users and hosts, and issues certificates. | [Auth documentation](../architecture/authentication.mdx)
-| `kubernetes_service` | auth `Deployment` | Provides secure access to the Kubernetes<br/>cluster where the Teleport cluster is hosted. | [Enrolling Kubernetes clusters](../../enroll-resources/kubernetes-access/introduction.mdx) |
+| `kubernetes_service` | auth `Deployment` | Provides secure access to the Kubernetes<br/>cluster where the Teleport cluster is hosted. | [Kubernetes Access documentation](../../enroll-resources/kubernetes-access/introduction.mdx) |
 | `proxy_service` | proxy `Deployment` | Runs the externally-facing parts of a Teleport<br/>cluster, such as the web UI, SSH proxy and reverse tunnel service. | [Proxy documentation](../architecture/proxy.mdx) |
 
 <Admonition type="tip" title="Additional Kubernetes Clusters and Teleport Services">
@@ -40,6 +40,12 @@ Get started with a guide for each mode:
 | `gcp` | Leverages GCP managed services to store data. | [Running an HA Teleport cluster using a Google Cloud GKE cluster](../../admin-guides/deploy-a-cluster/helm-deployments/gcp.mdx) |
 | `azure` | Leverages Azure managed services to store data. | [Running an HA Teleport cluster using a Microsoft Azure AKS cluster](../../admin-guides/deploy-a-cluster/helm-deployments/azure.mdx) |
 | `scratch` (v12 and above) | Generates empty Teleport configuration. User must pass their own config. This is discouraged, use `standalone` mode with [`auth.teleportConfig`](#authteleportconfig) and [`proxy.teleportConfig`](#proxyteleportconfig) instead. | [Running a Teleport cluster with a custom config](../../admin-guides/deploy-a-cluster/helm-deployments/custom.mdx) |
+
+<Admonition type="note" title="Custom mode removal">
+`custom` mode has been removed in Teleport version 12. See the [version 12
+migration guide](../../admin-guides/deploy-a-cluster/helm-deployments/migration-v12.mdx) for
+more information.
+</Admonition>
 
 <Admonition type="warning" title="Version Compatibility">
 The chart is versioned with Teleport. No compatibility guarantees are ensured
@@ -290,26 +296,16 @@ details.
 
 Defaults to Teleport's binary default when empty: `best_effort`.
 
-### `authentication.passwordless`
-
-| Type   | Default value | Required? | `teleport.yaml` equivalent               |
-|--------|---------------|-----------|------------------------------------------|
-| `bool` | `nil`         | No        | `auth_service.authentication.passwordless` |
-
-`authentication.passwordless` controls whether passwordless authentication is enabled.
-
-[Can be used to forbid passwordless access to your cluster](../../admin-guides/access-controls/guides/passwordless.mdx)
-
 ### `authentication.secondFactor`
 
 | Type     | Default value | Required? | `teleport.yaml` equivalent                  |
 |----------|---------------|-----------|---------------------------------------------|
 | `string` | `otp`         | Yes       | `auth_service.authentication.second_factor` |
 
-`authentication.secondFactor` configures multi-factor authentication for local users. Possible values supported by this chart
-are `on`, `otp`, and `webauthn`.
+`authentication.secondFactor` controls the second factor used for local user authentication. Possible values supported by this chart
+are `off` (not recommended), `on`, `otp`, `optional` and `webauthn`.
 
-When set to `on` or `webauthn`, the `authenticationSecondFactor.webauthn` section can also be used.
+When set to `on`, `optional` or `webauthn`, the `authenticationSecondFactor.webauthn` section can also be used.
 The configured `rp_id` defaults to `clusterName`.
 
 <Admonition type="warning">
@@ -332,7 +328,7 @@ Changing the RP ID will invalidate all already registered webauthn second factor
 
 ### `authentication.webauthn`
 
-See [Harden your Cluster Against IdP Compromises](../../admin-guides/access-controls/guides/webauthn.mdx) for more details.
+See [Second Factor - WebAuthn](../../admin-guides/access-controls/guides/webauthn.mdx) for more details.
 
 #### `authentication.webauthn.attestationAllowedCas`
 
@@ -990,7 +986,7 @@ to inject your custom configuration.
 
 `podMonitor` controls [the PodMonitor CR (from monitoring.coreos.com/v1)
 ](https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api.md#monitoring.coreos.com/v1.PodMonitor)
-that monitors the workload (Auth Service and Proxy Service) deployed by the chart.
+that monitors the workload (Auth and Proxy Services) deployed by the chart.
 This custom resource configures Prometheus and makes it scrape Teleport metrics.
 
 The CRD is deployed by the prometheus-operator and allows workload to
@@ -2327,46 +2323,3 @@ Kubernetes timeouts for the liveness and readiness probes.
   ```yaml
   probeTimeoutSeconds: 5
   ```
-
-## `readinessProbe`
-
-`readinessProbe` configures the readiness probe settings.
-This can be tuned to keep proxy pods ready even when the auth is unavailable.
-
-The default values mark the pod unready after one minute of failing readiness probe.
-
-### `readinessProbe.initialDelaySeconds`
-
-| Type      | Default value |
-|-----------|---------------|
-| `integer` | `5`           |
-
-`readinessProbe.initialDelaySeconds` controls the number of seconds after the container has started before
-liveness probes are initiated. More info [in the Kubernetes documentation
-](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle#container-probes)
-
-### `readinessProbe.periodSeconds`
-| Type      | Default value |
-|-----------|---------------|
-| `integer` | `5`           |
-
-`readinessProbe.periodSeconds` controls how often (in seconds) to perform the probe. Minimum value is 1.
-
-### `readinessProbe.failureThreshold`
-
-| Type      | Default value |
-|-----------|---------------|
-| `integer` | `12`          |
-
-`readinessProbe.failureThreshold` is the minimum consecutive failures for the probe to be considered failed
-after having succeeded. Minimum value is 1.
-failureThreshold: 12
-
-## `readinessProbe.successThreshold`
-
-| Type      | Default value |
-|-----------|---------------|
-| `integer` | `1`           |
-
-`readinessProbe.successThreshold` is the minimum consecutive successes for the probe to be considered
-successful after having failed. Minimum value is 1.

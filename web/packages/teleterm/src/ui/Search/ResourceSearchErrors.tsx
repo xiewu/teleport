@@ -16,22 +16,23 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ButtonIcon, ButtonSecondary, H2, Text } from 'design';
+import React from 'react';
 import DialogConfirmation, {
   DialogContent,
   DialogFooter,
   DialogHeader,
 } from 'design/DialogConfirmation';
+import { ButtonIcon, ButtonSecondary, Text } from 'design';
 import { Cross } from 'design/Icon';
 
 import { ResourceSearchError } from 'teleterm/ui/services/resources';
+
 import type * as uri from 'teleterm/ui/uri';
 
 export function ResourceSearchErrors(props: {
   errors: ResourceSearchError[];
   getClusterName: (resourceUri: uri.ClusterOrResourceUri) => string;
   onCancel: () => void;
-  hidden?: boolean;
 }) {
   const formattedErrorText = props.errors
     .map(error => error.messageAndCauseWithClusterName(props.getClusterName))
@@ -39,16 +40,17 @@ export function ResourceSearchErrors(props: {
 
   return (
     <DialogConfirmation
-      open={!props.hidden}
-      keepInDOMAfterClose
+      open={true}
       onClose={props.onCancel}
       dialogCss={() => ({
         maxWidth: '800px',
         width: '100%',
       })}
     >
-      <DialogHeader justifyContent="space-between" alignItems="baseline">
-        <H2>Resource search errors</H2>
+      <DialogHeader justifyContent="space-between" mb={0} alignItems="baseline">
+        <Text typography="h4" bold>
+          Resource search errors
+        </Text>
         <ButtonIcon
           type="button"
           onClick={props.onCancel}
@@ -58,7 +60,7 @@ export function ResourceSearchErrors(props: {
         </ButtonIcon>
       </DialogHeader>
       <DialogContent mb={4}>
-        <Text typography="body2" color="text.slightlyMuted">
+        <Text typography="body1" color="text.slightlyMuted">
           <pre
             css={`
               padding: ${props => props.theme.space[2]}px;

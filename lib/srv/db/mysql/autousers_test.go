@@ -19,9 +19,6 @@
 package mysql
 
 import (
-	"context"
-	"errors"
-	"log/slog"
 	"testing"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -142,7 +139,7 @@ func Test_convertActivateError(t *testing.T) {
 			input: trace.Wrap(permissionError),
 			errorIs: func(err error) bool {
 				// Not converted.
-				return errors.Is(trace.Unwrap(err), permissionError)
+				return trace.Unwrap(err) == permissionError
 			},
 			errorContains: permissionError.Message,
 		},
@@ -181,7 +178,7 @@ func Test_checkMySQLSupportedVersion(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
-			test.checkError(t, checkMySQLSupportedVersion(context.Background(), slog.Default(), test.input))
+			test.checkError(t, checkMySQLSupportedVersion(test.input))
 		})
 	}
 }
@@ -230,7 +227,7 @@ func Test_checkMariaDBSupportedVersion(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
-			test.checkError(t, checkMariaDBSupportedVersion(context.Background(), slog.Default(), test.input))
+			test.checkError(t, checkMariaDBSupportedVersion(test.input))
 		})
 	}
 }

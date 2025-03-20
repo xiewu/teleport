@@ -56,15 +56,12 @@ func SSHIdentityToSSHCA(id *decisionpb.SSHIdentity) *sshca.Identity {
 		Renewable:               id.Renewable,
 		Generation:              id.Generation,
 		BotName:                 id.BotName,
-		BotInstanceID:           id.BotInstanceId,
 		AllowedResourceIDs:      resourceIDsToTypes(id.AllowedResourceIds),
 		ConnectionDiagnosticID:  id.ConnectionDiagnosticId,
 		PrivateKeyPolicy:        keys.PrivateKeyPolicy(id.PrivateKeyPolicy),
 		DeviceID:                id.DeviceId,
 		DeviceAssetTag:          id.DeviceAssetTag,
 		DeviceCredentialID:      id.DeviceCredentialId,
-		GitHubUserID:            id.GithubUserId,
-		GitHubUsername:          id.GithubUsername,
 	}
 }
 
@@ -98,15 +95,12 @@ func SSHIdentityFromSSHCA(id *sshca.Identity) *decisionpb.SSHIdentity {
 		Renewable:               id.Renewable,
 		Generation:              id.Generation,
 		BotName:                 id.BotName,
-		BotInstanceId:           id.BotInstanceID,
 		AllowedResourceIds:      resourceIDsFromTypes(id.AllowedResourceIDs),
 		ConnectionDiagnosticId:  id.ConnectionDiagnosticID,
 		PrivateKeyPolicy:        string(id.PrivateKeyPolicy),
 		DeviceId:                id.DeviceID,
 		DeviceAssetTag:          id.DeviceAssetTag,
 		DeviceCredentialId:      id.DeviceCredentialID,
-		GithubUserId:            id.GitHubUserID,
-		GithubUsername:          id.GitHubUsername,
 	}
 }
 

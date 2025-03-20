@@ -20,9 +20,12 @@ package local
 
 import (
 	"context"
+	"time"
 
 	"github.com/gravitational/trace"
+	"github.com/sirupsen/logrus"
 
+	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/types/externalauditstorage"
 	"github.com/gravitational/teleport/api/types/header"
 	"github.com/gravitational/teleport/lib/backend"
@@ -33,6 +36,8 @@ const (
 	externalAuditStoragePrefix      = "external_audit_storage"
 	externalAuditStorageDraftName   = "draft"
 	externalAuditStorageClusterName = "cluster"
+	externalAuditStorageLockName    = "external_audit_storage_lock"
+	externalAuditStorageLockTTL     = 10 * time.Second
 )
 
 var (
@@ -43,12 +48,14 @@ var (
 // ExternalAuditStorageService manages External Audit Storage resources in the Backend.
 type ExternalAuditStorageService struct {
 	backend backend.Backend
+	logger  *logrus.Entry
 }
 
 // NewExternalAuditStorageService returns a new *ExternalAuditStorageService or an error if it fails.
 func NewExternalAuditStorageService(backend backend.Backend) *ExternalAuditStorageService {
 	return &ExternalAuditStorageService{
 		backend: backend,
+		logger:  logrus.WithField(teleport.ComponentKey, "ExternalAuditStorage.backend"),
 	}
 }
 
@@ -90,6 +97,13 @@ func (s *ExternalAuditStorageService) CreateDraftExternalAuditStorage(ctx contex
 
 	revision, err := s.backend.AtomicWrite(ctx, []backend.ConditionalAction{
 		{
+			// Make sure another auth server on an older minor/patch version is not holding the lock that was
+			// used before this switched to AtomicWrite.
+			Key:       backend.LockKey(externalAuditStorageLockName),
+			Condition: backend.NotExists(),
+			Action:    backend.Nop(),
+		},
+		{
 			// Make sure the AWS OIDC integration checked above hasn't changed.
 			Key:       integrationKey,
 			Condition: backend.Revision(integrationRevision),
@@ -129,6 +143,13 @@ func (s *ExternalAuditStorageService) UpsertDraftExternalAuditStorage(ctx contex
 	}
 
 	revision, err := s.backend.AtomicWrite(ctx, []backend.ConditionalAction{
+		{
+			// Make sure another auth server on an older minor/patch version is not holding the lock that was
+			// used before this switched to AtomicWrite.
+			Key:       backend.LockKey(externalAuditStorageLockName),
+			Condition: backend.NotExists(),
+			Action:    backend.Nop(),
+		},
 		{
 			// Make sure the AWS OIDC integration checked above hasn't changed.
 			Key:       integrationKey,
@@ -215,6 +236,13 @@ func (s *ExternalAuditStorageService) PromoteToClusterExternalAuditStorage(ctx c
 
 	_, err = s.backend.AtomicWrite(ctx, []backend.ConditionalAction{
 		{
+			// Make sure another auth server on an older minor/patch version is not holding the lock that was
+			// used before this switched to AtomicWrite.
+			Key:       backend.LockKey(externalAuditStorageLockName),
+			Condition: backend.NotExists(),
+			Action:    backend.Nop(),
+		},
+		{
 			// Make sure the AWS OIDC integration checked above hasn't changed.
 			Key:       integrationKey,
 			Condition: backend.Revision(integrationRevision),
@@ -249,19 +277,19 @@ func (s *ExternalAuditStorageService) DisableClusterExternalAuditStorage(ctx con
 
 // checkAWSIntegration checks that [integrationName] names an AWS OIDC integration that currently exists, and
 // returns the backend key and revision if the AWS OIDC integration.
-func (s *ExternalAuditStorageService) checkAWSIntegration(ctx context.Context, integrationName string) (backend.Key, string, error) {
+func (s *ExternalAuditStorageService) checkAWSIntegration(ctx context.Context, integrationName string) (key backend.Key, revision string, err error) {
 	integrationsSvc, err := NewIntegrationsService(s.backend)
 	if err != nil {
-		return backend.Key{}, "", trace.Wrap(err)
+		return nil, "", trace.Wrap(err)
 	}
 	integration, err := integrationsSvc.GetIntegration(ctx, integrationName)
 	if err != nil {
-		return backend.Key{}, "", trace.Wrap(err, "getting integration")
+		return nil, "", trace.Wrap(err, "getting integration")
 	}
 	if integration.GetAWSOIDCIntegrationSpec() == nil {
-		return backend.Key{}, "", trace.BadParameter("%q is not an AWS OIDC integration", integrationName)
+		return nil, "", trace.BadParameter("%q is not an AWS OIDC integration", integrationName)
 	}
-	return integrationsSvc.svc.MakeKey(backend.NewKey(integrationName)), integration.GetRevision(), nil
+	return integrationsSvc.svc.MakeKey(integrationName), integration.GetRevision(), nil
 }
 
 func getExternalAuditStorage(ctx context.Context, bk backend.Backend, key backend.Key) (*externalauditstorage.ExternalAuditStorage, error) {
@@ -269,7 +297,7 @@ func getExternalAuditStorage(ctx context.Context, bk backend.Backend, key backen
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	out, err := services.UnmarshalExternalAuditStorage(item.Value, services.WithRevision(item.Revision))
+	out, err := services.UnmarshalExternalAuditStorage(item.Value, services.WithRevision(item.Revision), services.WithResourceID(item.ID))
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

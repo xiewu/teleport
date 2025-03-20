@@ -16,8 +16,6 @@ Discovery for GKE.
 
 (!docs/pages/includes/discovery/step-description.mdx serviceName="Kubernetes" resourceDesc="cluster" resourceKind="kube_cluster" !)
 
-(!docs/pages/includes/discovery/same-host-tip.mdx serviceName="Kubernetes" resourceDesc="cluster" !)
-
 ## Prerequisites
 
 (!docs/pages/includes/edition-prereqs-tabs.mdx!)
@@ -398,7 +396,6 @@ ssh_service:
   enabled: off
 discovery_service:
   enabled: "yes"
-  discovery_group: "gke-myproject"
   gcp:
     - types: ["gke"]
       locations: ["*"]
@@ -436,7 +433,6 @@ clusters in project `myproj-prod` running in `us-east2`, but *not* clusters in
 ```yaml
 discovery_service:
   enabled: "yes"
-  discovery_group: "gke-myproject"
   gcp:
     - types: ["gke"]
       locations: ["us-east1"]
@@ -496,20 +492,22 @@ command, depending on:
 - Whether you are running the Discovery and Kubernetes Service on Google Cloud
   or another platform
 
-<Tabs>
-<TabItem label="Google Cloud">
+<Tabs dropdownCaption="How your host is running:"
+dropdownSelected="Google Cloud">
+<TabItem options="Google Cloud" label="Package Manager ">
 
-If you installed Teleport with a package manager, on the host where you will run
-the Teleport Kubernetes Service and Discovery Service, start the Teleport
-service:
+On the host where you will run the Teleport Kubernetes Service and Discovery
+Service, start the Teleport service:
 
 ```code
 $ sudo systemctl start teleport
 ```
+</TabItem>
+<TabItem options="Google Cloud" label="TAR Archive ">
 
-If you installed Teleport with a TAR archive, the host where you will run the
-Teleport Kubernetes Service and Discovery Service, create a systemd service
-configuration for Teleport, enable the Teleport service, and start Teleport:
+On the host where you will run the Teleport Kubernetes Service and Discovery
+Service, create a systemd service configuration for Teleport, enable the
+Teleport service, and start Teleport:
 
 ```code
 $ sudo teleport install systemd -o /etc/systemd/system/teleport.service
@@ -517,55 +515,57 @@ $ sudo systemctl enable teleport
 $ sudo systemctl start teleport
 ```
 </TabItem>
-<TabItem label="Other platform">
+<TabItem options="Other Platform" label="Package Manager">
 
-If you installed Teleport via package manager, the installation process created
-a configuration for the init system `systemd` to run Teleport as a daemon. This
-service reads environment variables from a file at the path
+When you installed Teleport via package manager, the installation process
+created a configuration for the init system `systemd` to run Teleport as a
+daemon.
+
+This service reads environment variables from a file at the path
 `/etc/default/teleport`. Teleport's built-in Google Cloud client reads the
 credentials file at the location given by the `GOOGLE_APPLICATION_CREDENTIALS`
-variable. In this case:
+variable.
 
-1. Ensure that `/etc/default/teleport` has the following content:
+Ensure that `/etc/default/teleport` has the following content:
 
-   ```
-   GOOGLE_APPLICATION_CREDENTIALS="/var/lib/teleport/google-cloud-credentials.json"
-   ```
+```
+GOOGLE_APPLICATION_CREDENTIALS="/var/lib/teleport/google-cloud-credentials.json"
+```
 
-1. Start the Teleport service:
+Start the Teleport service:
 
-   ```code
-   $ sudo systemctl enable teleport
-   $ sudo systemctl start teleport
-   ```
+```code
+$ sudo systemctl enable teleport
+$ sudo systemctl start teleport
+```
+</TabItem>
+<TabItem options="Other Platform" label="TAR Archive">
 
-If you installed Teleport using a TAR archive:
+On the host where you are running the Teleport Discovery Service and Kubernetes
+Service, create a systemd configuration that you can use to run Teleport in the
+background:
 
-1. On the host where you are running the Teleport Discovery Service and
-   Kubernetes Service, create a systemd configuration that you can use to run
-   Teleport in the background:
+```code
+$ sudo teleport install systemd -o /etc/systemd/system/teleport.service
+$ sudo systemctl enable teleport
+```
 
-   ```code
-   $ sudo teleport install systemd -o /etc/systemd/system/teleport.service
-   $ sudo systemctl enable teleport
-   ```
+This service reads environment variables from a file at the path
+`/etc/default/teleport`. Teleport's built-in Google Cloud client reads the
+credentials file at the location given by the `GOOGLE_APPLICATION_CREDENTIALS`
+variable.
 
-   This service reads environment variables from a file at the path
-   `/etc/default/teleport`. Teleport's built-in Google Cloud client reads the
-   credentials file at the location given by the
-   `GOOGLE_APPLICATION_CREDENTIALS` variable.
+Ensure that `/etc/default/teleport` has the following content:
 
-1. Ensure that `/etc/default/teleport` has the following content:
+```
+GOOGLE_APPLICATION_CREDENTIALS="/var/lib/teleport/google-cloud-credentials.json"
+```
 
-   ```
-   GOOGLE_APPLICATION_CREDENTIALS="/var/lib/teleport/google-cloud-credentials.json"
-   ```
+Start the Discovery Service and Kubernetes Service:
 
-1. Start the Discovery Service and Kubernetes Service:
-
-   ```code
-   $ sudo systemctl start teleport
-   ```
+```code
+$ sudo systemctl start teleport
+```
 
 </TabItem>
 </Tabs>

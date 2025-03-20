@@ -16,14 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { fireEvent, render, screen, userEvent } from 'design/utils/testing';
+import { render, screen, userEvent, fireEvent } from 'design/utils/testing';
+
 import { RequestState } from 'shared/services/accessRequests';
 
 import { dryRunResponse } from '../../fixtures';
 import { useSpecifiableFields } from '../useSpecifiableFields';
+
 import {
-  RequestCheckoutWithSlider as RequestCheckoutComp,
-  RequestCheckoutWithSliderProps,
+  RequestCheckout as RequestCheckoutComp,
+  RequestCheckoutProps,
 } from './RequestCheckout';
 
 test('adding a reviewer and then removing it afterwards when there are no suggested reviewers', async () => {
@@ -144,7 +146,7 @@ const RequestCheckout = ({ reviewers = [] }: { reviewers?: string[] }) => {
   );
 };
 
-const props: RequestCheckoutWithSliderProps = {
+const props: RequestCheckoutProps = {
   createAttempt: { status: '' },
   fetchResourceRequestRolesAttempt: { status: '' },
   isResourceRequest: false,
@@ -152,7 +154,7 @@ const props: RequestCheckoutWithSliderProps = {
   selectedReviewers: [],
   setSelectedReviewers: () => null,
   createRequest: () => null,
-  pendingAccessRequests: [],
+  data: [],
   clearAttempt: () => null,
   onClose: () => null,
   toggleResource: () => null,
@@ -172,6 +174,4 @@ const props: RequestCheckoutWithSliderProps = {
   dryRunResponse: null,
   startTime: null,
   onStartTimeChange: () => null,
-  fetchKubeNamespaces: () => null,
-  updateNamespacesForKubeCluster: () => null,
 };

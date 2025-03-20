@@ -17,5 +17,4 @@
  */
 
 import ConnectDialog from './ConnectDialog';
-
 export default ConnectDialog;

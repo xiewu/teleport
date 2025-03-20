@@ -16,16 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import styled from 'styled-components';
 
-import { Box, Flex, rotate360 } from 'design';
 import { Spinner } from 'design/Icon';
+import { Box, Flex, rotate360 } from 'design';
 
-import HeadlessRequestDialog from 'teleport/components/HeadlessRequestDialog/HeadlessRequestDialog';
-import { useParams } from 'teleport/components/Router';
-import { CardAccept, CardDenied } from 'teleport/HeadlessRequest/Cards';
 import auth from 'teleport/services/auth';
+import { useParams } from 'teleport/components/Router';
+import HeadlessRequestDialog from 'teleport/components/HeadlessRequestDialog/HeadlessRequestDialog';
+import { CardAccept, CardDenied } from 'teleport/HeadlessRequest/Cards';
 
 export function HeadlessRequest() {
   const { requestId } = useParams<{ requestId: string }>();

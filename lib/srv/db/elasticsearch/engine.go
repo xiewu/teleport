@@ -84,7 +84,7 @@ func (e *Engine) SendError(err error) {
 
 	jsonBody, err := json.Marshal(cause)
 	if err != nil {
-		e.Log.ErrorContext(e.Context, "failed to marshal error response", "error", err)
+		e.Log.WithError(err).Error("failed to marshal error response")
 		return
 	}
 
@@ -100,7 +100,7 @@ func (e *Engine) SendError(err error) {
 	}
 
 	if err := response.Write(e.clientConn); err != nil {
-		e.Log.ErrorContext(e.Context, "elasticsearch error", "error", err)
+		e.Log.Errorf("elasticsearch error: %+v", trace.Unwrap(err))
 		return
 	}
 }
@@ -120,7 +120,7 @@ func (e *Engine) HandleConnection(ctx context.Context, sessionCtx *common.Sessio
 		return trace.BadParameter("database username required for Elasticsearch")
 	}
 
-	tlsConfig, err := e.Auth.GetTLSConfig(ctx, sessionCtx.GetExpiry(), sessionCtx.Database, sessionCtx.DatabaseUser)
+	tlsConfig, err := e.Auth.GetTLSConfig(ctx, sessionCtx)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -210,7 +210,7 @@ func (e *Engine) emitAuditEvent(req *http.Request, body []byte, statusCode uint3
 
 	source := req.URL.Query().Get("source")
 	if len(source) > 0 {
-		e.Log.InfoContext(e.Context, "'source' parameter found, overriding request body.")
+		e.Log.Infof("'source' parameter found, overriding request body.")
 		body = []byte(source)
 		contentType = req.URL.Query().Get("source_content_type")
 	}

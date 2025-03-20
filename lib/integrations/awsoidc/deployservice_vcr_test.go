@@ -69,10 +69,11 @@ func TestDeployDBService(t *testing.T) {
 		return &AWSClientRequest{
 			// To record new fixtures you will need a valid token.
 			// You can get one by getting the generated token in a real cluster.
-			Token:      awsOIDCToken,
-			RoleARN:    awsOIDCRoleARN,
-			Region:     awsRegion,
-			httpClient: httpClient,
+			Token:           awsOIDCToken,
+			RoleARN:         awsOIDCRoleARN,
+			Region:          awsRegion,
+			IntegrationName: integrationName,
+			httpClient:      httpClient,
 		}
 	}
 

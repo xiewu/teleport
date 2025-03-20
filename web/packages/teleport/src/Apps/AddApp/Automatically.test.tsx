@@ -16,29 +16,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { fireEvent, render, screen } from 'design/utils/testing';
+
+import { act } from '@testing-library/react';
 
 import { Automatically, createAppBashCommand } from './Automatically';
 
 test('render command only after form submit', async () => {
-  const token = {
-    id: 'token',
-    expiryText: '',
-    expiry: null,
-    safeName: '',
-    isStatic: false,
-    method: 'kubernetes',
-    roles: [],
-    content: '',
-  };
-  const { rerender } = render(
+  const token = { id: 'token', expiryText: '', expiry: null };
+  render(
     <Automatically
+      token={token}
       attempt={{ status: 'success' }}
       onClose={() => {}}
       onCreate={() => Promise.resolve(true)}
-      labels={[]}
-      setLabels={() => null}
-      token={null}
     />
   );
 
@@ -56,21 +48,8 @@ test('render command only after form submit', async () => {
     target: { value: 'https://gravitational.com' },
   });
 
-  rerender(
-    <Automatically
-      attempt={{ status: 'success' }}
-      onClose={() => {}}
-      onCreate={() => Promise.resolve(true)}
-      labels={[]}
-      setLabels={() => null}
-      token={token}
-    />
-  );
-
   // click button
-  fireEvent.click(screen.getByRole('button', { name: /Generate Script/i }));
-
-  await screen.findByText(/Regenerate Script/i);
+  act(() => screen.getByRole('button', { name: /Generate Script/i }).click());
 
   // after form submission should show the command
   cmd = createAppBashCommand(token.id, 'app-name', 'https://gravitational.com');

@@ -25,9 +25,8 @@ import (
 	"github.com/gravitational/roundtrip"
 	"github.com/gravitational/trace"
 
+	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // Command is a debug command that consumes the
@@ -41,7 +40,7 @@ type Command struct {
 }
 
 // Initialize sets up the "tctl top" command.
-func (c *Command) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, config *servicecfg.Config) {
+func (c *Command) Initialize(app *kingpin.Application, config *servicecfg.Config) {
 	c.config = config
 	c.top = app.Command("top", "Report diagnostic information.")
 	c.top.Arg("diag-addr", "Diagnostic HTTP URL").Default("http://127.0.0.1:3000").StringVar(&c.diagURL)
@@ -49,10 +48,12 @@ func (c *Command) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags
 }
 
 // TryRun attempts to run subcommands.
-func (c *Command) TryRun(ctx context.Context, cmd string, _ commonclient.InitFunc) (match bool, err error) {
+func (c *Command) TryRun(ctx context.Context, cmd string, clt *authclient.Client) (match bool, err error) {
 	if cmd != c.top.FullCommand() {
 		return false, nil
 	}
+
+	defer clt.Close()
 
 	diagClient, err := roundtrip.NewClient(c.diagURL, "")
 	if err != nil {

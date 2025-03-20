@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+
 import {
   fireEvent,
   render,
@@ -33,56 +35,56 @@ test('single flow', async () => {
   render(<SingleFlowInPlaceSlider tDuration={0} />);
 
   // Test initial render.
-  expect(screen.getByText('Step 1')).toBeVisible();
+  expect(screen.getByTestId('single-body1')).toBeVisible();
 
   // Test going back when already at the beginning of array.
   // Should do nothing as expected.
   fireEvent.click(screen.getByText(/back1/i));
-  expect(screen.getByText('Step 1')).toBeVisible();
+  expect(screen.getByTestId('single-body1')).toBeVisible();
   // The above is not enough; make sure we didn't start transitioning.
-  expect(screen.queryByText('Step 2')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('single-body2')).not.toBeInTheDocument();
 
   // Test next.
   fireEvent.click(screen.getByText(/next1/i));
-  expect(screen.getByText('Step 2')).toBeVisible();
-  await waitForElementToBeRemoved(() => screen.queryByText('Step 1'));
+  expect(screen.getByTestId('single-body2')).toBeVisible();
+  await waitForElementToBeRemoved(() => screen.queryByTestId('single-body1'));
 
   // Test going next when at the end of array.
   // Should do nothing.
   fireEvent.click(screen.getByText(/next2/i));
-  expect(screen.getByText('Step 2')).toBeVisible();
+  expect(screen.getByTestId('single-body2')).toBeVisible();
   // The above is not enough; make sure we didn't start transitioning.
-  expect(screen.queryByText('Step 1')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('single-body1')).not.toBeInTheDocument();
 
   // Test going back.
   fireEvent.click(screen.getByText(/back2/i));
-  expect(screen.getByText('Step 1')).toBeVisible();
+  expect(screen.getByTestId('single-body1')).toBeVisible();
 });
 
 test('single flow with wrapping', async () => {
   // Use custom animation duration to make tests faster.
   render(<SingleFlowInPlaceSlider wrapping tDuration={0} />);
-  expect(screen.getByText('Step 1')).toBeVisible();
+  expect(screen.getByTestId('single-body1')).toBeVisible();
 
   // Test going backwards on step 1
   fireEvent.click(screen.getByText(/back1/i));
-  expect(screen.getByText('Step 3')).toBeVisible();
-  await waitForElementToBeRemoved(() => screen.queryByText('Step 1'));
+  expect(screen.getByTestId('single-body3')).toBeVisible();
+  await waitForElementToBeRemoved(() => screen.queryByTestId('single-body1'));
 
   // Test going forwards on step 3
   fireEvent.click(screen.getByText(/next3/i));
-  expect(screen.getByText('Step 1')).toBeVisible();
-  await waitForElementToBeRemoved(() => screen.queryByText('Step 3'));
+  expect(screen.getByTestId('single-body1')).toBeVisible();
+  await waitForElementToBeRemoved(() => screen.queryByTestId('single-body3'));
 
   // Test the "normal" flow: forwards on step 1...
   fireEvent.click(screen.getByText(/next1/i));
-  expect(screen.getByText('Step 2')).toBeVisible();
-  await waitForElementToBeRemoved(() => screen.queryByText('Step 1'));
+  expect(screen.getByTestId('single-body2')).toBeVisible();
+  await waitForElementToBeRemoved(() => screen.queryByTestId('single-body1'));
 
   // ...and backwards on step 2.
   fireEvent.click(screen.getByText(/back2/i));
-  expect(screen.getByText('Step 1')).toBeVisible();
-  await waitForElementToBeRemoved(() => screen.queryByText('Step 2'));
+  expect(screen.getByTestId('single-body1')).toBeVisible();
+  await waitForElementToBeRemoved(() => screen.queryByTestId('single-body2'));
 });
 
 test('switching between multi flow', async () => {
@@ -100,27 +102,4 @@ test('switching between multi flow', async () => {
   // Test switching back to primary flow.
   fireEvent.click(screen.getByText(/primary flow/i));
   expect(screen.getByTestId('multi-primary1')).toBeVisible();
-});
-
-test('setting default step index', async () => {
-  render(<SingleFlowInPlaceSlider defaultStepIndex={1} tDuration={0} />);
-
-  expect(screen.getByText('Step 2')).toBeVisible();
-
-  fireEvent.click(screen.getByText(/back2/i));
-  expect(screen.getByText('Step 1')).toBeVisible();
-  await waitForElementToBeRemoved(() => screen.queryByText('Step 2'));
-
-  fireEvent.click(screen.getByText(/next1/i));
-  expect(screen.getByText('Step 2')).toBeVisible();
-});
-
-test('setting default step index for multi flow', () => {
-  render(<MultiFlowWheelSlider defaultStepIndex={1} />);
-
-  expect(screen.getByTestId('multi-primary2')).toBeVisible();
-
-  // Changing flows should reset the step to 0, not to the provided defaultStepIndex.
-  fireEvent.click(screen.getByText(/secondary flow/i));
-  expect(screen.getByTestId('multi-secondary1')).toBeVisible();
 });

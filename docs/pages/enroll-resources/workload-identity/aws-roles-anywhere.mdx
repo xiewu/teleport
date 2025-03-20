@@ -1,7 +1,9 @@
 ---
-title: Configuring Workload Identity and AWS Roles Anywhere
-description: Configuring AWS to accept Workload Identity certificates as authentication using AWS Roles Anywhere
+title: Configuring Workload ID and AWS Roles Anywhere
+description: Configuring AWS to accept Workload ID certificates as authentication using AWS Roles Anywhere
 ---
+
+(!/docs/pages/includes/workload-id-preview.mdx!)
 
 Teleport Workload Identity issues flexible short-lived identities in X.509
 certificates. AWS Roles Anywhere allows you to use these certificates to
@@ -20,34 +22,14 @@ AWS APIs in a few ways:
 - Requests to AWS are not proxied through the Teleport Proxy Service, meaning
   reduced latency but also less visibility, as these requests will not be
   recorded in Teleport's audit log.
-- Workload Identity works with any AWS client, including the command-line tool
-  but also
-  their SDKs.
+- Workload ID works with any AWS client, including the command-line tool but also
+  their SDKs
 - Using the Teleport Application Service to access AWS does not work with Machine ID
   and therefore cannot be used when a machine needs to authenticate with AWS.
 
 Whilst this guide is primarily aimed at allowing a machine to access AWS,
 the `tsh svid issue` command can be used in place of Machine ID to allow a human
 user to authenticate with using AWS Roles Anywhere.
-
-## OIDC Federation vs Roles Anywhere
-
-The AWS platform offers two routes for workload identity federation: OIDC
-Federation and Roles Anywhere. Teleport Workload Identity supports both of these
-methods.
-
-There are a number of differences between the two methods:
-
-- Roles Anywhere exchanges an X509 SVID for an AWS credential, whereas OIDC
-  Federation exchanges a JWT SVID for an AWS credential. The use of X509 SVIDs
-  is generally considered more secure.
-- Roles Anywhere requires the installation of an AWS credential helper alongside
-  the workloads, whereas OIDC Federation does not.
-- Roles Anywhere does not require the Teleport Proxy Service to be reachable by
-  AWS, whereas OIDC Federation does.
-
-This guide covers configuring Roles Anywhere, for OIDC federation, see
-[Configuring Workload Identity and AWS OIDC Federation](./aws-oidc-federation.mdx).
 
 ## Prerequisites
 
@@ -72,7 +54,7 @@ If you have already deployed Teleport Workload Identity, then you will already
 have a SPIFFE ID structure in place. If you have not, then you will need to
 decide on a structure for your SPIFFE IDs.
 
-If you are only using Teleport Workload Identity with AWS Roles Anywhere, you may
+If you are only using Teleport Workload ID with AWS Roles Anywhere, you way
 structure your SPIFFE IDs so that they explicitly specify the AWS role they are
 allowed to assume. However, it often makes more sense to name the workload or
 person that will use the SPIFFE ID. See the
@@ -181,64 +163,21 @@ Click "Create profile".
 Now we need to configure Teleport to allow a X.509 certificate to be issued
 containing the SPIFFE ID we have chosen.
 
-First, you'll create a Workload Identity resource to define the identity and
-its characteristics. Create a new file called `workload-identity.yaml`:
-
-```yaml
-kind: workload_identity
-version: v1
-metadata:
-  name: example-workload-identity
-  labels:
-    example: getting-started
-spec:
-  spiffe:
-    id: /svc/example-service
-```
-
-Replace:
-
-- `example-workload-identity` with a descriptive name for the Workload Identity.
-- `/svc/example-service` with the path part of the SPIFFE ID you have chosen.
-
-Apply this to your cluster using `tctl`:
-
-```code
-$ tctl create -f workload-identity.yaml
-```
-
-Next, you'll create a role which grants access to this Workload Identity. Create
-`role.yaml` with the following content:
-
 ```yaml
 kind: role
 version: v6
 metadata:
-  name: example-workload-identity-issuer
+  name: my-workload-roles-anywhere
 spec:
   allow:
-    workload_identity_labels:
-      example: ["getting-started"]
-    rules:
-    - resources:
-      - workload_identity
-      verbs:
-      - list
-      - read
+    spiffe:
+      - path: /svc/example-service
 ```
 
 Replace:
 
-- `example-workload-identity-issuer` with a descriptive name for the role.
-- The labels selector if you have modified the labels of the Workload Identity.
-
-Apply this role to your Teleport cluster using `tctl`:
-
-```code
-$ tctl create -f role.yaml
-```
-
-(!docs/pages/includes/create-role-using-web.mdx!)
+- `my-workload-roles-anywhere` with a descriptive name for the role.
+- `/my-workload` with the path part of the SPIFFE ID you have chosen.
 
 If you intend this SPIFFE ID to be issued by a human, you now need to assign
 this role to their user:
@@ -252,10 +191,10 @@ If you intend this SPIFFE ID to be issued by a machine, you now need to assign
 this role to the bot:
 
 ```code
-$ tctl bots update my-bot --add-roles example-workload-identity-issuer
+$ tctl bots update my-bot --add-roles my-workload-roles-anywhere
 ```
 
-## Step 3/4. Issue Workload Identity certificates
+## Step 3/4. Issue Workload ID certificates
 
 ### For machines using `tbot`
 
@@ -267,19 +206,13 @@ by adding the following to the `tbot` configuration file:
 
 ```yaml
 outputs:
-  - type: workload-identity-x509
+  - type: spiffe-svid
     destination:
       type: directory
       path: /opt/roles-anywhere-svid
-    selector:
-      name: example-workload-identity
+    svid:
+      path: /svc/example-service
 ```
-Replace:
-
-- /opt/roles-anywhere-svid with the directory where you want the X509 to be
-  written.
-- example-workload-identity with the name of the Workload Identity you have
-  created
 
 Restart your `tbot` service to apply the new configuration.
 
@@ -297,7 +230,7 @@ For example, to issue a SPIFFE SVID for `/svc/example-service` with an 8 hour
 TTL:
 
 ```code
-$ tsh workload-identity issue-x509 --name-selector example-workload-identity --credential-ttl 8h --output /opt/roles-anywhere-svid
+$ tsh svid issue --output /opt/roles-anywhere-svid --svid-ttl 8h /svc/example-service
 ```
 
 ## Step 4/4. Configure the AWS CLI and SDKs to use Roles Anywhere to authenticate

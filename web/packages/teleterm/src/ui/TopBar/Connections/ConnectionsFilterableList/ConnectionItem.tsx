@@ -17,14 +17,13 @@
  */
 
 import { useEffect, useRef } from 'react';
-import styled from 'styled-components';
-
 import { ButtonIcon, Flex, Text } from 'design';
 import { Trash, Unlink } from 'design/Icon';
 
-import { useKeyboardArrowsNavigation } from 'teleterm/ui/components/KeyboardArrowsNavigation';
-import { ListItem } from 'teleterm/ui/components/ListItem';
 import { ExtendedTrackedConnection } from 'teleterm/ui/services/connectionTracker';
+import { ListItem } from 'teleterm/ui/components/ListItem';
+
+import { useKeyboardArrowsNavigation } from 'teleterm/ui/components/KeyboardArrowsNavigation';
 import { isAppUri, isDatabaseUri } from 'teleterm/ui/uri';
 
 import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
@@ -33,49 +32,57 @@ export function ConnectionItem(props: {
   index: number;
   item: ExtendedTrackedConnection;
   showClusterName: boolean;
-  activate(): void;
-  remove(): void;
-  disconnect(): void;
+  onActivate(): void;
+  onRemove(): void;
+  onDisconnect(): void;
 }) {
   const offline = !props.item.connected;
   const { isActive, scrollIntoViewIfActive } = useKeyboardArrowsNavigation({
     index: props.index,
-    onRun: props.activate,
+    onRun: props.onActivate,
   });
 
   const actionIcons = {
     disconnect: {
-      title: `Disconnect ${props.item.title}`,
-      action: props.disconnect,
+      title: 'Disconnect',
+      action: props.onDisconnect,
       Icon: Unlink,
     },
     remove: {
-      title: `Remove ${props.item.title}`,
-      action: props.remove,
+      title: 'Remove',
+      action: props.onRemove,
       Icon: Trash,
     },
   };
 
   const actionIcon = offline ? actionIcons.remove : actionIcons.disconnect;
-  const ref = useRef<HTMLLIElement>();
+  const ref = useRef<HTMLElement>();
 
   useEffect(() => {
     scrollIntoViewIfActive(ref.current);
   }, [scrollIntoViewIfActive]);
 
   return (
-    <ConnectionListItem
-      onClick={props.activate}
+    <ListItem
+      onClick={props.onActivate}
       isActive={isActive}
       ref={ref}
       $showClusterName={props.showClusterName}
+      css={`
+        padding: ${props => props.theme.space[1]}px
+          ${props => props.theme.space[2]}px;
+        // Space out items more if there are two lines of text to show inside a single item.
+        margin-block-start: ${props =>
+          props.$showClusterName ? props.theme.space[1] : 0}px;
+        height: unset;
+      `}
     >
       <ConnectionStatusIndicator
         mr={3}
         css={`
           flex-shrink: 0;
         `}
-        status={props.item.connected ? 'on' : 'off'}
+        connected={props.item.connected}
       />
       <Flex
         alignItems="center"
@@ -89,7 +96,7 @@ export function ConnectionItem(props: {
           `}
         >
           <Text
-            typography="body2"
+            typography="body1"
             bold
             color="text.main"
             title={props.item.title}
@@ -122,7 +129,7 @@ export function ConnectionItem(props: {
           {props.showClusterName && (
             <Text
               color="text.slightlyMuted"
-              typography="body3"
+              typography="body2"
               title={props.item.clusterName}
             >
               {props.item.clusterName}
@@ -140,17 +147,9 @@ export function ConnectionItem(props: {
           <actionIcon.Icon size={18} />
         </ButtonIcon>
       </Flex>
-    </ConnectionListItem>
+    </ListItem>
   );
 }
-
-const ConnectionListItem = styled(ListItem)<{ $showClusterName?: boolean }>`
-  padding: ${props => props.theme.space[1]}px ${props => props.theme.space[2]}px;
-  // Space out items more if there are two lines of text to show inside a single item.
-  margin-block-start: ${props =>
-    props.$showClusterName ? props.theme.space[1] : 0}px;
-  height: unset;
-`;
 
 function getKindName(connection: ExtendedTrackedConnection): string {
   switch (connection.kind) {

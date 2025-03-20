@@ -20,7 +20,6 @@ import {
   TextSelectCopy,
   TextSelectCopyMulti,
 } from 'shared/components/TextSelectCopy';
-
 /**
  * @deprecated Import from `shared/TextSelectCopy`.
  */

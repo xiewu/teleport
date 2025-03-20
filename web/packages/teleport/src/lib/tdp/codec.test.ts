@@ -17,8 +17,8 @@
  */
 
 import Codec, {
-  ButtonState,
   MessageType,
+  ButtonState,
   MouseButton,
   ScrollAxis,
 } from './codec';

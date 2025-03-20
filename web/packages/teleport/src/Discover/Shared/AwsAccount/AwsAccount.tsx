@@ -16,50 +16,50 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-
 import {
-  Alert,
   Box,
-  ButtonPrimary,
   ButtonText,
-  Flex,
-  Indicator,
   Text,
+  ButtonPrimary,
+  Indicator,
+  Alert,
+  Flex,
 } from 'design';
-import { FieldSelect } from 'shared/components/FieldSelect';
+import FieldSelect from 'shared/components/FieldSelect';
+import { useAsync } from 'shared/hooks/useAsync';
 import { Option as BaseOption } from 'shared/components/Select';
-import TextEditor from 'shared/components/TextEditor';
 import Validation, { Validator } from 'shared/components/Validation';
 import { requiredField } from 'shared/components/Validation/rules';
-import { useAsync } from 'shared/hooks/useAsync';
+import TextEditor from 'shared/components/TextEditor';
 
+import { App } from 'teleport/services/apps';
 import cfg from 'teleport/config';
 import {
-  integrationAndAppRW,
-  integrationRWE,
-  integrationRWEAndDbCU,
-  integrationRWEAndNodeRWE,
-} from 'teleport/Discover/yamlTemplates';
-import { App } from 'teleport/services/apps';
-import {
-  IntegrationAwsOidc,
+  Integration,
   IntegrationKind,
   integrationService,
 } from 'teleport/services/integrations';
-import ResourceService from 'teleport/services/resources';
+import {
+  integrationRWE,
+  integrationRWEAndNodeRWE,
+  integrationRWEAndDbCU,
+  integrationAndAppRW,
+} from 'teleport/Discover/yamlTemplates';
 import useTeleport from 'teleport/useTeleport';
+import ResourceService from 'teleport/services/resources';
 
 import {
   ActionButtons,
-  Header,
   HeaderSubtitle,
+  Header,
   ResourceKind,
 } from '../../Shared';
+
 import { DiscoverUrlLocationState, useDiscover } from '../../useDiscover';
 
-type Option = BaseOption<IntegrationAwsOidc>;
+type Option = BaseOption<Integration>;
 
 export function AwsAccount() {
   const {
@@ -70,11 +70,7 @@ export function AwsAccount() {
     eventState,
     resourceSpec,
     currentStep,
-    emitErrorEvent,
   } = useDiscover();
-
-  const [selectedAwsIntegration, setSelectedAwsIntegration] =
-    useState<Option>();
 
   // if true, requires an additional step where we fetch for
   // apps matching fetched aws integrations to determine
@@ -101,18 +97,6 @@ export function AwsAccount() {
       }
       return response;
     }, [clusterId, isAddingAwsApp])
-  );
-
-  const [healthCheckAttempt, healthCheckSelectedIntegration] = useAsync(
-    async () => {
-      await integrationService.pingAwsOidcIntegration(
-        {
-          clusterId,
-          integrationName: selectedAwsIntegration.value.name,
-        },
-        { roleArn: '' }
-      );
-    }
   );
 
   const integrationAccess = storeUser.getIntegrationsAccess();
@@ -153,6 +137,9 @@ export function AwsAccount() {
       appAccess.read;
   }
 
+  const [selectedAwsIntegration, setSelectedAwsIntegration] =
+    useState<Option>();
+
   useEffect(() => {
     if (hasAccess && attempt.status === '') {
       fetch();
@@ -161,11 +148,11 @@ export function AwsAccount() {
 
   if (!hasAccess) {
     return (
-      <>
+      <Box maxWidth="700px">
         <Heading />
-        <Box>
-          <Text mt={4}>
-            You don’t have the permissions required to set up this integration.
+        <Box maxWidth="700px">
+          <Text mt={4} width="100px">
+            You don’t have the required permissions for integrating.
             <br />
             Ask your Teleport administrator to update your role with the
             following:
@@ -179,41 +166,35 @@ export function AwsAccount() {
           </Flex>
         </Box>
         <ActionButtons onPrev={prevStep} />
-      </>
+      </Box>
     );
   }
 
   if (attempt.status === '' || attempt.status === 'processing') {
     return (
-      <>
+      <Box maxWidth="700px">
         <Heading />
         <Box textAlign="center" m={10}>
           <Indicator />
         </Box>
-      </>
+      </Box>
     );
   }
 
   if (attempt.status === 'error') {
     return (
-      <>
+      <Box maxWidth="700px">
         <Heading />
-        <Alert kind="danger">{attempt.statusText}</Alert>
+        <Alert kind="danger" children={attempt.statusText} />
         <ButtonPrimary mt={2} onClick={fetch}>
           Retry
         </ButtonPrimary>
-      </>
+      </Box>
     );
   }
 
-  async function proceedWithExistingIntegration(validator: Validator) {
+  function proceedWithExistingIntegration(validator: Validator) {
     if (!validator.validate()) {
-      return;
-    }
-
-    const [, err] = await healthCheckSelectedIntegration();
-    if (err) {
-      emitErrorEvent(`failed to health check selected aws integration: ${err}`);
       return;
     }
 
@@ -267,14 +248,8 @@ export function AwsAccount() {
     } as DiscoverUrlLocationState,
   };
   return (
-    <>
+    <Box maxWidth="700px">
       <Heading />
-      {healthCheckAttempt.status === 'error' && (
-        <Alert
-          kind="danger"
-          children={`Health check failed for the selected AWS integration: ${healthCheckAttempt.statusText}`}
-        />
-      )}
       <Box mb={3}>
         <Validation>
           {({ validator }) => (
@@ -286,16 +261,18 @@ export function AwsAccount() {
                   </Text>
                   <Box width="300px" mb={6}>
                     <FieldSelect
+                      disabled
                       label="AWS Integrations"
-                      rule={requiredField<Option>('Region is required')}
+                      rule={requiredField('Region is required')}
                       placeholder="Select the AWS Integration to Use"
                       isSearchable
+                      isSimpleValue
                       value={selectedAwsIntegration}
                       onChange={i => setSelectedAwsIntegration(i as Option)}
                       options={awsIntegrations.map(makeAwsIntegrationOption)}
                     />
                   </Box>
-                  <ButtonText as={Link} to={locationState} compact>
+                  <ButtonText as={Link} to={locationState} pl={0}>
                     Or click here to set up a different AWS account
                   </ButtonText>
                 </>
@@ -314,21 +291,17 @@ export function AwsAccount() {
               <ActionButtons
                 onPrev={prevStep}
                 onProceed={() => proceedWithExistingIntegration(validator)}
-                disableProceed={
-                  !hasAwsIntegrations ||
-                  !selectedAwsIntegration ||
-                  healthCheckAttempt.status === 'processing'
-                }
+                disableProceed={!hasAwsIntegrations || !selectedAwsIntegration}
               />
             </>
           )}
         </Validation>
       </Box>
-    </>
+    </Box>
   );
 }
 
-function makeAwsIntegrationOption(integration: IntegrationAwsOidc): Option {
+function makeAwsIntegrationOption(integration: Integration): Option {
   return {
     value: integration,
     label: integration.name,
@@ -339,7 +312,7 @@ async function fetchAwsIntegrationsWithApps(
   clusterId: string,
   isAddingAwsApp: boolean
 ): Promise<{
-  awsIntegrations: IntegrationAwsOidc[];
+  awsIntegrations: Integration[];
   apps: App[];
 }> {
   const integrationPage = await integrationService.fetchIntegrations();

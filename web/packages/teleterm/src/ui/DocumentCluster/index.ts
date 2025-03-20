@@ -17,5 +17,4 @@
  */
 
 import DocumentCluster from './DocumentCluster';
-
 export default DocumentCluster;

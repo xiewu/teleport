@@ -16,12 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ButtonSecondary, Text } from 'design';
+import React from 'react';
+import { Text, ButtonSecondary } from 'design';
 import Dialog, {
-  DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogContent,
+  DialogFooter,
 } from 'design/Dialog';
 
 import TextSelectCopy from 'teleport/components/TextSelectCopy';

@@ -27,12 +27,7 @@ use boring::error::ErrorStack;
 use bytes::BytesMut;
 use ironrdp_cliprdr::{Cliprdr, CliprdrClient, CliprdrSvcMessages};
 use ironrdp_connector::connection_activation::ConnectionActivationState;
-use ironrdp_connector::credssp::KerberosConfig;
-use ironrdp_connector::{
-    Config, ConnectorError, ConnectorErrorKind, Credentials, DesktopSize, SmartCardIdentity,
-};
-use ironrdp_core::{encode_vec, EncodeError};
-use ironrdp_core::{function, WriteBuf};
+use ironrdp_connector::{Config, ConnectorError, Credentials, DesktopSize};
 use ironrdp_displaycontrol::client::DisplayControlClient;
 use ironrdp_displaycontrol::pdu::{
     DisplayControlMonitorLayout, DisplayControlPdu, MonitorLayoutEntry,
@@ -44,13 +39,12 @@ use ironrdp_pdu::input::fast_path::{
 };
 use ironrdp_pdu::input::mouse::PointerFlags;
 use ironrdp_pdu::input::{InputEventError, MousePdu};
-use ironrdp_pdu::nego::NegoRequestData;
 use ironrdp_pdu::rdp::capability_sets::MajorPlatformType;
 use ironrdp_pdu::rdp::client_info::PerformanceFlags;
 use ironrdp_pdu::rdp::RdpError;
-use ironrdp_pdu::PduError;
-use ironrdp_pdu::PduResult;
-use ironrdp_pdu::{encode_err, pdu_other_err};
+use ironrdp_pdu::write_buf::WriteBuf;
+use ironrdp_pdu::{encode_err, encode_vec, EncodeError, PduResult};
+use ironrdp_pdu::{function, pdu_other_err, PduError};
 use ironrdp_rdpdr::pdu::efs::ClientDeviceListAnnounce;
 use ironrdp_rdpdr::pdu::RdpdrPdu;
 use ironrdp_rdpdr::Rdpdr;
@@ -61,8 +55,7 @@ use ironrdp_session::{reason_err, SessionError, SessionResult};
 use ironrdp_svc::{SvcMessage, SvcProcessor, SvcProcessorMessages};
 use ironrdp_tokio::{single_sequence_step_read, Framed, FramedWrite, TokioStream};
 use log::debug;
-use rand::{Rng, TryRngCore};
-use std::error::Error;
+use rand::{Rng, SeedableRng};
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::net::ToSocketAddrs;
@@ -80,7 +73,6 @@ use crate::rdpdr::TeleportRdpdrBackend;
 use crate::ssl::TlsStream;
 #[cfg(feature = "fips")]
 use tokio_boring::HandshakeError;
-use url::Url;
 
 const RDP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -148,12 +140,8 @@ impl Client {
         let mut framed = ironrdp_tokio::TokioFramed::new(stream);
 
         // Generate a random 8-digit PIN for our smartcard.
-        let pin = format!(
-            "{:08}",
-            rand::rngs::OsRng
-                .unwrap_err()
-                .random_range(0i32..=99999999i32)
-        );
+        let mut rng = rand_chacha::ChaCha20Rng::from_entropy();
+        let pin = format!("{:08}", rng.gen_range(0i32..=99999999i32));
 
         let connector_config = create_config(&params, pin.clone(), cgo_handle);
 
@@ -216,26 +204,18 @@ impl Client {
         // Frame the stream again for use by connect_finalize
         let mut rdp_stream = ironrdp_tokio::TokioFramed::new(upgraded_stream);
 
-        let mut network_client = crate::network_client::NetworkClient::new();
-        let kerberos_config = params
-            .kdc_addr
-            .map(|kdc_addr| Url::parse(&format!("tcp://{}", kdc_addr)))
-            .transpose()
-            .map_err(ClientError::UrlError)?
-            .map(|kdc_url| KerberosConfig {
-                kdc_proxy_url: Some(kdc_url),
-                hostname: params.computer_name.clone(),
-            });
         let connection_result = ironrdp_tokio::connect_finalize(
             upgraded,
             &mut rdp_stream,
             connector,
-            params.computer_name.unwrap_or(server_addr).into(),
+            server_addr.into(),
             server_public_key,
-            Some(&mut network_client),
-            kerberos_config,
+            None,
+            None,
         )
         .await?;
+
+        debug!("connection_result: {:?}", connection_result);
 
         // Register the RDP channels with the browser client.
         Self::send_connection_activated(
@@ -1408,22 +1388,13 @@ type RdpWriteStream = Framed<TokioStream<WriteHalf<TlsStream<TokioTcpStream>>>>;
 
 fn create_config(params: &ConnectParams, pin: String, cgo_handle: CgoHandle) -> Config {
     Config {
-        desktop_size: DesktopSize {
+        desktop_size: ironrdp_connector::DesktopSize {
             width: params.screen_width,
             height: params.screen_height,
         },
         enable_tls: true,
-        enable_credssp: params.ad && params.nla,
-        credentials: Credentials::SmartCard {
-            config: params.ad.then(|| SmartCardIdentity {
-                csp_name: "Microsoft Base Smart Card Crypto Provider".to_string(),
-                reader_name: "Teleport".to_string(),
-                container_name: "".to_string(),
-                certificate: params.cert_der.clone(),
-                private_key: params.key_der.clone(),
-            }),
-            pin,
-        },
+        enable_credssp: false,
+        credentials: Credentials::SmartCard { pin, config: None },
         domain: None,
         // Windows 10, Version 1909, same as FreeRDP as of October 5th, 2021.
         // This determines which Smart Card Redirection dialect we use per
@@ -1437,9 +1408,7 @@ fn create_config(params: &ConnectParams, pin: String, cgo_handle: CgoHandle) -> 
         ime_file_name: "".to_string(),
         bitmap: Some(ironrdp_connector::BitmapConfig {
             lossy_compression: true,
-            // Changing this to 16 gets us uncompressed bitmaps on machines configured like
-            // https://github.com/Devolutions/IronRDP/blob/55d11a5000ebd474c2ddc294b8b3935554443112/README.md?plain=1#L17-L36
-            color_depth: 32,
+            color_depth: 32, // Changing this to 16 gets us uncompressed bitmaps on machines configured like https://github.com/Devolutions/IronRDP/blob/55d11a5000ebd474c2ddc294b8b3935554443112/README.md?plain=1#L17-L36
         }),
         dig_product_id: "".to_string(),
         // `client_dir` is apparently unimportant, however most RDP clients hardcode this value (including FreeRDP):
@@ -1449,17 +1418,14 @@ fn create_config(params: &ConnectParams, pin: String, cgo_handle: CgoHandle) -> 
         no_server_pointer: false,
         autologon: true,
         pointer_software_rendering: false,
-        // Send the username in the request cookie, which is sent in the initial connection request.
-        // The RDP server ignores this value, but load balancers sitting in front of the server
-        // can use it to implement persistence.
-        request_data: Some(NegoRequestData::cookie(params.username.clone())),
+        request_data: None,
         performance_flags: PerformanceFlags::default()
             | PerformanceFlags::DISABLE_CURSOR_SHADOW // this is required for pointer to work correctly in Windows 2019
             | if !params.show_desktop_wallpaper {
-            PerformanceFlags::DISABLE_WALLPAPER
-        } else {
-            PerformanceFlags::empty()
-        },
+                PerformanceFlags::DISABLE_WALLPAPER
+            } else {
+                PerformanceFlags::empty()
+            },
         desktop_scale_factor: 0,
         license_cache: Some(Arc::new(GoLicenseCache { cgo_handle })),
         hardware_id: Some(params.client_id),
@@ -1468,10 +1434,7 @@ fn create_config(params: &ConnectParams, pin: String, cgo_handle: CgoHandle) -> 
 
 #[derive(Debug)]
 pub struct ConnectParams {
-    pub username: String,
     pub addr: String,
-    pub kdc_addr: Option<String>,
-    pub computer_name: Option<String>,
     pub cert_der: Vec<u8>,
     pub key_der: Vec<u8>,
     pub screen_width: u16,
@@ -1479,8 +1442,6 @@ pub struct ConnectParams {
     pub allow_clipboard: bool,
     pub allow_directory_sharing: bool,
     pub show_desktop_wallpaper: bool,
-    pub ad: bool,
-    pub nla: bool,
     pub client_id: [u32; 4],
 }
 
@@ -1498,7 +1459,6 @@ pub enum ClientError {
     InternalError(String),
     UnknownAddress,
     InputEventError(InputEventError),
-    UrlError(url::ParseError),
     #[cfg(feature = "fips")]
     ErrorStack(ErrorStack),
     #[cfg(feature = "fips")]
@@ -1516,22 +1476,7 @@ impl Display for ClientError {
                 Reason(reason) => Display::fmt(reason, f),
                 _ => Display::fmt(e, f),
             },
-            // TODO(zmb3, probakowski): improve the formatting on the IronRDP side
-            // https://github.com/Devolutions/IronRDP/blob/master/crates/ironrdp-connector/src/lib.rs#L263
-            ClientError::ConnectorError(e) => match &e.kind {
-                ConnectorErrorKind::Credssp(e) => {
-                    write!(f, "CredSSP {:?}: {}", e.error_type, e.description)
-                }
-                ConnectorErrorKind::Custom => {
-                    write!(f, "Error: {}", e.context)?;
-                    if let Some(src) = e.source() {
-                        write!(f, " ({})", src)
-                    } else {
-                        Ok(())
-                    }
-                }
-                _ => Display::fmt(e, f),
-            },
+            ClientError::ConnectorError(e) => Display::fmt(e, f),
             ClientError::InputEventError(e) => Display::fmt(e, f),
             ClientError::JoinError(e) => Display::fmt(e, f),
             ClientError::CGOErrCode(e) => Debug::fmt(e, f),
@@ -1540,7 +1485,6 @@ impl Display for ClientError {
             ClientError::UnknownAddress => Display::fmt("Unknown address", f),
             ClientError::EncodeError(e) => Display::fmt(e, f),
             ClientError::PduError(e) => Display::fmt(e, f),
-            ClientError::UrlError(e) => Display::fmt(e, f),
             #[cfg(feature = "fips")]
             ClientError::ErrorStack(e) => Display::fmt(e, f),
             #[cfg(feature = "fips")]

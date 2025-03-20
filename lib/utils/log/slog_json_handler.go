@@ -50,9 +50,9 @@ type SlogJSONHandler struct {
 
 // NewSlogJSONHandler creates a SlogJSONHandler that outputs to w.
 func NewSlogJSONHandler(w io.Writer, cfg SlogJSONHandlerConfig) *SlogJSONHandler {
-	withCaller := len(cfg.ConfiguredFields) == 0 || slices.Contains(cfg.ConfiguredFields, CallerField)
-	withComponent := len(cfg.ConfiguredFields) == 0 || slices.Contains(cfg.ConfiguredFields, ComponentField)
-	withTimestamp := len(cfg.ConfiguredFields) == 0 || slices.Contains(cfg.ConfiguredFields, TimestampField)
+	withCaller := len(cfg.ConfiguredFields) == 0 || slices.Contains(cfg.ConfiguredFields, callerField)
+	withComponent := len(cfg.ConfiguredFields) == 0 || slices.Contains(cfg.ConfiguredFields, componentField)
+	withTimestamp := len(cfg.ConfiguredFields) == 0 || slices.Contains(cfg.ConfiguredFields, timestampField)
 
 	return &SlogJSONHandler{
 		JSONHandler: slog.NewJSONHandler(w, &slog.HandlerOptions{
@@ -68,7 +68,7 @@ func NewSlogJSONHandler(w io.Writer, cfg SlogJSONHandlerConfig) *SlogJSONHandler
 						return a
 					}
 
-					a.Key = ComponentField
+					a.Key = componentField
 				case slog.LevelKey:
 					// The slog.JSONHandler will inject "level" Attr.
 					// However, this lib's consumer might add an Attr using the same key ("level") and we end up with two records named "level".
@@ -114,7 +114,7 @@ func NewSlogJSONHandler(w io.Writer, cfg SlogJSONHandlerConfig) *SlogJSONHandler
 						return a
 					}
 
-					a.Key = TimestampField
+					a.Key = timestampField
 					a.Value = slog.StringValue(t.Format(time.RFC3339))
 				case slog.MessageKey:
 					// The slog.JSONHandler will inject "msg" Attr.
@@ -138,7 +138,7 @@ func NewSlogJSONHandler(w io.Writer, cfg SlogJSONHandlerConfig) *SlogJSONHandler
 					}
 
 					file, line := getCaller(s)
-					a = slog.String(CallerField, fmt.Sprintf("%s:%d", file, line))
+					a = slog.String(callerField, fmt.Sprintf("%s:%d", file, line))
 				}
 
 				// Convert [slog.KindAny] values that are backed by an [error] or [fmt.Stringer]

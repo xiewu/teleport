@@ -47,12 +47,6 @@ func TestDistrolessTeleportImageRepo(t *testing.T) {
 			want:      "public.ecr.aws/gravitational/teleport-distroless:16.0.0",
 		},
 		{
-			desc:      "community release",
-			buildType: modules.BuildCommunity,
-			version:   "16.0.0",
-			want:      "public.ecr.aws/gravitational/teleport-distroless:16.0.0",
-		},
-		{
 			desc:      "ent pre-release",
 			buildType: modules.BuildEnterprise,
 			version:   "16.0.0-alpha.1",
@@ -64,12 +58,6 @@ func TestDistrolessTeleportImageRepo(t *testing.T) {
 			version:   "16.0.0-alpha.1",
 			want:      "public.ecr.aws/gravitational-staging/teleport-distroless:16.0.0-alpha.1",
 		},
-		{
-			desc:      "community pre-release",
-			buildType: modules.BuildCommunity,
-			version:   "16.0.0-alpha.1",
-			want:      "public.ecr.aws/gravitational-staging/teleport-distroless:16.0.0-alpha.1",
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
@@ -77,53 +65,6 @@ func TestDistrolessTeleportImageRepo(t *testing.T) {
 			require.NoError(t, err)
 			modules.SetTestModules(t, &modules.TestModules{TestBuildType: test.buildType})
 			require.Equal(t, test.want, DistrolessImage(*semVer))
-		})
-	}
-}
-
-func Test_cdnBaseURLForVersion(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name            string
-		artifactVersion string
-		teleportVersion string
-		want            string
-	}{
-		{
-			name:            "both official releases",
-			artifactVersion: "16.3.2",
-			teleportVersion: "16.1.0",
-			want:            TeleportReleaseCDN,
-		},
-		{
-			name:            "both pre-releases",
-			artifactVersion: "16.3.2-dev.1",
-			teleportVersion: "16.1.0-foo.25",
-			want:            teleportPreReleaseCDN,
-		},
-		{
-			name:            "official teleport should not be able to install pre-release artifacts",
-			artifactVersion: "16.3.2-dev.1",
-			teleportVersion: "16.1.0",
-			want:            TeleportReleaseCDN,
-		},
-		{
-			name:            "pre-release teleport should be able to install official artifacts",
-			artifactVersion: "16.3.2",
-			teleportVersion: "16.1.0-dev.1",
-			want:            TeleportReleaseCDN,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test setup: parse version.
-			av, err := semver.NewVersion(tt.artifactVersion)
-			require.NoError(t, err)
-			tv, err := semver.NewVersion(tt.teleportVersion)
-			require.NoError(t, err)
-
-			// Test execution and validation.
-			require.Equal(t, tt.want, cdnBaseURLForVersion(av, tv))
 		})
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 )
@@ -113,6 +114,13 @@ func (s *handleState) appendAttr(a slog.Attr) bool {
 				}
 			}
 			return nonEmpty
+		case logrus.Fields:
+			for k, v := range fields {
+				if s.appendAttr(slog.Any(k, v)) {
+					nonEmpty = true
+				}
+			}
+			return nonEmpty
 		}
 	}
 
@@ -182,7 +190,7 @@ func (s *handleState) appendKey(key string) {
 	if key == slog.TimeKey ||
 		key == teleport.ComponentKey ||
 		key == slog.LevelKey ||
-		key == CallerField ||
+		key == callerField ||
 		key == slog.MessageKey ||
 		key == slog.SourceKey {
 		return

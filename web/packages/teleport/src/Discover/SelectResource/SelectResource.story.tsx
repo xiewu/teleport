@@ -20,17 +20,21 @@ import React from 'react';
 import { MemoryRouter } from 'react-router';
 
 import { Resource } from 'gen-proto-ts/teleport/userpreferences/v1/onboard_pb';
+
 import { UserPreferences } from 'gen-proto-ts/teleport/userpreferences/v1/userpreferences_pb';
 
-import { ContextProvider } from 'teleport';
 import {
   createTeleportContext,
   getAcl,
   noAccess,
 } from 'teleport/mocks/contexts';
-import { Acl } from 'teleport/services/user';
-import { makeDefaultUserPreferences } from 'teleport/services/userPreferences/userPreferences';
+import { ContextProvider } from 'teleport';
+
 import { UserContext } from 'teleport/User/UserContext';
+
+import { makeDefaultUserPreferences } from 'teleport/services/userPreferences/userPreferences';
+
+import { Acl } from 'teleport/services/user';
 
 import { SelectResource } from './SelectResource';
 
@@ -96,7 +100,6 @@ const Provider = ({
   const updatePreferences = () => Promise.resolve();
   const getClusterPinnedResources = () => Promise.resolve([]);
   const updateClusterPinnedResources = () => Promise.resolve();
-  const updateDiscoverResourcePreferences = () => Promise.resolve();
   const preferences: UserPreferences = makeDefaultUserPreferences();
   preferences.onboard.preferredResources = resources;
 
@@ -110,7 +113,6 @@ const Provider = ({
           updatePreferences,
           getClusterPinnedResources,
           updateClusterPinnedResources,
-          updateDiscoverResourcePreferences,
         }}
       >
         <ContextProvider ctx={ctx}>{children}</ContextProvider>

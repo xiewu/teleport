@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"text/template"
@@ -30,6 +29,7 @@ import (
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/client"
@@ -42,8 +42,6 @@ import (
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // NodeCommand implements `tctl nodes` group of commands
@@ -78,7 +76,7 @@ type NodeCommand struct {
 }
 
 // Initialize allows NodeCommand to plug itself into the CLI parser
-func (c *NodeCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, config *servicecfg.Config) {
+func (c *NodeCommand) Initialize(app *kingpin.Application, config *servicecfg.Config) {
 	c.config = config
 
 	// add node command
@@ -101,22 +99,16 @@ func (c *NodeCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIF
 }
 
 // TryRun takes the CLI command as an argument (like "nodes ls") and executes it.
-func (c *NodeCommand) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (match bool, err error) {
-	var commandFunc func(ctx context.Context, client *authclient.Client) error
+func (c *NodeCommand) TryRun(ctx context.Context, cmd string, client *authclient.Client) (match bool, err error) {
 	switch cmd {
 	case c.nodeAdd.FullCommand():
-		commandFunc = c.Invite
+		err = c.Invite(ctx, client)
 	case c.nodeList.FullCommand():
-		commandFunc = c.ListActive
+		err = c.ListActive(ctx, client)
+
 	default:
 		return false, nil
 	}
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	err = commandFunc(ctx, client)
-	closeFn(ctx)
 	return true, trace.Wrap(err)
 }
 
@@ -202,7 +194,7 @@ func (c *NodeCommand) Invite(ctx context.Context, client *authclient.Client) err
 
 			pingResponse, err := client.Ping(ctx)
 			if err != nil {
-				slog.DebugContext(ctx, "unable to ping auth client", "error", err)
+				log.Debugf("unable to ping auth client: %s.", err.Error())
 			}
 
 			if err == nil && pingResponse.GetServerFeatures().Cloud {

@@ -17,13 +17,12 @@
  */
 
 import React, { PropsWithChildren } from 'react';
-
+import Menu from 'design/Menu';
 import { ButtonIcon } from 'design';
 import { MoreHoriz } from 'design/Icon';
 import { IconProps } from 'design/Icon/Icon';
-import Menu from 'design/Menu';
 
-import { AnchorProps, MenuProps } from './types';
+import { MenuProps, AnchorProps } from './types';
 
 export default class MenuActionIcon extends React.Component<
   PropsWithChildren<Props>

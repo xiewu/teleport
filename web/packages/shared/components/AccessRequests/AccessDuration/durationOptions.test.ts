@@ -16,11 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { addDays, addHours, addWeeks } from 'date-fns';
+import { addHours, addWeeks, addDays } from 'date-fns';
 
 import {
-  DurationOption,
   getDurationOptionIndexClosestToOneWeek,
+  DurationOption,
 } from './durationOptions';
 
 describe('getDurationOptionIndexClosestToOneWeek', () => {

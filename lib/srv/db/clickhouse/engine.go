@@ -79,7 +79,7 @@ func (e *Engine) SendError(err error) {
 	case defaults.ProtocolClickHouse:
 		e.sendErrorNative(err)
 	default:
-		e.Log.ErrorContext(e.Context, "Unsupported protocol", "protocol", protocol, "error", err)
+		e.Log.Error("Unsupported protocol %q", protocol)
 	}
 }
 

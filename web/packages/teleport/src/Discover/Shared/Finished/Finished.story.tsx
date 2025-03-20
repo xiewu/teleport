@@ -16,8 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import type { AgentStepProps } from '../../types';
+import React from 'react';
+
 import { Finished as Component } from './Finished';
+
+import type { AgentStepProps } from '../../types';
 
 export default {
   title: 'Teleport/Discover/Shared',

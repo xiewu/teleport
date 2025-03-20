@@ -16,113 +16,56 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { subDays, subHours, subMinutes, subSeconds } from 'date-fns';
-import { delay, http, HttpResponse } from 'msw';
+import React from 'react';
 import { MemoryRouter } from 'react-router';
-import { withoutQuery } from 'web/packages/build/storybook';
+import { subSeconds, subMinutes, subHours, subDays } from 'date-fns';
+import { initialize, mswLoader } from 'msw-storybook-addon';
+import { rest } from 'msw';
 
-import { Flex, H2 } from 'design';
+import { Flex } from 'design';
 
-import cfg from 'teleport/config';
+import { NotificationSubKind } from 'teleport/services/notifications';
 import { createTeleportContext } from 'teleport/mocks/contexts';
-import {
-  NotificationSubKind,
-  UpsertNotificationStateRequest,
-} from 'teleport/services/notifications';
+import cfg from 'teleport/config';
 
 import { ContextProvider } from '..';
-import { notifications as mockNotifications } from './fixtures';
+
 import { Notification } from './Notification';
 import { Notifications as NotificationsListComponent } from './Notifications';
-
-const notificationsPathWithoutQuery = withoutQuery(cfg.api.notificationsPath);
+import { notifications as mockNotifications } from './fixtures';
 
 export default {
   title: 'Teleport/Notifications',
+  loaders: [mswLoader],
 };
 
-export const NotificationCard = () => {
-  const ctx = createTeleportContext();
-
-  return (
-    <MemoryRouter>
-      <ContextProvider ctx={ctx}>
-        <Flex
-          mt={4}
-          p={4}
-          gap={4}
-          css={`
-            background: ${props => props.theme.colors.levels.surface};
-            width: 450px;
-            height: fit-content;
-            flex-direction: column;
-          `}
-        >
-          <Flex flexDirection="column">
-            <H2 textAlign="center" mb={2}>
-              Visited: Yes
-            </H2>
-            <Notification
-              notification={mockNotifications[5]}
-              closeNotificationsList={() => null}
-              markNotificationAsClicked={() => null}
-              removeNotification={() => null}
-            />
-          </Flex>
-          <Flex flexDirection="column">
-            <H2 textAlign="center" mb={2}>
-              Visited: No
-            </H2>
-            <Notification
-              notification={{
-                ...mockNotifications[5],
-                clicked: false,
-                id: '2',
-              }}
-              closeNotificationsList={() => null}
-              markNotificationAsClicked={() => null}
-              removeNotification={() => null}
-            />
-          </Flex>
-        </Flex>
-      </ContextProvider>
-    </MemoryRouter>
-  );
-};
+initialize();
 
 export const NotificationTypes = () => {
   const ctx = createTeleportContext();
 
   return (
-    <MemoryRouter>
-      <ContextProvider ctx={ctx}>
-        Enterprise notifications can be viewed in the
-        "TeleportE/Notifications/Notification Types E" story.
-        <Flex
-          mt={4}
-          p={4}
-          gap={4}
-          css={`
-            background: ${props => props.theme.colors.levels.surface};
-            width: fit-content;
-            height: fit-content;
-            flex-direction: column;
-          `}
-        >
-          {mockNotifications.map(notification => {
-            return (
-              <Notification
-                notification={notification}
-                key={notification.id}
-                closeNotificationsList={() => null}
-                markNotificationAsClicked={() => null}
-                removeNotification={() => null}
-              />
-            );
-          })}
-        </Flex>
-      </ContextProvider>
-    </MemoryRouter>
+    <ContextProvider ctx={ctx}>
+      Enterprise notifications can be viewed in the
+      "TeleportE/Notifications/Notification Types E" story.
+      <Flex
+        mt={4}
+        p={4}
+        gap={4}
+        css={`
+          background: ${props => props.theme.colors.levels.surface};
+          width: fit-content;
+          height: fit-content;
+          flex-direction: column;
+        `}
+      >
+        {mockNotifications.map(notification => {
+          return (
+            <Notification notification={notification} key={notification.id} />
+          );
+        })}
+      </Flex>
+    </ContextProvider>
   );
 };
 
@@ -130,49 +73,12 @@ export const NotificationsList = () => <ListComponent />;
 NotificationsList.parameters = {
   msw: {
     handlers: [
-      http.get(
-        notificationsPathWithoutQuery,
-        () => HttpResponse.json(mockNotificationsResponseFirstPage),
-        { once: true }
+      rest.get(cfg.api.notificationsPath, (req, res, ctx) =>
+        res.once(ctx.json(mockNotificationsResponseFirstPage))
       ),
-      http.put(cfg.api.notificationLastSeenTimePath, async () => {
-        await delay(2000);
-        return HttpResponse.json({ time: Date.now() });
-      }),
-      http.put(cfg.api.notificationStatePath, async ({ request }) => {
-        const body = (await request.json()) as UpsertNotificationStateRequest;
-        return HttpResponse.json({ notificationState: body.notificationState });
-      }),
-      http.get(notificationsPathWithoutQuery, async () => {
-        await delay(2000);
-        return HttpResponse.json(mockNotificationsResponseSecondPage);
-      }),
-    ],
-  },
-};
-
-export const NotificationListNotificationStateErrors = () => <ListComponent />;
-NotificationListNotificationStateErrors.parameters = {
-  msw: {
-    handlers: [
-      http.get(notificationsPathWithoutQuery, () =>
-        HttpResponse.json(mockNotificationsResponseFirstPage)
+      rest.get(cfg.api.notificationsPath, (req, res, ctx) =>
+        res(ctx.delay(2000), ctx.json(mockNotificationsResponseSecondPage))
       ),
-      http.put(cfg.api.notificationLastSeenTimePath, () =>
-        HttpResponse.json({ time: Date.now() })
-      ),
-      http.put(cfg.api.notificationStatePath, () =>
-        HttpResponse.json(
-          {
-            message: 'failed to update state',
-          },
-          { status: 403 }
-        )
-      ),
-      http.get(notificationsPathWithoutQuery, async () => {
-        await delay(2000);
-        return HttpResponse.json(mockNotificationsResponseSecondPage);
-      }),
     ],
   },
 };
@@ -181,12 +87,15 @@ export const NotificationsListEmpty = () => <ListComponent />;
 NotificationsListEmpty.parameters = {
   msw: {
     handlers: [
-      http.get(notificationsPathWithoutQuery, () =>
-        HttpResponse.json({
-          nextKey: '',
-          userLastSeenNotification: subDays(Date.now(), 15).toISOString(), // 15 days ago
-          notifications: [],
-        })
+      rest.get(cfg.api.notificationsPath, (req, res, ctx) =>
+        res(
+          ctx.json({
+            userNotificationsNextKey: '',
+            globalNotificationsNextKey: '',
+            userLastSeenNotification: subDays(Date.now(), 15).toISOString(), // 15 days ago
+            notifications: [],
+          })
+        )
       ),
     ],
   },
@@ -196,12 +105,12 @@ export const NotificationsListError = () => <ListComponent />;
 NotificationsListError.parameters = {
   msw: {
     handlers: [
-      http.get(notificationsPathWithoutQuery, () =>
-        HttpResponse.json(
-          {
+      rest.get(cfg.api.notificationsPath, (req, res, ctx) =>
+        res(
+          ctx.status(403),
+          ctx.json({
             message: 'Error encountered: failed to fetch notifications',
-          },
-          { status: 403 }
+          })
         )
       ),
     ],
@@ -218,7 +127,7 @@ const ListComponent = () => {
           css={`
             width: 100%;
             justify-content: center;
-            height: ${p => p.theme.topBarHeight[1]}px;
+            height: ${p => p.theme.topBarHeight[2]}px;
           `}
         >
           <NotificationsListComponent />
@@ -229,7 +138,8 @@ const ListComponent = () => {
 };
 
 const mockNotificationsResponseFirstPage = {
-  nextKey: '16,',
+  userNotificationsNextKey: '16',
+  globalNotificationsNextKey: '',
   userLastSeenNotification: subMinutes(Date.now(), 12).toISOString(), // 12 minutes ago
   notifications: [
     {
@@ -431,7 +341,8 @@ const mockNotificationsResponseFirstPage = {
 };
 
 const mockNotificationsResponseSecondPage = {
-  nextKey: '',
+  userNotificationsNextKey: '',
+  globalNotificationsNextKey: '',
   userLastSeenNotification: subDays(Date.now(), 60).toISOString(), // 60 days ago
   notifications: [
     {

@@ -22,9 +22,10 @@ import path from 'path';
 
 import { app } from 'electron';
 
-import { loadInstallationId } from './loadInstallationId';
-import { getAvailableShells, getDefaultShell } from './shell';
+import Logger from 'teleterm/logger';
+
 import { GrpcServerAddresses, RuntimeSettings } from './types';
+import { loadInstallationId } from './loadInstallationId';
 
 const { argv, env } = process;
 
@@ -51,12 +52,12 @@ const insecure =
   // --insecure is already in our docs, but let's add --connect-insecure too in case Node or
   // Electron reserves it one day.
   argv.includes('--connect-insecure') ||
-  // The flag is needed because it's not easy to pass a flag to the app in dev mode. `pnpm
+  // The flag is needed because it's not easy to pass a flag to the app in dev mode. `yarn
   // start-term` causes a bunch of package scripts to be executed and each would have to pass the
   // flag one level down.
   (dev && !!env.CONNECT_INSECURE);
 
-export async function getRuntimeSettings(): Promise<RuntimeSettings> {
+export function getRuntimeSettings(): RuntimeSettings {
   const userDataDir = app.getPath('userData');
   const sessionDataDir = app.getPath('sessionData');
   const tempDataDir = app.getPath('temp');
@@ -73,9 +74,7 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
   // Before switching to the recommended path, we need to investigate the impact of this change.
   // https://www.electronjs.org/docs/latest/api/app#appgetpathname
   const logsDir = path.join(userDataDir, 'logs');
-  const installationId = loadInstallationId(
-    path.resolve(app.getPath('userData'), 'installation_id')
-  );
+  // DO NOT expose agentsDir through RuntimeSettings. See the comment in getAgentsDir.
 
   const tshd = {
     binaryPath: tshBinPath,
@@ -97,7 +96,6 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
   //
   // A workaround is to read the version from `process.env.npm_package_version`.
   const appVersion = dev ? process.env.npm_package_version : app.getVersion();
-  const availableShells = await getAvailableShells();
 
   return {
     dev,
@@ -112,12 +110,13 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
     binDir,
     agentBinaryPath: path.resolve(sessionDataDir, 'teleport', 'teleport'),
     certsDir: getCertsDir(),
-    availableShells,
-    defaultOsShellId: getDefaultShell(availableShells),
+    defaultShell: getDefaultShell(),
     kubeConfigsDir,
     logsDir,
     platform: process.platform,
-    installationId,
+    installationId: loadInstallationId(
+      path.resolve(app.getPath('userData'), 'installation_id')
+    ),
     arch: os.arch(),
     osVersion: os.release(),
     appVersion,
@@ -202,6 +201,29 @@ function getBinaryPaths(): { binDir?: string; tshBinPath: string } {
 
 export function getAssetPath(...paths: string[]): string {
   return path.join(RESOURCES_PATH, 'assets', ...paths);
+}
+
+function getDefaultShell(): string {
+  const logger = new Logger();
+  switch (process.platform) {
+    case 'linux':
+    case 'darwin': {
+      const fallbackShell = 'bash';
+      const { shell } = os.userInfo();
+
+      if (!shell) {
+        logger.error(
+          `Failed to read ${process.platform} platform default shell, using fallback: ${fallbackShell}.\n`
+        );
+
+        return fallbackShell;
+      }
+
+      return shell;
+    }
+    case 'win32':
+      return 'powershell.exe';
+  }
 }
 
 /**

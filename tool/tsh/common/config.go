@@ -19,9 +19,11 @@
 package common
 
 import (
-	"io"
+	"fmt"
 	"net"
+	"strings"
 
+	"github.com/coreos/go-semver/semver"
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/api/profile"
@@ -31,8 +33,9 @@ import (
 
 // writeSSHConfig generates an OpenSSH config block from the `sshConfigTemplate`
 // template string.
-func writeSSHConfig(w io.Writer, params *openssh.SSHConfigParameters) error {
-	if err := openssh.WriteSSHConfig(w, params); err != nil {
+func writeSSHConfig(sb *strings.Builder, params *openssh.SSHConfigParameters, getSSHVersion func() (*semver.Version, error)) error {
+	sshConf := openssh.NewSSHConfig(getSSHVersion, log)
+	if err := sshConf.GetSSHConfig(sb, params); err != nil {
 		return trace.Wrap(err)
 	}
 
@@ -58,46 +61,45 @@ func onConfig(cf *CLIConf) error {
 	// destination (possibly their ssh config file) may get polluted with
 	// invalid output. Instead, rely on the normal error messages (which are
 	// sent to stderr) and expect the user to log in manually.
-	clusterClient, err := tc.ConnectToCluster(cf.Context)
+	proxyClient, err := tc.ConnectToProxy(cf.Context)
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	defer clusterClient.Close()
+	defer proxyClient.Close()
 
-	rootAuthClient, err := clusterClient.ConnectToRootCluster(cf.Context)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-	defer rootAuthClient.Close()
-
-	leafClusters, err := rootAuthClient.GetRemoteClusters(cf.Context)
-	if err != nil {
+	rootClusterName, rootErr := proxyClient.RootClusterName(cf.Context)
+	leafClusters, leafErr := proxyClient.GetLeafClusters(cf.Context)
+	if err := trace.NewAggregate(rootErr, leafErr); err != nil {
 		return trace.Wrap(err)
 	}
 
 	keysDir := profile.FullProfilePath(tc.Config.KeysDir)
 	knownHostsPath := keypaths.KnownHostsPath(keysDir)
-	identityFilePath := keypaths.UserSSHKeyPath(keysDir, proxyHost, tc.Config.Username)
+	identityFilePath := keypaths.UserKeyPath(keysDir, proxyHost, tc.Config.Username)
 
 	leafClustersNames := make([]string, 0, len(leafClusters))
 	for _, leafCluster := range leafClusters {
 		leafClustersNames = append(leafClustersNames, leafCluster.GetName())
 	}
 
-	if err := writeSSHConfig(cf.Stdout(), &openssh.SSHConfigParameters{
-		AppName:             openssh.TshApp,
-		ClusterNames:        append([]string{clusterClient.RootClusterName()}, leafClustersNames...),
-		KnownHostsPath:      knownHostsPath,
-		IdentityFilePath:    identityFilePath,
-		CertificateFilePath: keypaths.SSHCertPath(keysDir, proxyHost, tc.Config.Username, clusterClient.RootClusterName()),
-		ProxyHost:           proxyHost,
-		ProxyPort:           proxyPort,
-		ExecutablePath:      cf.executablePath,
-		Username:            cf.NodeLogin,
-		Port:                int(cf.NodePort),
-	}); err != nil {
+	var sb strings.Builder
+	if err := writeSSHConfig(&sb, &openssh.SSHConfigParameters{
+		AppName:          openssh.TshApp,
+		ClusterNames:     append([]string{rootClusterName}, leafClustersNames...),
+		KnownHostsPath:   knownHostsPath,
+		IdentityFilePath: identityFilePath,
+		CertificateFilePath: keypaths.SSHCertPath(keysDir, proxyHost,
+			tc.Config.Username, rootClusterName),
+		ProxyHost:      proxyHost,
+		ProxyPort:      proxyPort,
+		ExecutablePath: cf.executablePath,
+		Username:       cf.NodeLogin,
+		Port:           int(cf.NodePort),
+	}, nil); err != nil {
 		return trace.Wrap(err)
 	}
 
+	stdout := cf.Stdout()
+	fmt.Fprint(stdout, sb.String())
 	return nil
 }

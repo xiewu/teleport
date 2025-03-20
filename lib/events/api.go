@@ -205,8 +205,6 @@ const (
 	AccessRequestUpdateEvent = "access_request.update"
 	// AccessRequestReviewEvent is emitted when a review is applied to a request.
 	AccessRequestReviewEvent = "access_request.review"
-	// AccessRequestExpirEvent is emitted when an access request expires.
-	AccessRequestExpireEvent = "access_request.expire"
 	// AccessRequestDeleteEvent is emitted when a new access request is deleted.
 	AccessRequestDeleteEvent = "access_request.delete"
 	// AccessRequestResourceSearch is emitted when a user searches for
@@ -290,8 +288,6 @@ const (
 	// SFTPEvent means a user attempted a file operation
 	SFTPEvent = "sftp"
 	SFTPPath  = "path"
-	// SFTPSummaryEvent is emitted at the end of an SFTP transfer.
-	SFTPSummaryEvent = "sftp_summary"
 
 	// ResizeEvent means that some user resized PTY on the client
 	ResizeEvent  = "resize"
@@ -449,9 +445,6 @@ const (
 	// DatabaseSessionQueryFailedEvent is emitted when database client's request
 	// to execute a database query/command was unsuccessful.
 	DatabaseSessionQueryFailedEvent = "db.session.query.failed"
-	// DatabaseSessionCommandResult is emitted when a database returns a
-	// query/command result.
-	DatabaseSessionCommandResultEvent = "db.session.result"
 
 	// DatabaseSessionPostgresParseEvent is emitted when a Postgres client
 	// creates a prepared statement using extended query protocol.
@@ -653,17 +646,6 @@ const (
 	// Device enroll tokens are issued by either a device admin or during
 	// client-side auto-enrollment.
 	DeviceEnrollTokenCreateEvent = "device.token.create"
-	// DeviceWebTokenCreateEvent is emitted when a new device web token is issued.
-	// Device web tokens are issued during Web login for users that own a suitable
-	// trusted device.
-	// Tokens are spent in exchange for a single on-behalf-of device
-	// authentication attempt.
-	DeviceWebTokenCreateEvent = "device.webtoken.create"
-	// DeviceAuthenticateConfirmEvent is emitted when a device web authentication
-	// attempt is confirmed (via the ConfirmDeviceWebAuthentication RPC).
-	// A confirmed web authentication means the WebSession itself now holds
-	// augmented TLS and SSH certificates.
-	DeviceAuthenticateConfirmEvent = "device.authenticate.confirm"
 
 	// BotJoinEvent is emitted when a bot joins
 	BotJoinEvent = "bot.join"
@@ -715,9 +697,6 @@ const (
 	// OktaAccessListSyncEvent is emitted when an access list synchronization has completed.
 	OktaAccessListSyncEvent = "okta.access_list.sync"
 
-	// OktaUserSyncEvent is emitted when an access list synchronization has completed.
-	OktaUserSyncEvent = "okta.user.sync"
-
 	// AccessListCreateEvent is emitted when an access list is created.
 	AccessListCreateEvent = "access_list.create"
 
@@ -741,9 +720,6 @@ const (
 
 	// AccessListMemberDeleteAllForAccessListEvent is emitted when all members are deleted from an access list.
 	AccessListMemberDeleteAllForAccessListEvent = "access_list.member.delete_all_for_access_list"
-
-	// UserLoginAccessListInvalidEvent is emitted when a user logs in as a member of an invalid access list, causing the access list to be skipped.
-	UserLoginAccessListInvalidEvent = "user_login.invalid_access_list"
 
 	// UnknownEvent is any event received that isn't recognized as any other event type.
 	UnknownEvent = apievents.UnknownEvent
@@ -812,26 +788,12 @@ const (
 	// PluginDeleteEvent is emitted when a plugin resource is deleted.
 	PluginDeleteEvent = "plugin.delete"
 
-	// StaticHostUserCreateEvent is emitted when a static host user resource is created.
-	StaticHostUserCreateEvent = "static_host_user.create"
-	// StaticHostUserUpdateEvent is emitted when a static host user resource is updated.
-	StaticHostUserUpdateEvent = "static_host_user.update"
-	// StaticHostUserDeleteEvent is emitted when a static host user resource is deleted.
-	StaticHostUserDeleteEvent = "static_host_user.delete"
-
 	// CrownJewelCreateEvent is emitted when a crown jewel resource is created.
 	CrownJewelCreateEvent = "access_graph.crown_jewel.create"
 	// CrownJewelUpdateEvent is emitted when a crown jewel resource is updated.
 	CrownJewelUpdateEvent = "access_graph.crown_jewel.update"
 	// CrownJewelDeleteEvent is emitted when a crown jewel resource is deleted.
 	CrownJewelDeleteEvent = "access_graph.crown_jewel.delete"
-
-	// UserTaskCreateEvent is emitted when a user task resource is created.
-	UserTaskCreateEvent = "user_task.create"
-	// UserTaskUpdateEvent is emitted when a user task resource is updated.
-	UserTaskUpdateEvent = "user_task.update"
-	// UserTaskDeleteEvent is emitted when a user task resource is deleted.
-	UserTaskDeleteEvent = "user_task.delete"
 
 	// AutoUpdateConfigCreateEvent is emitted when a AutoUpdateConfig resource is created.
 	AutoUpdateConfigCreateEvent = "auto_update_config.create"
@@ -846,44 +808,16 @@ const (
 	AutoUpdateVersionUpdateEvent = "auto_update_version.update"
 	// AutoUpdateVersionDeleteEvent is emitted when a AutoUpdateVersion resource is deleted.
 	AutoUpdateVersionDeleteEvent = "auto_update_version.delete"
-
-	// ContactCreateEvent is emitted when a Contact resource is created.
-	ContactCreateEvent = "contact.create"
-	// ContactDeleteEvent is emitted when a Contact resource is deleted.
-	ContactDeleteEvent = "contact.delete"
-
-	// WorkloadIdentityCreateEvent is emitted when a WorkloadIdentity resource is created.
-	WorkloadIdentityCreateEvent = "workload_identity.create"
-	// WorkloadIdentityUpdateEvent is emitted when a WorkloadIdentity resource is updated.
-	WorkloadIdentityUpdateEvent = "workload_identity.update"
-	// WorkloadIdentityDeleteEvent is emitted when a WorkloadIdentity resource is deleted.
-	WorkloadIdentityDeleteEvent = "workload_identity.delete"
-
-	// WorkloadIdentityX509RevocationCreateEvent is emitted when a
-	// WorkloadIdentityX509Revocation resource is created.
-	WorkloadIdentityX509RevocationCreateEvent = "workload_identity_x509_revocation.create"
-	// WorkloadIdentityX509RevocationUpdateEvent is emitted when a
-	// WorkloadIdentityX509Revocation resource is updated.
-	WorkloadIdentityX509RevocationUpdateEvent = "workload_identity_x509_revocation.update"
-	// WorkloadIdentityX509RevocationDeleteEvent is emitted when a
-	// WorkloadIdentityX509Revocation resource is deleted.
-	WorkloadIdentityX509RevocationDeleteEvent = "workload_identity_x509_revocation.delete"
-
-	// GitCommandEvent is emitted when a Git command is executed.
-	GitCommandEvent = "git.command"
-
-	// StableUNIXUserCreateEvent is emitted when a stable UNIX user is created.
-	StableUNIXUserCreateEvent = "stable_unix_user.create"
-
-	// AWSICResourceSyncSuccessEvent is emitted when AWS Identity Center resources are imported
-	// and reconciled to Teleport.
-	AWSICResourceSyncSuccessEvent = "aws_identity_center.resource_sync.success"
-	// AWSICResourceSyncFailureEvent is emitted when AWS Identity Center resources sync failed.
-	AWSICResourceSyncFailureEvent = "aws_identity_center.resource_sync.failed"
 )
 
 // Add an entry to eventsMap in lib/events/events_test.go when you add
 // a new event name here.
+
+const (
+	// MaxChunkBytes defines the maximum size of a session stream chunk that
+	// can be requested via AuditLog.GetSessionChunk(). Set to 5MB
+	MaxChunkBytes = 1024 * 1024 * 5
+)
 
 const (
 	// V1 is the V1 version of slice chunks API,
@@ -897,14 +831,6 @@ const (
 	// on the fly
 	V3 = 3
 )
-
-// SessionRecordingEvents is a list of events that are related to session
-// recorings.
-var SessionRecordingEvents = []string{
-	SessionEndEvent,
-	WindowsDesktopSessionEndEvent,
-	DatabaseSessionEndEvent,
-}
 
 // ServerMetadataGetter represents interface
 // that provides information about its server id
@@ -1067,6 +993,19 @@ type AuditLogSessionStreamer interface {
 
 // SessionStreamer supports streaming session chunks or events.
 type SessionStreamer interface {
+	// GetSessionChunk returns a reader which can be used to read a byte stream
+	// of a recorded session starting from 'offsetBytes' (pass 0 to start from the
+	// beginning) up to maxBytes bytes.
+	//
+	// If maxBytes > MaxChunkBytes, it gets rounded down to MaxChunkBytes
+	GetSessionChunk(namespace string, sid session.ID, offsetBytes, maxBytes int) ([]byte, error)
+
+	// Returns all events that happen during a session sorted by time
+	// (oldest first).
+	//
+	// after is used to return events after a specified cursor ID
+	GetSessionEvents(namespace string, sid session.ID, after int) ([]EventFields, error)
+
 	// StreamSessionEvents streams all events from a given session recording. An
 	// error is returned on the first channel if one is encountered. Otherwise
 	// the event channel is closed when the stream ends. The event channel is

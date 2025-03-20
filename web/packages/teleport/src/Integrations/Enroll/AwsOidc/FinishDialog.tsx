@@ -16,28 +16,23 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Location } from 'history';
 import React from 'react';
+import { Location } from 'history';
 import { useLocation } from 'react-router';
 import { Link } from 'react-router-dom';
-
-import { ButtonPrimary, ButtonSecondary, Flex, Text } from 'design';
+import { CircleCheck } from 'design/Icon';
+import { ButtonPrimary, ButtonSecondary, Text, Flex } from 'design';
 import Dialog, {
+  DialogHeader,
   DialogContent,
   DialogFooter,
-  DialogHeader,
 } from 'design/Dialog';
-import { CircleCheck } from 'design/Icon';
 
 import cfg from 'teleport/config';
+import { Integration } from 'teleport/services/integrations';
 import { DiscoverUrlLocationState } from 'teleport/Discover/useDiscover';
-import { IntegrationAwsOidc } from 'teleport/services/integrations';
 
-export function FinishDialog({
-  integration,
-}: {
-  integration: IntegrationAwsOidc;
-}) {
+export function FinishDialog({ integration }: { integration: Integration }) {
   const location = useLocation<DiscoverUrlLocationState>();
   return (
     <Dialog
@@ -66,7 +61,7 @@ function FooterButton({
   integration,
 }: {
   location: Location<any>;
-  integration: IntegrationAwsOidc;
+  integration: Integration;
 }): React.ReactElement {
   if (location.state?.discover) {
     return (

@@ -16,28 +16,24 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { MemoryRouter } from 'react-router';
+import React from 'react';
 
 import {
   IntegrationKind,
   IntegrationStatusCode,
 } from 'teleport/services/integrations';
 
-import { EditAwsOidcIntegrationDialog } from './EditAwsOidcIntegrationDialog';
-import { integrations, plugins } from './fixtures';
 import { IntegrationList } from './IntegrationList';
 import { DeleteIntegrationDialog } from './RemoveIntegrationDialog';
+import { EditAwsOidcIntegrationDialog } from './EditAwsOidcIntegrationDialog';
+import { plugins, integrations } from './fixtures';
 
 export default {
   title: 'Teleport/Integrations',
 };
 
 export function List() {
-  return (
-    <MemoryRouter>
-      <IntegrationList list={[...plugins, ...integrations]} />
-    </MemoryRouter>
-  );
+  return <IntegrationList list={[...plugins, ...integrations]} />;
 }
 
 export function DeleteDialog() {

@@ -20,11 +20,11 @@ package mysql
 
 import (
 	"context"
-	"log/slog"
 	"testing"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	sqladmin "google.golang.org/api/sqladmin/v1beta4"
 
@@ -41,35 +41,30 @@ type fakeAuth struct {
 	common.Auth
 }
 
-func (a fakeAuth) GetCloudSQLAuthToken(ctx context.Context, databaseUser string) (string, error) {
-	if !isDBUserFullGCPServerAccountID(databaseUser) {
+func (a fakeAuth) GetCloudSQLAuthToken(ctx context.Context, sessionCtx *common.Session) (string, error) {
+	if !isDBUserFullGCPServerAccountID(sessionCtx.DatabaseUser) {
 		return "", trace.BadParameter("database user must be a service account")
 	}
 	return "iam-auth-token", nil
 }
 
-func (a fakeAuth) GetCloudSQLPassword(ctx context.Context, database types.Database, databaseUser string) (string, error) {
-	if isDBUserFullGCPServerAccountID(databaseUser) {
+func (a fakeAuth) GetCloudSQLPassword(ctx context.Context, sessionCtx *common.Session) (string, error) {
+	if isDBUserFullGCPServerAccountID(sessionCtx.DatabaseUser) {
 		return "", trace.BadParameter("database user must not be a service account")
 	}
 	return "one-time-password", nil
 }
 
-func (a fakeAuth) WithLogger(getUpdatedLogger func(*slog.Logger) *slog.Logger) common.Auth {
-	if a.Auth != nil {
-		return a.Auth.WithLogger(getUpdatedLogger)
-	}
-	return a
-}
-
-func Test_getGCPUserAndPassword(t *testing.T) {
+func Test_getGCPUserAndPassowrd(t *testing.T) {
 	ctx := context.Background()
 	authClient := makeAuthClient(t)
 	db := makeGCPMySQLDatabase(t)
+	dbAuth := &fakeAuth{}
 
 	tests := []struct {
 		name              string
 		inputDatabaseUser string
+		mockDBAuth        common.Auth
 		mockGCPClient     gcp.SQLAdminClient
 		wantDatabaseUser  string
 		wantPassword      string
@@ -78,17 +73,20 @@ func Test_getGCPUserAndPassword(t *testing.T) {
 		{
 			name:              "iam auth with full service account",
 			inputDatabaseUser: "iam-auth-user@project-id.iam.gserviceaccount.com",
+			mockDBAuth:        dbAuth,
 			wantDatabaseUser:  "iam-auth-user",
 			wantPassword:      "iam-auth-token",
 		},
 		{
 			name:              "iam auth with short service account",
 			inputDatabaseUser: "iam-auth-user@project-id.iam",
+			mockDBAuth:        dbAuth,
 			wantError:         true,
 		},
 		{
 			name:              "iam auth with CLOUD_IAM_SERVICE_ACCOUNT user",
 			inputDatabaseUser: "iam-auth-user",
+			mockDBAuth:        dbAuth,
 			mockGCPClient: &mocks.GCPSQLAdminClientMock{
 				DatabaseUser: makeGCPDatabaseUser("iam-auth-user", "CLOUD_IAM_SERVICE_ACCOUNT"),
 			},
@@ -98,6 +96,7 @@ func Test_getGCPUserAndPassword(t *testing.T) {
 		{
 			name:              "iam auth with CLOUD_IAM_GROUP_SERVICE_ACCOUNT user",
 			inputDatabaseUser: "iam-auth-user",
+			mockDBAuth:        dbAuth,
 			mockGCPClient: &mocks.GCPSQLAdminClientMock{
 				DatabaseUser: makeGCPDatabaseUser("iam-auth-user", "CLOUD_IAM_GROUP_SERVICE_ACCOUNT"),
 			},
@@ -107,6 +106,7 @@ func Test_getGCPUserAndPassword(t *testing.T) {
 		{
 			name:              "password auth without GetUser permission",
 			inputDatabaseUser: "some-user",
+			mockDBAuth:        dbAuth,
 			mockGCPClient:     &mocks.GCPSQLAdminClientMock{
 				// Default no permission to GetUser,
 			},
@@ -116,6 +116,7 @@ func Test_getGCPUserAndPassword(t *testing.T) {
 		{
 			name:              "password auth with BUILT_IN user",
 			inputDatabaseUser: "password-user",
+			mockDBAuth:        dbAuth,
 			mockGCPClient: &mocks.GCPSQLAdminClientMock{
 				DatabaseUser: makeGCPDatabaseUser("password-user", "BUILT_IN"),
 			},
@@ -125,6 +126,7 @@ func Test_getGCPUserAndPassword(t *testing.T) {
 		{
 			name:              "password auth with empty user type",
 			inputDatabaseUser: "password-user",
+			mockDBAuth:        dbAuth,
 			mockGCPClient: &mocks.GCPSQLAdminClientMock{
 				DatabaseUser: makeGCPDatabaseUser("password-user", ""),
 			},
@@ -134,6 +136,7 @@ func Test_getGCPUserAndPassword(t *testing.T) {
 		{
 			name:              "unsupported user type",
 			inputDatabaseUser: "some-user",
+			mockDBAuth:        dbAuth,
 			mockGCPClient: &mocks.GCPSQLAdminClientMock{
 				DatabaseUser: makeGCPDatabaseUser("some-user", "CLOUD_IAM_USER"),
 			},
@@ -144,19 +147,18 @@ func Test_getGCPUserAndPassword(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			sessionCtx := &common.Session{
-				Database:     db,
-				DatabaseUser: test.inputDatabaseUser,
-				ID:           "00000000-0000AAAA-0000BBBB-0000CCCC",
-			}
-
 			engine := NewEngine(common.EngineConfig{
-				Auth:       &fakeAuth{},
+				Auth:       test.mockDBAuth,
 				AuthClient: authClient,
 				Context:    ctx,
 				Clock:      clockwork.NewRealClock(),
-				Log:        slog.Default(),
+				Log:        logrus.StandardLogger(),
 			}).(*Engine)
+
+			sessionCtx := &common.Session{
+				Database:     db,
+				DatabaseUser: test.inputDatabaseUser,
+			}
 
 			databaseUser, password, err := engine.getGCPUserAndPassword(ctx, sessionCtx, test.mockGCPClient)
 			if test.wantError {

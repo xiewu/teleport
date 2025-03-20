@@ -16,9 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { fireEvent, render, screen } from 'design/utils/testing';
 
 import { ContextProvider } from 'teleport';
+
 import { createTeleportContext } from 'teleport/mocks/contexts';
 
 import { SessionJoinBtn } from './SessionJoinBtn';
@@ -58,7 +60,7 @@ test('all participant modes are properly listed and in the correct order', () =>
   );
 
   // Make sure that the menu items are in the order of observer -> moderator -> peer.
-  const menuItems = screen.queryAllByRole('menuitem');
+  const menuItems = screen.queryAllByRole<HTMLAnchorElement>('link');
   expect(menuItems).toHaveLength(3);
   expect(menuItems[0]).toHaveTextContent('As an Observer');
   expect(menuItems[1]).toHaveTextContent('As a Moderator');

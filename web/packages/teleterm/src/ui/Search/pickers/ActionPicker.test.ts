@@ -19,8 +19,8 @@
 import { makeSuccessAttempt } from 'shared/hooks/useAsync';
 
 import {
-  makeRetryableError,
   makeRootCluster,
+  makeRetryableError,
 } from 'teleterm/services/tshd/testHelpers';
 import { ResourceSearchError } from 'teleterm/ui/services/resources';
 

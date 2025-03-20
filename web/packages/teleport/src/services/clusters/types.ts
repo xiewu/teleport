@@ -25,9 +25,4 @@ export interface Cluster {
   publicURL: string;
   authVersion: string;
   proxyVersion: string;
-  licenseExpiryDateText?: string;
 }
-
-export type ClusterInfo = {
-  isCloud: boolean;
-} & Cluster;

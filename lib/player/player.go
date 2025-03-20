@@ -20,24 +20,18 @@
 package player
 
 import (
-	"cmp"
 	"context"
 	"errors"
-	"log/slog"
-	"maps"
 	"math"
-	"slices"
 	"sync/atomic"
 	"time"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
-	"github.com/gravitational/teleport/api/metadata"
 	"github.com/gravitational/teleport/api/types/events"
-	"github.com/gravitational/teleport/lib/defaults"
-	"github.com/gravitational/teleport/lib/player/db"
 	"github.com/gravitational/teleport/lib/session"
 )
 
@@ -45,7 +39,7 @@ import (
 type Player struct {
 	// read only config fields
 	clock        clockwork.Clock
-	log          *slog.Logger
+	log          logrus.FieldLogger
 	sessionID    session.ID
 	streamer     Streamer
 	skipIdleTime bool
@@ -79,9 +73,6 @@ type Player struct {
 
 	// err holds the error (if any) encountered during playback
 	err error
-
-	// translator is the current SessionPrintTranslator used.
-	translator sessionPrintTranslator
 }
 
 const (
@@ -101,26 +92,13 @@ type Streamer interface {
 	) (chan events.AuditEvent, chan error)
 }
 
-// newSessionPrintTranslatorFunc defines a SessionPrintTranslator constructor.
-type newSessionPrintTranslatorFunc func() sessionPrintTranslator
-
-// sessionPrintTranslator provides a way to transform detailed protocol-specific
-// audit events into a textual representation.
-type sessionPrintTranslator interface {
-	// TranslateEvent takes an audit event and converts it into a print event.
-	// The function might return `nil` in cases where there is no textual
-	// representation for the provided event.
-	TranslateEvent(events.AuditEvent) *events.SessionPrint
-}
-
 // Config configures a session player.
 type Config struct {
 	Clock        clockwork.Clock
-	Log          *slog.Logger
+	Log          logrus.FieldLogger
 	SessionID    session.ID
 	Streamer     Streamer
 	SkipIdleTime bool
-	Context      context.Context
 }
 
 func New(cfg *Config) (*Player, error) {
@@ -137,14 +115,9 @@ func New(cfg *Config) (*Player, error) {
 		clk = clockwork.NewRealClock()
 	}
 
-	log := cmp.Or(
-		cfg.Log,
-		slog.With(teleport.ComponentKey, "player"),
-	)
-
-	ctx := context.Background()
-	if cfg.Context != nil {
-		ctx = cfg.Context
+	var log logrus.FieldLogger = cfg.Log
+	if log == nil {
+		log = logrus.New().WithField(teleport.ComponentKey, "player")
 	}
 
 	p := &Player{
@@ -165,7 +138,7 @@ func New(cfg *Config) (*Player, error) {
 	// start in a paused state
 	p.playPause <- make(chan struct{})
 
-	go p.stream(ctx)
+	go p.stream()
 
 	return p, nil
 }
@@ -193,11 +166,11 @@ func (p *Player) SetSpeed(s float64) error {
 	return nil
 }
 
-func (p *Player) stream(baseContext context.Context) {
-	ctx, cancel := context.WithCancel(baseContext)
+func (p *Player) stream() {
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	eventsC, errC := p.streamer.StreamSessionEvents(metadata.WithSessionRecordingFormatContext(ctx, teleport.PTY), p.sessionID, 0)
+	eventsC, errC := p.streamer.StreamSessionEvents(ctx, p.sessionID, 0)
 	var lastDelay time.Duration
 	for {
 		select {
@@ -205,27 +178,21 @@ func (p *Player) stream(baseContext context.Context) {
 			close(p.emit)
 			return
 		case err := <-errC:
-			p.log.WarnContext(ctx, "Event streamer encountered error", "error", err)
+			p.log.Warn(err)
 			p.err = err
 			close(p.emit)
 			return
 		case evt := <-eventsC:
 			if evt == nil {
-				p.log.DebugContext(ctx, "Reached end of playback for session", "session_id", p.sessionID)
+				p.log.Debugf("reached end of playback for session %v", p.sessionID)
 				close(p.emit)
 				return
 			}
 
 			if err := p.waitWhilePaused(); err != nil {
-				p.log.WarnContext(ctx, "Encountered error in pause state", "error", err)
+				p.log.Warn(err)
 				close(p.emit)
 				return
-			}
-
-			var skip bool
-			evt, skip = p.translateEvent(evt)
-			if skip {
-				continue
 			}
 
 			currentDelay := getDelay(evt)
@@ -239,7 +206,7 @@ func (p *Player) stream(baseContext context.Context) {
 					// we rewind (by restarting the stream and seeking forward
 					// to the rewind point)
 					p.advanceTo.Store(int64(adv) * -1)
-					go p.stream(baseContext)
+					go p.stream()
 					return
 				default:
 					if adv != normalPlayback {
@@ -253,8 +220,8 @@ func (p *Player) stream(baseContext context.Context) {
 
 					switch err := p.applyDelay(lastDelay, currentDelay); {
 					case errors.Is(err, errSeekWhilePaused):
-						p.log.DebugContext(ctx, "Seeked during pause, will restart stream")
-						go p.stream(baseContext)
+						p.log.Debug("seeked during pause, will restart stream")
+						go p.stream()
 						return
 					case err != nil:
 						close(p.emit)
@@ -472,38 +439,6 @@ func (p *Player) waitWhilePaused() error {
 func (p *Player) LastPlayed() time.Duration {
 	return time.Duration(p.lastPlayed.Load())
 }
-
-// translateEvent translates events if applicable and return if they should be
-// skipped.
-func (p *Player) translateEvent(evt events.AuditEvent) (translatedEvent events.AuditEvent, shouldSkip bool) {
-	// We can only define the translator when the first event arrives.
-	switch e := evt.(type) {
-	case *events.DatabaseSessionStart:
-		if newTranslatorFunc, ok := databaseTranslators[e.DatabaseProtocol]; ok {
-			p.translator = newTranslatorFunc()
-		}
-	}
-
-	if p.translator == nil {
-		return evt, false
-	}
-
-	if translatedEvt := p.translator.TranslateEvent(evt); translatedEvt != nil {
-		return translatedEvt, false
-	}
-
-	// Always skip if the translator returns an nil event.
-	return nil, true
-}
-
-// databaseTranslators maps database protocol event translators.
-var databaseTranslators = map[string]newSessionPrintTranslatorFunc{
-	defaults.ProtocolPostgres: func() sessionPrintTranslator { return db.NewPostgresTranslator() },
-}
-
-// SupportedDatabaseProtocols a list of database protocols supported by the
-// player.
-var SupportedDatabaseProtocols = slices.Collect(maps.Keys(databaseTranslators))
 
 func getDelay(e events.AuditEvent) time.Duration {
 	switch x := e.(type) {

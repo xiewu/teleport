@@ -21,6 +21,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/api/utils"
@@ -29,8 +30,8 @@ import (
 // TrustedCluster holds information needed for a cluster that can not be directly
 // accessed (maybe be behind firewall without any open ports) to join a parent cluster.
 type TrustedCluster interface {
-	// ResourceWithOrigin provides common resource properties
-	ResourceWithOrigin
+	// Resource provides common resource properties
+	Resource
 	// SetMetadata sets object metadata
 	SetMetadata(meta Metadata)
 	// GetEnabled returns the state of the TrustedCluster.
@@ -125,6 +126,16 @@ func (c *TrustedClusterV2) SetSubKind(s string) {
 	c.SubKind = s
 }
 
+// GetResourceID returns resource ID
+func (c *TrustedClusterV2) GetResourceID() int64 {
+	return c.Metadata.ID
+}
+
+// SetResourceID sets resource ID
+func (c *TrustedClusterV2) SetResourceID(id int64) {
+	c.Metadata.ID = id
+}
+
 // GetRevision returns the revision
 func (c *TrustedClusterV2) GetRevision() string {
 	return c.Metadata.GetRevision()
@@ -182,16 +193,6 @@ func (c *TrustedClusterV2) GetName() string {
 // SetName sets the name of the TrustedCluster.
 func (c *TrustedClusterV2) SetName(e string) {
 	c.Metadata.Name = e
-}
-
-// Origin returns the origin value of the resource.
-func (c *TrustedClusterV2) Origin() string {
-	return c.Metadata.Origin()
-}
-
-// SetOrigin sets the origin value of the resource.
-func (c *TrustedClusterV2) SetOrigin(origin string) {
-	c.Metadata.SetOrigin(origin)
 }
 
 // GetEnabled returns the state of the TrustedCluster.
@@ -262,6 +263,15 @@ func (c *TrustedClusterV2) CanChangeStateTo(t TrustedCluster) error {
 	if !slices.Equal(c.GetRoles(), t.GetRoles()) {
 		return immutableFieldErr("roles")
 	}
+	roleMapUpdated := !cmp.Equal(c.GetRoleMap(), t.GetRoleMap())
+
+	if c.GetEnabled() == t.GetEnabled() && !roleMapUpdated {
+		if t.GetEnabled() {
+			return trace.AlreadyExists("leaf cluster is already enabled, this update would have no effect")
+		}
+		return trace.AlreadyExists("leaf cluster is already disabled, this update would have no effect")
+	}
+
 	return nil
 }
 
@@ -277,13 +287,6 @@ func (c *TrustedClusterV2) String() string {
 
 // RoleMap is a list of mappings
 type RoleMap []RoleMapping
-
-// IsEqual validates that two roles maps are equivalent.
-func (r RoleMap) IsEqual(other RoleMap) bool {
-	return slices.EqualFunc(r, other, func(a RoleMapping, b RoleMapping) bool {
-		return a.Remote == b.Remote && slices.Equal(a.Local, b.Local)
-	})
-}
 
 // SortedTrustedCluster sorts clusters by name
 type SortedTrustedCluster []TrustedCluster

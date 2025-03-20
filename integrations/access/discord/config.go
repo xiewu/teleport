@@ -109,7 +109,6 @@ func (c *Config) NewBot(clusterName, webProxyAddr string) (common.MessagingBot, 
 			Transport: &http.Transport{
 				MaxConnsPerHost:     discordMaxConns,
 				MaxIdleConnsPerHost: discordMaxConns,
-				Proxy:               http.ProxyFromEnvironment,
 			},
 		}).
 		SetBaseURL(c.Discord.APIURL).

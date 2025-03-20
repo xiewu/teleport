@@ -31,7 +31,7 @@ Users are able to write their own custom access monitoring queries by querying t
 <Tabs>
 <TabItem scope={["cloud","team"]} label="Teleport Enterprise (cloud-hosted)">
 
-Access Monitoring is enabled by default for all Teleport Enterprise (cloud-hosted) accounts.
+Teleport Access Monitoring is enabled by default for all Teleport Enterprise (cloud-hosted) accounts.
 
 </TabItem>
 <TabItem scope={["enterprise", "oss"]} label="Self-Hosted">
@@ -144,7 +144,7 @@ Below, you can find the IAM permissions that allow the Auth Service to execute A
 You can use our [Terraform Example](https://github.com/gravitational/teleport/tree/v(=teleport.version=)/examples/athena)
 to set up Athena and Access Monitoring AWS resources and generate Athena Backend and Access Monitoring Teleport configuration:
 
-```code
+```bash
 $ terraform apply
 ...
  access_monitoring:
@@ -178,11 +178,9 @@ spec:
       - use
 ```
 
-(!docs/pages/includes/create-role-using-web.mdx!)
-
 ## Query Editor
 
-The Query Editor in Access Monitoring provides users with an interface to interactively query audit logs and generate reports.
+The Query Editor in Teleport Access Monitoring provides users with an interface to interactively query audit logs and generate reports.
 Users can write custom SQL queries for these views to build custom reports akin to querying a relational database.
 
 Within the Query Editor, users have access to a number of SQL views representing audit events captured by Teleport.
@@ -306,6 +304,17 @@ FROM
 WHERE
   request.id = review.id
 ```
+
+
+### Query Examples with Assist AI
+
+The query editor also integrates with Teleport Assist, allowing you to to generate queries with a human-readable description of the data you want to retrieve.
+
+![assist query](../../../img/access-monitoring/assist_query_1.png)
+
+
+Teleport Assist will generate the SQL query based on the user prompt message:
+![assist query result](../../../img/access-monitoring/assist_query_2.png)
 
 # Access Monitoring Reports
 

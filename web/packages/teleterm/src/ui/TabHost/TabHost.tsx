@@ -16,58 +16,41 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { MutableRefObject, useCallback } from 'react';
+import React from 'react';
 import styled from 'styled-components';
-
 import { Flex } from 'design';
 
-import { Shell } from 'teleterm/mainProcess/shell';
 import { useAppContext } from 'teleterm/ui/appContextProvider';
-import { DocumentsRenderer } from 'teleterm/ui/Documents/DocumentsRenderer';
-import { useKeyboardShortcutFormatters } from 'teleterm/ui/services/keyboardShortcuts';
-import { useWorkspaceServiceState } from 'teleterm/ui/services/workspacesService';
 import * as types from 'teleterm/ui/services/workspacesService/documentsService/types';
-import { canDocChangeShell } from 'teleterm/ui/services/workspacesService/documentsService/types';
 import { Tabs } from 'teleterm/ui/Tabs';
+import { DocumentsRenderer } from 'teleterm/ui/Documents/DocumentsRenderer';
 import { IAppContext } from 'teleterm/ui/types';
+import { useKeyboardShortcutFormatters } from 'teleterm/ui/services/keyboardShortcuts';
 
-import { useStoreSelector } from '../hooks/useStoreSelector';
-import { ClusterConnectPanel } from './ClusterConnectPanel/ClusterConnectPanel';
-import { useNewTabOpener } from './useNewTabOpener';
 import { useTabShortcuts } from './useTabShortcuts';
+import { useNewTabOpener } from './useNewTabOpener';
+import { ClusterConnectPanel } from './ClusterConnectPanel/ClusterConnectPanel';
 
 export function TabHostContainer(props: {
-  topBarConnectMyComputerRef: MutableRefObject<HTMLDivElement>;
-  topBarAccessRequestRef: MutableRefObject<HTMLDivElement>;
+  topBarContainerRef: React.MutableRefObject<HTMLDivElement>;
 }) {
   const ctx = useAppContext();
-  const isRootClusterSelected = useStoreSelector(
-    'workspacesService',
-    useCallback(state => !!state.rootClusterUri, [])
-  );
+  ctx.workspacesService.useState();
+  const isRootClusterSelected = !!ctx.workspacesService.getRootClusterUri();
 
   if (isRootClusterSelected) {
-    return (
-      <TabHost
-        ctx={ctx}
-        topBarConnectMyComputerRef={props.topBarConnectMyComputerRef}
-        topBarAccessRequestRef={props.topBarAccessRequestRef}
-      />
-    );
+    return <TabHost ctx={ctx} topBarContainerRef={props.topBarContainerRef} />;
   }
   return <ClusterConnectPanel />;
 }
 
 export function TabHost({
   ctx,
-  topBarConnectMyComputerRef,
-  topBarAccessRequestRef,
+  topBarContainerRef,
 }: {
   ctx: IAppContext;
-  topBarConnectMyComputerRef: MutableRefObject<HTMLDivElement>;
-  topBarAccessRequestRef: MutableRefObject<HTMLDivElement>;
+  topBarContainerRef: React.MutableRefObject<HTMLDivElement>;
 }) {
-  useWorkspaceServiceState();
   const documentsService =
     ctx.workspacesService.getActiveWorkspaceDocumentService();
   const activeDocument = documentsService?.getActive();
@@ -100,7 +83,7 @@ export function TabHost({
 
   function handleTabContextMenu(doc: types.Document) {
     ctx.mainProcessClient.openTabContextMenu({
-      document: doc,
+      documentKind: doc.kind,
       onClose: () => {
         documentsService.close(doc.uri);
       },
@@ -112,11 +95,6 @@ export function TabHost({
       },
       onDuplicatePty: () => {
         documentsService.duplicatePtyAndActivate(doc.uri);
-      },
-      onReopenPtyInShell(shell: Shell) {
-        if (canDocChangeShell(doc)) {
-          documentsService.reopenPtyInShell(doc, shell);
-        }
       },
     });
   }
@@ -143,10 +121,7 @@ export function TabHost({
           closeTabTooltip={getLabelWithAccelerator('Close', 'closeTab')}
         />
       </Flex>
-      <DocumentsRenderer
-        topBarConnectMyComputerRef={topBarConnectMyComputerRef}
-        topBarAccessRequestRef={topBarAccessRequestRef}
-      />
+      <DocumentsRenderer topBarContainerRef={topBarContainerRef} />
     </StyledTabHost>
   );
 }

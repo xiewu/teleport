@@ -15,15 +15,17 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import React from 'react';
 import {
   AnimatedProgressBar,
   ButtonPrimary,
-  ButtonSecondary,
-  Flex,
   Text,
+  Flex,
+  ButtonSecondary,
 } from 'design';
-import Dialog, { DialogContent } from 'design/DialogConfirmation';
+
 import * as Icons from 'design/Icon';
+import Dialog, { DialogContent } from 'design/DialogConfirmation';
 
 import { TextIcon } from 'teleport/Discover/Shared';
 
@@ -61,7 +63,6 @@ export function EnrollmentDialog({
         );
 
       case 'error':
-      case 'alreadyExists':
         return (
           <>
             <Flex mb={5} alignItems="center">
@@ -69,11 +70,9 @@ export function EnrollmentDialog({
               <Text>{error}</Text>
             </Flex>
             <Flex gap={4}>
-              {status === 'error' && (
-                <ButtonPrimary width="50%" onClick={retry}>
-                  Retry
-                </ButtonPrimary>
-              )}
+              <ButtonPrimary width="50%" onClick={retry}>
+                Retry
+              </ButtonPrimary>
               <ButtonSecondary width="50%" onClick={close}>
                 Close
               </ButtonSecondary>

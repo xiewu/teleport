@@ -28,6 +28,7 @@ import (
 	"github.com/gravitational/trace"
 	"golang.org/x/net/http/httpproxy"
 
+	"github.com/gravitational/teleport"
 	tracehttp "github.com/gravitational/teleport/api/observability/tracing/http"
 	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/httplib"
@@ -61,9 +62,7 @@ func httpTransport(insecure bool, pool *x509.CertPool) *http.Transport {
 
 func NewWebClient(url string, opts ...roundtrip.ClientParam) (*WebClient, error) {
 	opts = append(opts, roundtrip.SanitizerEnabled(true))
-	// We do not add the version prefix since web api endpoints will contain
-	// differing version prefixes.
-	clt, err := roundtrip.NewClient(url, "" /* version prefix */, opts...)
+	clt, err := roundtrip.NewClient(url, teleport.WebAPIVersion, opts...)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -85,7 +84,7 @@ type WebClient struct {
 // and a the HTTPS failure will be considered final.
 func (w *WebClient) PostJSONWithFallback(ctx context.Context, endpoint string, val interface{}, allowHTTPFallback bool) (*roundtrip.Response, error) {
 	// First try HTTPS and see how that goes
-	log.DebugContext(ctx, "Attempting request", "endpoint", endpoint)
+	log.Debugf("Attempting %s", endpoint)
 	resp, httpsErr := w.Client.PostJSON(ctx, endpoint, val)
 	if httpsErr == nil {
 		// If all went well, then we don't need to do anything else - just return
@@ -117,7 +116,7 @@ func (w *WebClient) PostJSONWithFallback(ctx context.Context, endpoint string, v
 	// re-write the endpoint to try HTTP
 	u.Scheme = "http"
 	endpoint = u.String()
-	log.WarnContext(ctx, "Request for falling back to PLAIN HTTP", "endpoint", endpoint)
+	log.Warnf("Request for %s/%s falling back to PLAIN HTTP", u.Host, u.Path)
 	return httplib.ConvertResponse(w.Client.PostJSON(ctx, endpoint, val))
 }
 

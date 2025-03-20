@@ -16,10 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import bblpTheme from './themes/bblpTheme';
 import darkTheme from './themes/darkTheme';
 import lightTheme from './themes/lightTheme';
-
-export * from './themes/types';
+import bblpTheme from './themes/bblpTheme';
 
 export { darkTheme, lightTheme, bblpTheme };
+export type { DeprecatedThemeOption } from './types';

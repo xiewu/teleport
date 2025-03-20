@@ -19,7 +19,6 @@
 package tbot
 
 import (
-	"cmp"
 	"context"
 	"crypto/x509"
 	"fmt"
@@ -38,8 +37,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	workloadpb "github.com/spiffe/go-spiffe/v2/proto/spiffe/workload"
-	"github.com/spiffe/go-spiffe/v2/spiffeid"
-	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -47,19 +44,15 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/gravitational/teleport"
-	machineidv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
-	workloadidentityv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/workloadidentity/v1"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/observability/metrics"
 	"github.com/gravitational/teleport/lib/reversetunnelclient"
 	"github.com/gravitational/teleport/lib/tbot/config"
-	"github.com/gravitational/teleport/lib/tbot/workloadidentity"
-	"github.com/gravitational/teleport/lib/tbot/workloadidentity/workloadattest"
+	"github.com/gravitational/teleport/lib/tbot/spiffe"
+	"github.com/gravitational/teleport/lib/tbot/spiffe/workloadattest"
 	"github.com/gravitational/teleport/lib/uds"
 )
 
@@ -80,12 +73,11 @@ type SPIFFEWorkloadAPIService struct {
 	cfg              *config.SPIFFEWorkloadAPIService
 	log              *slog.Logger
 	resolver         reversetunnelclient.Resolver
-	trustBundleCache *workloadidentity.TrustBundleCache
+	trustBundleCache *spiffe.TrustBundleCache
 
 	// client holds the impersonated client for the service
-	client           *authclient.Client
-	attestor         *workloadattest.Attestor
-	localTrustDomain spiffeid.TrustDomain
+	client   *authclient.Client
+	attestor *workloadattest.Attestor
 }
 
 // setup initializes the service, performing tasks such as determining the
@@ -121,12 +113,6 @@ func (s *SPIFFEWorkloadAPIService) setup(ctx context.Context) (err error) {
 			client.Close()
 		}
 	}()
-
-	td, err := spiffeid.TrustDomainFromString(facade.Get().ClusterName)
-	if err != nil {
-		return trace.Wrap(err, "parsing trust domain name")
-	}
-	s.localTrustDomain = td
 
 	s.attestor, err = workloadattest.NewAttestor(s.log, s.cfg.Attestors)
 	if err != nil {
@@ -228,27 +214,13 @@ func (s *SPIFFEWorkloadAPIService) Run(ctx context.Context) error {
 	)
 	workloadpb.RegisterSpiffeWorkloadAPIServer(srv, s)
 	sdsHandler := &spiffeSDSHandler{
-		log:              s.log,
-		botCfg:           s.botCfg,
-		trustBundleCache: s.trustBundleCache,
-		clientAuthenticator: func(ctx context.Context) (*slog.Logger, svidFetcher, error) {
-			log, attrs, err := s.authenticateClient(ctx)
-			if err != nil {
-				return log, nil, trace.Wrap(err, "authenticating client")
-			}
-			fetchSVIDs := func(
-				ctx context.Context,
-				localBundle *spiffebundle.Bundle,
-			) ([]*workloadpb.X509SVID, error) {
-				return s.fetchX509SVIDs(
-					ctx,
-					log,
-					localBundle,
-					filterSVIDRequests(ctx, log, s.cfg.SVIDs, attrs),
-				)
-			}
-			return log, fetchSVIDs, nil
-		},
+		log:    s.log,
+		cfg:    s.cfg,
+		botCfg: s.botCfg,
+
+		trustBundleCache:    s.trustBundleCache,
+		clientAuthenticator: s.authenticateClient,
+		svidFetcher:         s.fetchX509SVIDs,
 	}
 	secretv3pb.RegisterSecretDiscoveryServiceServer(srv, sdsHandler)
 
@@ -322,7 +294,8 @@ func (s *SPIFFEWorkloadAPIService) fetchX509SVIDs(
 		ctx,
 		s.client,
 		svidRequests,
-		cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+		// For TTL, we use the one globally configured.
+		s.botCfg.CertificateTTL,
 	)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -334,7 +307,7 @@ func (s *SPIFFEWorkloadAPIService) fetchX509SVIDs(
 		return nil, trace.Wrap(err)
 	}
 
-	marshaledBundle := workloadidentity.MarshalX509Bundle(localBundle.X509Bundle())
+	marshaledBundle := spiffe.MarshalX509Bundle(localBundle.X509Bundle())
 
 	// Convert responses from the Teleport API to the SPIFFE Workload API
 	// format.
@@ -387,7 +360,7 @@ func filterSVIDRequests(
 	ctx context.Context,
 	log *slog.Logger,
 	svidRequests []config.SVIDRequestWithRules,
-	att *workloadidentityv1pb.WorkloadAttrs,
+	att workloadattest.Attestation,
 ) []config.SVIDRequest {
 	var filtered []config.SVIDRequest
 	for _, req := range svidRequests {
@@ -427,67 +400,67 @@ func filterSVIDRequests(
 				"Evaluating rule against workload attestation",
 			)
 			if rule.Unix.UID != nil {
-				if !att.GetUnix().GetAttested() {
+				if !att.Unix.Attested {
 					logNotAttested("unix")
 					continue
 				}
-				if *rule.Unix.UID != int(att.GetUnix().GetUid()) {
-					logMismatch("unix.uid", *rule.Unix.UID, att.GetUnix().GetUid())
+				if *rule.Unix.UID != att.Unix.UID {
+					logMismatch("unix.uid", *rule.Unix.UID, att.Unix.UID)
 					continue
 				}
 				// Rule field matched!
 			}
 			if rule.Unix.PID != nil {
-				if !att.GetUnix().GetAttested() {
+				if !att.Unix.Attested {
 					logNotAttested("unix")
 					continue
 				}
-				if *rule.Unix.PID != int(att.GetUnix().GetPid()) {
-					logMismatch("unix.pid", *rule.Unix.PID, att.GetUnix().GetPid())
+				if *rule.Unix.PID != att.Unix.PID {
+					logMismatch("unix.pid", *rule.Unix.PID, att.Unix.PID)
 					continue
 				}
 				// Rule field matched!
 			}
 			if rule.Unix.GID != nil {
-				if !att.GetUnix().GetAttested() {
+				if !att.Unix.Attested {
 					logNotAttested("unix")
 					continue
 				}
-				if *rule.Unix.GID != int(att.GetUnix().GetGid()) {
-					logMismatch("unix.gid", *rule.Unix.GID, att.GetUnix().GetGid())
+				if *rule.Unix.GID != att.Unix.GID {
+					logMismatch("unix.gid", *rule.Unix.GID, att.Unix.GID)
 					continue
 				}
 				// Rule field matched!
 			}
 			if rule.Kubernetes.Namespace != "" {
-				if !att.GetKubernetes().GetAttested() {
+				if !att.Kubernetes.Attested {
 					logNotAttested("kubernetes")
 					continue
 				}
-				if rule.Kubernetes.Namespace != att.GetKubernetes().GetNamespace() {
-					logMismatch("kubernetes.namespace", rule.Kubernetes.Namespace, att.GetKubernetes().GetNamespace())
+				if rule.Kubernetes.Namespace != att.Kubernetes.Namespace {
+					logMismatch("kubernetes.namespace", rule.Kubernetes.Namespace, att.Kubernetes.Namespace)
 					continue
 				}
 				// Rule field matched!
 			}
 			if rule.Kubernetes.PodName != "" {
-				if !att.GetKubernetes().GetAttested() {
+				if !att.Kubernetes.Attested {
 					logNotAttested("kubernetes")
 					continue
 				}
-				if rule.Kubernetes.PodName != att.GetKubernetes().GetPodName() {
-					logMismatch("kubernetes.pod_name", rule.Kubernetes.PodName, att.GetKubernetes().GetPodName())
+				if rule.Kubernetes.PodName != att.Kubernetes.PodName {
+					logMismatch("kubernetes.pod_name", rule.Kubernetes.PodName, att.Kubernetes.PodName)
 					continue
 				}
 				// Rule field matched!
 			}
 			if rule.Kubernetes.ServiceAccount != "" {
-				if !att.GetKubernetes().GetAttested() {
+				if !att.Kubernetes.Attested {
 					logNotAttested("kubernetes")
 					continue
 				}
-				if rule.Kubernetes.ServiceAccount != att.GetKubernetes().GetServiceAccount() {
-					logMismatch("kubernetes.service_account", rule.Kubernetes.ServiceAccount, att.GetKubernetes().GetServiceAccount())
+				if rule.Kubernetes.ServiceAccount != att.Kubernetes.ServiceAccount {
+					logMismatch("kubernetes.service_account", rule.Kubernetes.ServiceAccount, att.Kubernetes.ServiceAccount)
 					continue
 				}
 				// Rule field matched!
@@ -513,10 +486,10 @@ func filterSVIDRequests(
 
 func (s *SPIFFEWorkloadAPIService) authenticateClient(
 	ctx context.Context,
-) (*slog.Logger, *workloadidentityv1pb.WorkloadAttrs, error) {
+) (*slog.Logger, workloadattest.Attestation, error) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return nil, nil, trace.BadParameter("peer not found in context")
+		return nil, workloadattest.Attestation{}, trace.BadParameter("peer not found in context")
 	}
 	log := s.log
 
@@ -530,7 +503,7 @@ func (s *SPIFFEWorkloadAPIService) authenticateClient(
 	// We expect Creds to be nil/unset if the client is connecting via TCP and
 	// therefore there is no workload attestation that can be completed.
 	if !ok || authInfo.Creds == nil {
-		return log, nil, nil
+		return log, workloadattest.Attestation{}, nil
 	}
 
 	// For a UDS, sometimes we are unable to determine the PID of the calling
@@ -542,7 +515,7 @@ func (s *SPIFFEWorkloadAPIService) authenticateClient(
 	if authInfo.Creds.PID == 0 {
 		log.DebugContext(
 			ctx, "Failed to determine the PID of the calling workload. TBot may be running in a different process namespace to the workload. Workload attestation will not be completed.")
-		return log, nil, nil
+		return log, workloadattest.Attestation{}, nil
 	}
 
 	att, err := s.attestor.Attest(ctx, authInfo.Creds.PID)
@@ -555,10 +528,10 @@ func (s *SPIFFEWorkloadAPIService) authenticateClient(
 			"error", err,
 			"pid", authInfo.Creds.PID,
 		)
-		return log, nil, nil
+		return log, workloadattest.Attestation{}, nil
 	}
 	log = log.With(
-		"workload", att,
+		"workload", slog.LogValuer(att),
 	)
 
 	return log, att, nil
@@ -645,7 +618,7 @@ func (s *SPIFFEWorkloadAPIService) FetchX509SVID(
 			}
 			bundleSet = newBundleSet
 			continue
-		case <-time.After(cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval):
+		case <-time.After(s.botCfg.RenewalInterval):
 			log.DebugContext(ctx, "Renewal interval reached, renewing SVIDs")
 			svids = nil
 			continue
@@ -687,207 +660,31 @@ func (s *SPIFFEWorkloadAPIService) FetchX509Bundles(
 	}
 }
 
-const defaultJWTSVIDTTL = time.Minute * 5
-
 // FetchJWTSVID implements the SPIFFE Workload API FetchJWTSVID method.
-// See The SPIFFE Workload API (6.2.1).
 func (s *SPIFFEWorkloadAPIService) FetchJWTSVID(
 	ctx context.Context,
 	req *workloadpb.JWTSVIDRequest,
 ) (*workloadpb.JWTSVIDResponse, error) {
-	log, creds, err := s.authenticateClient(ctx)
-	if err != nil {
-		return nil, trace.Wrap(err, "authenticating client")
-	}
-
-	log.InfoContext(ctx, "FetchJWTSVID request received from workload")
-	defer log.InfoContext(ctx, "FetchJWTSVID request handled")
-	if req.SpiffeId == "" {
-		log = log.With("requested_spiffe_id", req.SpiffeId)
-	}
-
-	// The SPIFFE Workload API (6.2.1):
-	// > The JWTSVIDRequest request message contains a mandatory audience field,
-	// > which MUST contain the value to embed in the audience claim of the
-	// > returned JWT-SVIDs.
-	if len(req.Audience) == 0 {
-		return nil, trace.BadParameter("audience: must have at least one value")
-	}
-
-	svidReqs := filterSVIDRequests(ctx, log, s.cfg.SVIDs, creds)
-	// The SPIFFE Workload API (6.2.1):
-	// > If the client is not authorized for any identities, or not authorized
-	// > for the specific identity requested via the spiffe_id field, then the
-	// > server SHOULD respond with the "PermissionDenied" gRPC status code.
-	if len(svidReqs) == 0 {
-		log.ErrorContext(ctx, "Workload did not pass attestation for any SVIDs")
-		return nil, status.Error(
-			codes.PermissionDenied,
-			"workload did not pass attestation for any SVIDs",
-		)
-	}
-
-	// The SPIFFE Workload API (6.2.1):
-	// > The spiffe_id field is optional, and is used to request a JWT-SVID for
-	// > a specific SPIFFE ID. If unspecified, the server MUST return JWT-SVIDs
-	// > for all identities authorized for the client.
-	if req.SpiffeId != "" {
-		requestedSPIFFEID, err := spiffeid.FromString(req.SpiffeId)
-		if err != nil {
-			return nil, trace.Wrap(err, "parsing requested SPIFFE ID")
-		}
-		if requestedSPIFFEID.TrustDomain() != s.localTrustDomain {
-			return nil, trace.BadParameter("requested SPIFFE ID is not in the local trust domain")
-		}
-		// Search through available SVIDs to find the one that matches the
-		// requested SPIFFE ID.
-		found := false
-		for _, svidReq := range svidReqs {
-			spiffeID, err := spiffeid.FromPath(s.localTrustDomain, svidReq.Path)
-			if err != nil {
-				return nil, trace.Wrap(err, "parsing SPIFFE ID from path %q", svidReq.Path)
-			}
-			if spiffeID.String() == req.SpiffeId {
-				found = true
-				svidReqs = []config.SVIDRequest{svidReq}
-				break
-			}
-		}
-		if !found {
-			log.ErrorContext(ctx, "Workload is not authorized for the specifically requested SPIFFE ID", "requested_spiffe_id", req.SpiffeId)
-			return nil, status.Error(
-				codes.PermissionDenied,
-				"workload is not authorized for requested SPIFFE ID",
-			)
-		}
-	}
-
-	// Allow users to manually override the TTL for JWT-SVIDs produced by this
-	// service.
-	ttl := cmp.Or(s.cfg.JWTSVIDTTL, defaultJWTSVIDTTL)
-
-	reqs := make([]*machineidv1pb.JWTSVIDRequest, 0, len(svidReqs))
-	for _, svidReq := range svidReqs {
-		reqs = append(reqs, &machineidv1pb.JWTSVIDRequest{
-			SpiffeIdPath: svidReq.Path,
-			Audiences:    req.Audience,
-			Ttl:          durationpb.New(ttl),
-			Hint:         svidReq.Hint,
-		})
-	}
-
-	res, err := s.client.WorkloadIdentityServiceClient().SignJWTSVIDs(ctx, &machineidv1pb.SignJWTSVIDsRequest{
-		Svids: reqs,
-	})
-	if err != nil {
-		return nil, trace.Wrap(err, "requesting signed JWT-SVIDs from Teleport")
-	}
-
-	out := &workloadpb.JWTSVIDResponse{}
-	for _, resSVID := range res.Svids {
-		out.Svids = append(out.Svids, &workloadpb.JWTSVID{
-			SpiffeId: resSVID.SpiffeId,
-			Svid:     resSVID.Jwt,
-			Hint:     resSVID.Hint,
-		})
-		log.InfoContext(ctx,
-			"Issued SVID for workload",
-			slog.Group("svid",
-				"type", "jwt",
-				"spiffe_id", resSVID.SpiffeId,
-				"jti", resSVID.Jti,
-				"hint", resSVID.Hint,
-				"audiences", resSVID.Audiences,
-			),
-		)
-	}
-
-	return out, nil
+	// JWT functionality currently not implemented in Teleport Workload Identity.
+	return nil, trace.NotImplemented("method not implemented")
 }
 
 // FetchJWTBundles implements the SPIFFE Workload API FetchJWTBundles method.
-// See The SPIFFE Workload API (6.2.2).
 func (s *SPIFFEWorkloadAPIService) FetchJWTBundles(
-	_ *workloadpb.JWTBundlesRequest,
+	req *workloadpb.JWTBundlesRequest,
 	srv workloadpb.SpiffeWorkloadAPI_FetchJWTBundlesServer,
 ) error {
-	ctx := srv.Context()
-	s.log.InfoContext(ctx, "FetchJWTBundles stream started by workload")
-	defer s.log.InfoContext(ctx, "FetchJWTBundles stream ended")
-
-	for {
-		bundleSet, err := s.trustBundleCache.GetBundleSet(ctx)
-		if err != nil {
-			return trace.Wrap(err)
-		}
-
-		s.log.InfoContext(ctx, "Sending JWT trust bundles to workload")
-
-		// The SPIFFE Workload API (6.2.2):
-		// > The returned bundles are encoded as a standard JWK Set as defined
-		// > by RFC 7517 containing the JWT-SVID signing keys for the trust
-		// > domain. These keys may only represent a subset of the keys present
-		// > in the SPIFFE trust bundle for the trust domain. The server MUST
-		// > NOT include keys with other uses in the returned JWT bundles.
-		bundles, err := bundleSet.MarshaledJWKSBundles(true)
-		if err != nil {
-			return trace.Wrap(err, "marshaling bundles as JWKS")
-		}
-		err = srv.Send(&workloadpb.JWTBundlesResponse{
-			Bundles: bundles,
-		})
-		if err != nil {
-			return trace.Wrap(err)
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-bundleSet.Stale():
-		}
-	}
+	// JWT functionality currently not implemented in Teleport Workload Identity.
+	return trace.NotImplemented("method not implemented")
 }
 
 // ValidateJWTSVID implements the SPIFFE Workload API ValidateJWTSVID method.
-// See The SPIFFE Workload API (6.2.3).
 func (s *SPIFFEWorkloadAPIService) ValidateJWTSVID(
 	ctx context.Context,
 	req *workloadpb.ValidateJWTSVIDRequest,
 ) (*workloadpb.ValidateJWTSVIDResponse, error) {
-	s.log.InfoContext(ctx, "ValidateJWTSVID request received from workload")
-	defer s.log.InfoContext(ctx, "ValidateJWTSVID request handled")
-
-	// The SPIFFE Workload API (6.2.3):
-	// > All fields in the ValidateJWTSVIDRequest and ValidateJWTSVIDResponse
-	// > message are mandatory.
-	switch {
-	case req.Audience == "":
-		return nil, trace.BadParameter("audience: must be set")
-	case req.Svid == "":
-		return nil, trace.BadParameter("svid: must be set")
-	}
-
-	bundleSet, err := s.trustBundleCache.GetBundleSet(ctx)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	svid, err := jwtsvid.ParseAndValidate(
-		req.Svid, bundleSet, []string{req.Audience},
-	)
-	if err != nil {
-		return nil, trace.Wrap(err, "validating JWT SVID")
-	}
-
-	claims, err := structpb.NewStruct(svid.Claims)
-	if err != nil {
-		return nil, trace.Wrap(err, "marshaling claims")
-	}
-
-	return &workloadpb.ValidateJWTSVIDResponse{
-		SpiffeId: svid.ID.String(),
-		Claims:   claims,
-	}, nil
+	// JWT functionality currently not implemented in Teleport Workload Identity.
+	return nil, trace.NotImplemented("method not implemented")
 }
 
 // String returns a human-readable string that can uniquely identify the

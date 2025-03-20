@@ -16,9 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ButtonPrimary, Flex, Text } from 'design';
-import Dialog, { DialogContent } from 'design/DialogConfirmation';
+import React from 'react';
+import { Text, Flex, ButtonPrimary } from 'design';
 import * as Icons from 'design/Icon';
+import Dialog, { DialogContent } from 'design/DialogConfirmation';
 
 export function AppCreatedDialog({
   toNextStep,

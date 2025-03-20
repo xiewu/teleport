@@ -8,7 +8,7 @@ a file called `access-plugin.yaml`:
 
 ```yaml
 kind: role
-version: v7
+version: v5
 metadata:
   name: access-plugin
 spec:
@@ -48,7 +48,7 @@ version: v2
 # labels can be further limited to only the resources that access can be
 # requested to.
 kind: role
-version: v7
+version: v5
 metadata:
   name: list-access-request-resources
 spec:
@@ -73,5 +73,3 @@ Create the user and role:
 ```code
 $ tctl create -f access-plugin.yaml
 ```
-
-(!docs/pages/includes/create-role-using-web.mdx!)

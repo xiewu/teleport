@@ -16,15 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ComponentProps } from 'react';
+import React, { ComponentProps } from 'react';
 import { useTheme } from 'styled-components';
 
 import { Image } from 'design';
 
 import {
-  iconNames,
   ResourceIconName,
   resourceIconSpecs,
+  iconNames,
 } from './resourceIconSpecs';
 
 interface ResourceIconProps extends ComponentProps<typeof Image> {
@@ -45,7 +45,7 @@ export const ResourceIcon = ({ name, ...props }: ResourceIconProps) => {
   if (!icon) {
     return null;
   }
-  return <Image src={icon} data-testid={`res-icon-${name}`} {...props} />;
+  return <Image src={icon} {...props} />;
 };
 
 export { type ResourceIconName, resourceIconSpecs, iconNames };

@@ -20,9 +20,7 @@ package client
 
 import (
 	"context"
-	"errors"
 	"net"
-	"time"
 
 	"github.com/gravitational/trace"
 	"go.opentelemetry.io/otel/attribute"
@@ -34,9 +32,7 @@ import (
 	proxyclient "github.com/gravitational/teleport/api/client/proxy"
 	mfav1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/mfa/v1"
 	"github.com/gravitational/teleport/api/mfa"
-	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/lib/auth/authclient"
-	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/resumption"
 	"github.com/gravitational/teleport/lib/services"
 )
@@ -148,113 +144,6 @@ func (c ceremonyFailedErr) Error() string {
 	return c.err.Error()
 }
 
-// ReissueUserCerts generates a new set of certificates for the user.
-func (c *ClusterClient) ReissueUserCerts(ctx context.Context, cachePolicy CertCachePolicy, params ReissueParams) error {
-	ctx, span := c.Tracer.Start(
-		ctx,
-		"clusterClient/ReissueUserCerts",
-		oteltrace.WithSpanKind(oteltrace.SpanKindClient),
-		oteltrace.WithAttributes(
-			attribute.String("cluster", c.cluster),
-		),
-	)
-	defer span.End()
-
-	keyRing, err := c.generateUserCerts(ctx, cachePolicy, params)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	if cachePolicy == CertCacheDrop {
-		c.tc.localAgent.DeleteUserCerts("", WithAllCerts...)
-	}
-
-	// save the cert to the local storage (~/.tsh usually):
-	return trace.Wrap(c.tc.localAgent.AddKeyRing(keyRing))
-}
-
-func (c *ClusterClient) generateUserCerts(ctx context.Context, cachePolicy CertCachePolicy, params ReissueParams) (*KeyRing, error) {
-	if params.RouteToCluster == "" {
-		params.RouteToCluster = c.cluster
-	}
-
-	keyRing := params.ExistingCreds
-	if keyRing == nil {
-		var err error
-
-		// Don't load the certs if we're going to drop all of them all as part
-		// of the re-issue. If we load all of the old certs now we won't be able
-		// to differentiate between legacy certificates (that need to be
-		// deleted) and newly re-issued certs (that we definitely do *not* want
-		// to delete) when it comes time to drop them from the local agent.
-		var certOptions []CertOption
-		if cachePolicy == CertCacheKeep {
-			certOptions = WithAllCerts
-		}
-
-		keyRing, err = c.tc.localAgent.GetKeyRing(params.RouteToCluster, certOptions...)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-	}
-
-	newUserKeys, req, err := c.prepareUserCertsRequest(ctx, params, keyRing)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	rootClient, err := c.ConnectToRootCluster(ctx)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	defer rootClient.Close()
-
-	certs, err := rootClient.GenerateUserCerts(ctx, *req)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	keyRing.ClusterName = params.RouteToCluster
-
-	// Only update the parts of keyRing that match the usage. See the docs on
-	// proto.UserCertsRequest_CertUsage for which certificates match which
-	// usage.
-	//
-	// This prevents us from overwriting the top-level keyRing.TLSCert with
-	// usage-restricted certificates.
-	switch params.usage() {
-	case proto.UserCertsRequest_All:
-		keyRing.SSHPrivateKey = newUserKeys.ssh
-		keyRing.TLSPrivateKey = newUserKeys.tls
-		keyRing.Cert = certs.SSH
-		keyRing.TLSCert = certs.TLS
-	case proto.UserCertsRequest_SSH:
-		keyRing.SSHPrivateKey = newUserKeys.ssh
-		keyRing.Cert = certs.SSH
-	case proto.UserCertsRequest_App:
-		keyRing.AppTLSCredentials[params.RouteToApp.Name] = TLSCredential{
-			PrivateKey: newUserKeys.app,
-			Cert:       certs.TLS,
-		}
-	case proto.UserCertsRequest_Database:
-		dbCert, err := makeDatabaseClientPEM(params.RouteToDatabase.Protocol, certs.TLS, newUserKeys.db)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		keyRing.DBTLSCredentials[params.RouteToDatabase.ServiceName] = TLSCredential{
-			Cert:       dbCert,
-			PrivateKey: newUserKeys.db,
-		}
-	case proto.UserCertsRequest_Kubernetes:
-		keyRing.KubeTLSCredentials[params.KubernetesCluster] = TLSCredential{
-			PrivateKey: newUserKeys.kube,
-			Cert:       certs.TLS,
-		}
-	}
-
-	return keyRing, nil
-}
-
 // SessionSSHConfig returns the [ssh.ClientConfig] that should be used to connected to the
 // provided target for the provided user. If per session MFA is required to establish the
 // connection, then the MFA ceremony will be performed.
@@ -275,14 +164,14 @@ func (c *ClusterClient) SessionSSHConfig(ctx context.Context, user string, targe
 		return sshConfig, nil
 	}
 
-	keyRing, err := c.tc.localAgent.GetKeyRing(target.Cluster, WithAllCerts...)
+	key, err := c.tc.localAgent.GetKey(target.Cluster, WithAllCerts...)
 	if err != nil {
 		return nil, trace.Wrap(MFARequiredUnknown(err))
 	}
 
 	// Always connect to root for getting new credentials, but attempt to reuse
 	// the existing client if possible.
-	rootClusterName, err := keyRing.RootClusterName()
+	rootClusterName, err := key.RootClusterName()
 	if err != nil {
 		return nil, trace.Wrap(MFARequiredUnknown(err))
 	}
@@ -311,22 +200,21 @@ func (c *ClusterClient) SessionSSHConfig(ctx context.Context, user string, targe
 		defer authClient.Close()
 	}
 
-	log.DebugContext(ctx, "Attempting to issue a single-use user certificate with an MFA check")
-	keyRing, err = c.performSessionMFACeremony(ctx,
-		mfaClt,
+	log.Debug("Attempting to issue a single-use user certificate with an MFA check.")
+	key, err = c.performMFACeremony(ctx, mfaClt,
 		ReissueParams{
 			NodeName:       nodeName(TargetNode{Addr: target.Addr}),
 			RouteToCluster: target.Cluster,
 			MFACheck:       target.MFACheck,
 		},
-		keyRing,
+		key,
 	)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	log.DebugContext(ctx, "Issued single-use user certificate after an MFA check")
-	am, err := keyRing.AsAuthMethod()
+	log.Debug("Issued single-use user certificate after an MFA check.")
+	am, err := key.AsAuthMethod()
 	if err != nil {
 		return nil, trace.Wrap(ceremonyFailedErr{err})
 	}
@@ -337,292 +225,109 @@ func (c *ClusterClient) SessionSSHConfig(ctx context.Context, user string, targe
 
 // prepareUserCertsRequest creates a [proto.UserCertsRequest] with the fields
 // set accordingly from the provided ReissueParams.
-func (c *ClusterClient) prepareUserCertsRequest(ctx context.Context, params ReissueParams, keyRing *KeyRing) (*newUserKeys, *proto.UserCertsRequest, error) {
-	tlsCert, err := keyRing.TeleportTLSCertificate()
+func (c *ClusterClient) prepareUserCertsRequest(params ReissueParams, key *Key) (*proto.UserCertsRequest, error) {
+	tlsCert, err := key.TeleportTLSCertificate()
 	if err != nil {
-		return nil, nil, trace.Wrap(err)
+		return nil, trace.Wrap(err)
 	}
 
 	if len(params.AccessRequests) == 0 {
 		// Get the active access requests to include in the cert.
-		activeRequests, err := keyRing.ActiveRequests()
-		// keyRing.ActiveRequests can return a NotFound error if it doesn't have an
+		activeRequests, err := key.ActiveRequests()
+		// key.ActiveRequests can return a NotFound error if it doesn't have an
 		// SSH cert. That's OK, we just assume that there are no AccessRequests
 		// in that case.
 		if err != nil && !trace.IsNotFound(err) {
-			return nil, nil, trace.Wrap(err)
+			return nil, trace.Wrap(err)
 		}
 		params.AccessRequests = activeRequests
 	}
 
-	// newUserKeys holds new subject keys per-protocol so that the keyring can
-	// be updated with the correct keys if cert issuance is successful.
-	newUserKeys := &newUserKeys{}
-	var sshSubjectKey, tlsSubjectKey *keys.PrivateKey
-	switch params.usage() {
-	case proto.UserCertsRequest_App:
-		tlsSubjectKey, err = keyRing.generateSubjectTLSKey(ctx, c.tc, cryptosuites.UserTLS)
-		if err != nil {
-			return nil, nil, trace.Wrap(err)
-		}
-		newUserKeys.app = tlsSubjectKey
-	case proto.UserCertsRequest_Kubernetes:
-		tlsSubjectKey, err = keyRing.generateSubjectTLSKey(ctx, c.tc, cryptosuites.UserTLS)
-		if err != nil {
-			return nil, nil, trace.Wrap(err)
-		}
-		newUserKeys.kube = tlsSubjectKey
-	case proto.UserCertsRequest_Database:
-		tlsSubjectKey, err = keyRing.generateSubjectTLSKey(ctx, c.tc, cryptosuites.DatabaseClient)
-		if err != nil {
-			return nil, nil, trace.Wrap(err)
-		}
-		newUserKeys.db = tlsSubjectKey
-	default:
-		// Assume we're reissuing the base SSH and TLS certs, reuse the existing
-		// private keys.
-		sshSubjectKey = keyRing.SSHPrivateKey
-		tlsSubjectKey = keyRing.TLSPrivateKey
-		newUserKeys.ssh = sshSubjectKey
-		newUserKeys.tls = tlsSubjectKey
-	}
-
-	expires := tlsCert.NotAfter
-	if params.TTL != 0 && time.Now().Add(params.TTL).Before(expires) {
-		expires = time.Now().Add(params.TTL)
-	}
-
-	var sshPub, tlsPub []byte
-	var sshAttestationStatement, tlsAttestationStatement *keys.AttestationStatement
-	if sshSubjectKey != nil {
-		sshPub = sshSubjectKey.MarshalSSHPublicKey()
-		sshAttestationStatement = sshSubjectKey.GetAttestationStatement()
-	}
-	if tlsSubjectKey != nil {
-		tlsPub, err = tlsSubjectKey.MarshalTLSPublicKey()
-		if err != nil {
-			return nil, nil, trace.Wrap(err)
-		}
-		tlsAttestationStatement = tlsSubjectKey.GetAttestationStatement()
-	}
-
-	return newUserKeys, &proto.UserCertsRequest{
-		SSHPublicKey:                     sshPub,
-		TLSPublicKey:                     tlsPub,
-		Username:                         tlsCert.Subject.CommonName,
-		Expires:                          expires,
-		RouteToCluster:                   params.RouteToCluster,
-		KubernetesCluster:                params.KubernetesCluster,
-		AccessRequests:                   params.AccessRequests,
-		DropAccessRequests:               params.DropAccessRequests,
-		RouteToDatabase:                  params.RouteToDatabase,
-		RouteToApp:                       params.RouteToApp,
-		NodeName:                         params.NodeName,
-		Usage:                            params.usage(),
-		Format:                           c.tc.CertificateFormat,
-		RequesterName:                    params.RequesterName,
-		SSHLogin:                         c.tc.HostLogin,
-		SSHPublicKeyAttestationStatement: sshAttestationStatement.ToProto(),
-		TLSPublicKeyAttestationStatement: tlsAttestationStatement.ToProto(),
+	return &proto.UserCertsRequest{
+		PublicKey:             key.MarshalSSHPublicKey(),
+		Username:              tlsCert.Subject.CommonName,
+		Expires:               tlsCert.NotAfter,
+		RouteToCluster:        params.RouteToCluster,
+		KubernetesCluster:     params.KubernetesCluster,
+		AccessRequests:        params.AccessRequests,
+		DropAccessRequests:    params.DropAccessRequests,
+		RouteToDatabase:       params.RouteToDatabase,
+		RouteToWindowsDesktop: params.RouteToWindowsDesktop,
+		RouteToApp:            params.RouteToApp,
+		NodeName:              params.NodeName,
+		Usage:                 params.usage(),
+		Format:                c.tc.CertificateFormat,
+		RequesterName:         params.RequesterName,
+		SSHLogin:              c.tc.HostLogin,
+		AttestationStatement:  key.PrivateKey.GetAttestationStatement().ToProto(),
 	}, nil
 }
 
-// performSessionMFACeremony runs the mfa ceremony to completion.
-// If successful the returned [KeyRing] will be authorized to connect to the target.
-func (c *ClusterClient) performSessionMFACeremony(ctx context.Context, rootClient *ClusterClient, params ReissueParams, keyRing *KeyRing) (*KeyRing, error) {
-	newUserKeys, certsReq, err := rootClient.prepareUserCertsRequest(ctx, params, keyRing)
+// performMFACeremony runs the mfa ceremony to completion.
+// If successful the returned [Key] will be authorized to connect to the target.
+func (c *ClusterClient) performMFACeremony(ctx context.Context, rootClient *ClusterClient, params ReissueParams, key *Key) (*Key, error) {
+	certsReq, err := rootClient.prepareUserCertsRequest(params, key)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	mfaRequiredReq, err := params.isMFARequiredRequest(c.tc.HostLogin)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	var promptOpts []mfa.PromptOpt
-	switch {
-	case params.NodeName != "":
-		promptOpts = append(promptOpts, mfa.WithPromptReasonSessionMFA("Node", params.NodeName))
-	case params.KubernetesCluster != "":
-		promptOpts = append(promptOpts, mfa.WithPromptReasonSessionMFA("Kubernetes cluster", params.KubernetesCluster))
-	case params.RouteToDatabase.ServiceName != "":
-		promptOpts = append(promptOpts, mfa.WithPromptReasonSessionMFA("Database", params.RouteToDatabase.ServiceName))
-	case params.RouteToApp.Name != "":
-		promptOpts = append(promptOpts, mfa.WithPromptReasonSessionMFA("Application", params.RouteToApp.Name))
-	}
-
-	keyRing, _, err = PerformSessionMFACeremony(ctx, PerformSessionMFACeremonyParams{
+	key, _, err = PerformMFACeremony(ctx, PerformMFACeremonyParams{
 		CurrentAuthClient: c.AuthClient,
 		RootAuthClient:    rootClient.AuthClient,
-		MFACeremony:       c.tc.NewMFACeremony(),
+		MFAPrompt:         c.tc.NewMFAPrompt(),
 		MFAAgainstRoot:    c.cluster == rootClient.cluster,
-		MFARequiredReq:    mfaRequiredReq,
-		CertsReq:          certsReq,
-		KeyRing:           keyRing,
-		newUserKeys:       newUserKeys,
-	}, promptOpts...)
-	return keyRing, trace.Wrap(err)
+		MFARequiredReq:    params.isMFARequiredRequest(c.tc.HostLogin),
+		ChallengeExtensions: mfav1.ChallengeExtensions{
+			Scope: mfav1.ChallengeScope_CHALLENGE_SCOPE_USER_SESSION,
+		},
+		CertsReq: certsReq,
+		Key:      key,
+	})
+	return key, trace.Wrap(err)
 }
 
-// IssueUserCertsWithMFA generates a single-use certificate for the user. If MFA is required
-// to access the resource the provided [mfa.Prompt] will be used to perform the MFA ceremony.
-func (c *ClusterClient) IssueUserCertsWithMFA(ctx context.Context, params ReissueParams) (*KeyRing, proto.MFARequired, error) {
-	ctx, span := c.Tracer.Start(
-		ctx,
-		"ClusterClient/IssueUserCertsWithMFA",
-		oteltrace.WithSpanKind(oteltrace.SpanKindClient),
-		oteltrace.WithAttributes(
-			attribute.String("cluster", c.tc.SiteName),
-		),
-	)
-	defer span.End()
-
-	if params.RouteToCluster == "" {
-		params.RouteToCluster = c.tc.SiteName
-	}
-
-	keyRing := params.ExistingCreds
-	if keyRing == nil {
-		var err error
-		keyRing, err = c.tc.localAgent.GetKeyRing(params.RouteToCluster, WithAllCerts...)
-		if err != nil {
-			return nil, proto.MFARequired_MFA_REQUIRED_UNSPECIFIED, trace.Wrap(err)
-		}
-	}
-
-	certClient := c
-	var mfaRequired bool
-	if params.MFACheck == nil {
-		var err error
-		authClient := params.AuthClient
-		if authClient == nil {
-			authClient, err = c.ConnectToCluster(ctx, params.RouteToCluster)
-			if err != nil {
-				return nil, proto.MFARequired_MFA_REQUIRED_UNSPECIFIED, trace.Wrap(err)
-			}
-		}
-
-		mfaRequiredReq, err := params.isMFARequiredRequest(c.tc.HostLogin)
-		if err != nil {
-			return nil, proto.MFARequired_MFA_REQUIRED_UNSPECIFIED, trace.Wrap(err)
-		}
-		resp, err := authClient.IsMFARequired(ctx, mfaRequiredReq)
-		if err != nil {
-			return nil, proto.MFARequired_MFA_REQUIRED_UNSPECIFIED, trace.Wrap(err)
-		}
-		mfaRequired = resp.Required
-
-		// If connected to the root cluster, store the client so that it
-		// can be reused below.
-		if params.RouteToCluster == c.root {
-			certClient = &ClusterClient{
-				tc:          c.tc,
-				ProxyClient: c.ProxyClient,
-				AuthClient:  authClient,
-				Tracer:      c.Tracer,
-				cluster:     c.root,
-				root:        c.root,
-			}
-		}
-
-		// only close the new auth client and not the copied cluster client.
-		defer authClient.Close()
-	} else {
-		mfaRequired = params.MFACheck.Required
-	}
-
-	// SSH certs can be used without embedding the node name.
-	if !mfaRequired && params.usage() == proto.UserCertsRequest_SSH && keyRing.Cert != nil {
-		return keyRing, proto.MFARequired_MFA_REQUIRED_NO, nil
-	}
-
-	// At this point, a connection to the root cluster is required to generate
-	// an MFA verified certificate OR to issue certificates with the target
-	// embedded in them for routing.
-	if params.RouteToCluster != certClient.root {
-		authClient, err := c.ConnectToRootCluster(ctx)
-		if err != nil {
-			return nil, proto.MFARequired_MFA_REQUIRED_UNSPECIFIED, trace.Wrap(err)
-		}
-
-		certClient = &ClusterClient{
-			tc:          c.tc,
-			ProxyClient: c.ProxyClient,
-			AuthClient:  authClient,
-			Tracer:      c.Tracer,
-			cluster:     c.root,
-			root:        c.root,
-		}
-		// only close the new auth client and not the copied cluster client.
-		defer authClient.Close()
-	}
-
-	// MFA is not required, but the user requires a new certificate with the
-	// target included in it for routing.
-	if !mfaRequired {
-		log.DebugContext(ctx, "MFA not required for access")
-		keyRing, err := certClient.generateUserCerts(ctx, CertCacheKeep, params)
-		return keyRing, proto.MFARequired_MFA_REQUIRED_NO, trace.Wrap(err)
-	}
-
-	// Perform the MFA ceremony and add the new credential to the KeyRing.
-	keyRing, err := c.performSessionMFACeremony(ctx, certClient, params, keyRing)
-	if err != nil {
-		return nil, proto.MFARequired_MFA_REQUIRED_YES, trace.Wrap(err)
-	}
-
-	log.DebugContext(ctx, "Issued single-use user certificate after an MFA check")
-	return keyRing, proto.MFARequired_MFA_REQUIRED_YES, nil
-}
-
-// PerformSessionMFARootClient is a subset of Auth methods required for MFA.
-// Used by [PerformSessionMFACeremony].
-type PerformSessionMFARootClient interface {
+// PerformMFARootClient is a subset of Auth methods required for MFA.
+// Used by [PerformMFACeremony].
+type PerformMFARootClient interface {
 	CreateAuthenticateChallenge(ctx context.Context, req *proto.CreateAuthenticateChallengeRequest) (*proto.MFAAuthenticateChallenge, error)
 	GenerateUserCerts(ctx context.Context, req proto.UserCertsRequest) (*proto.Certs, error)
 }
 
-// PerformSessionMFACurrentClient is a subset of Auth methods required for MFA.
-// Used by [PerformSessionMFACeremony].
-type PerformSessionMFACurrentClient interface {
+// PerformMFACurrentClient is a subset of Auth methods required for MFA.
+// Used by [PerformMFACeremony].
+type PerformMFACurrentClient interface {
 	IsMFARequired(ctx context.Context, req *proto.IsMFARequiredRequest) (*proto.IsMFARequiredResponse, error)
 }
 
-// PerformSessionMFACeremonyParams are the input parameters for [PerformSessionMFACeremony].
-type PerformSessionMFACeremonyParams struct {
+// PerformMFACeremonyParams are the input parameters for [PerformMFACeremony].
+type PerformMFACeremonyParams struct {
 	// CurrentAuthClient is the Auth client for the target cluster.
 	// Unused if MFAAgainstRoot is true.
-	CurrentAuthClient PerformSessionMFACurrentClient
+	CurrentAuthClient PerformMFACurrentClient
 	// RootAuthClient is the Auth client for the root cluster.
 	// This is the client used to acquire the authn challenge and issue the user
 	// certificates.
-	RootAuthClient PerformSessionMFARootClient
-	// MFACeremony handles the MFA ceremony.
-	MFACeremony *mfa.Ceremony
+	RootAuthClient PerformMFARootClient
+	// MFAPrompt is used to prompt the user for an MFA solution.
+	MFAPrompt mfa.Prompt
 
 	// MFAAgainstRoot tells whether to run the MFA required check against root or
 	// current cluster.
 	MFAAgainstRoot bool
 	// MFARequiredReq is the request for the MFA verification check.
 	MFARequiredReq *proto.IsMFARequiredRequest
+	// ChallengeExtensions is used to provide additional extensions to apply to the
+	// MFA challenge used in the ceremony. The scope extension must be supplied.
+	ChallengeExtensions mfav1.ChallengeExtensions
 	// CertsReq is the request for new certificates.
 	CertsReq *proto.UserCertsRequest
 
-	// KeyRing is the client key ring to add the new certificates to.
+	// Key is the client key to add the new certificates to.
 	// Optional.
-	KeyRing *KeyRing
-
-	// newUserKeys holds private keys that should be used as the subject of any
-	// new keys added to [KeyRing].
-	newUserKeys *newUserKeys
+	Key *Key
 }
 
-type newUserKeys struct {
-	ssh, tls, app, db, kube *keys.PrivateKey
-}
-
-// PerformSessionMFACeremony issues single-use certificates via GenerateUserCerts,
+// PerformMFACeremony issues single-use certificates via GenerateUserCerts,
 // following its recommended RPC flow.
 //
 // It is a lower-level, less opinionated variant of
@@ -638,9 +343,10 @@ type newUserKeys struct {
 //  4. Call RootAuthClient.GenerateUserCerts
 //
 // Returns the modified params.Key and the GenerateUserCertsResponse, or an error.
-func PerformSessionMFACeremony(ctx context.Context, params PerformSessionMFACeremonyParams, promptOpts ...mfa.PromptOpt) (*KeyRing, *proto.Certs, error) {
+func PerformMFACeremony(ctx context.Context, params PerformMFACeremonyParams) (*Key, *proto.Certs, error) {
 	rootClient := params.RootAuthClient
 	currentClient := params.CurrentAuthClient
+
 	mfaRequiredReq := params.MFARequiredReq
 
 	// If connecting to a host in a leaf cluster and MFA failed check to see
@@ -648,7 +354,7 @@ func PerformSessionMFACeremony(ctx context.Context, params PerformSessionMFACere
 	// that MFA was not required instead of the error received from the root cluster.
 	if mfaRequiredReq != nil && !params.MFAAgainstRoot {
 		mfaRequiredResp, err := currentClient.IsMFARequired(ctx, mfaRequiredReq)
-		log.DebugContext(ctx, "MFA requirement acquired from leaf", "mfa_required", mfaRequiredResp.GetMFARequired())
+		log.Debugf("MFA requirement acquired from leaf, MFARequired=%s", mfaRequiredResp.GetMFARequired())
 		switch {
 		case err != nil:
 			return nil, nil, trace.Wrap(MFARequiredUnknown(err))
@@ -658,8 +364,8 @@ func PerformSessionMFACeremony(ctx context.Context, params PerformSessionMFACere
 		mfaRequiredReq = nil // Already checked, don't check again at root.
 	}
 
-	params.MFACeremony.CreateAuthenticateChallenge = rootClient.CreateAuthenticateChallenge
-	mfaResp, err := params.MFACeremony.Run(ctx, &proto.CreateAuthenticateChallengeRequest{
+	// Acquire MFA challenge.
+	authnChal, err := rootClient.CreateAuthenticateChallenge(ctx, &proto.CreateAuthenticateChallengeRequest{
 		Request: &proto.CreateAuthenticateChallengeRequest_ContextUser{
 			ContextUser: &proto.ContextUser{},
 		},
@@ -667,76 +373,78 @@ func PerformSessionMFACeremony(ctx context.Context, params PerformSessionMFACere
 		ChallengeExtensions: &mfav1.ChallengeExtensions{
 			Scope: mfav1.ChallengeScope_CHALLENGE_SCOPE_USER_SESSION,
 		},
-	}, promptOpts...)
-	if errors.Is(err, &mfa.ErrMFANotRequired) {
-		return nil, nil, trace.Wrap(services.ErrSessionMFANotRequired)
-	} else if err != nil {
+	})
+	if err != nil {
 		return nil, nil, trace.Wrap(err)
 	}
 
-	// If mfaResp is nil, the ceremony was a no-op (no devices registered).
-	// TODO(Joerger): CreateAuthenticateChallenge, should return
-	// this error directly instead of an empty challenge, without
-	// regressing https://github.com/gravitational/teleport/issues/36482.
-	if mfaResp == nil {
+	log.Debugf("MFA requirement from CreateAuthenticateChallenge, MFARequired=%s", authnChal.GetMFARequired())
+	if authnChal.MFARequired == proto.MFARequired_MFA_REQUIRED_NO {
+		return nil, nil, trace.Wrap(services.ErrSessionMFANotRequired)
+	}
+
+	if authnChal.TOTP == nil && authnChal.WebauthnChallenge == nil {
+		// TODO(Joerger): CreateAuthenticateChallenge should return
+		// this error directly instead of an empty challenge, without
+		// regressing https://github.com/gravitational/teleport/issues/36482.
 		return nil, nil, trace.Wrap(authclient.ErrNoMFADevices)
+	}
+
+	// Prompt user for solution (eg, security key touch).
+	authnSolved, err := params.MFAPrompt.Run(ctx, authnChal)
+	if err != nil {
+		return nil, nil, trace.Wrap(ceremonyFailedErr{err})
 	}
 
 	// Issue certificate.
 	certsReq := params.CertsReq
-	certsReq.MFAResponse = mfaResp
+	certsReq.MFAResponse = authnSolved
 	certsReq.Purpose = proto.UserCertsRequest_CERT_PURPOSE_SINGLE_USE_CERTS
-	log.DebugContext(ctx, "Issuing single-use certificate from unary GenerateUserCerts")
+	log.Debug("Issuing single-use certificate from unary GenerateUserCerts")
 	newCerts, err := rootClient.GenerateUserCerts(ctx, *certsReq)
 	if err != nil {
 		return nil, nil, trace.Wrap(err)
 	}
 
-	keyRing := params.KeyRing
+	key := params.Key
 
 	// Nothing more to do.
-	if keyRing == nil {
+	if key == nil {
 		return nil, newCerts, nil
 	}
 
 	switch {
 	case len(newCerts.SSH) > 0:
-		keyRing.Cert = newCerts.SSH
+		key.Cert = newCerts.SSH
 	case len(newCerts.TLS) > 0:
 		switch certsReq.Usage {
 		case proto.UserCertsRequest_Kubernetes:
-			if keyRing.KubeTLSCredentials == nil {
-				keyRing.KubeTLSCredentials = make(map[string]TLSCredential)
+			if key.KubeTLSCerts == nil {
+				key.KubeTLSCerts = make(map[string][]byte)
 			}
-			keyRing.KubeTLSCredentials[certsReq.KubernetesCluster] = TLSCredential{
-				Cert:       newCerts.TLS,
-				PrivateKey: params.newUserKeys.kube,
-			}
+			key.KubeTLSCerts[certsReq.KubernetesCluster] = newCerts.TLS
+
 		case proto.UserCertsRequest_Database:
-			dbCert, err := makeDatabaseClientPEM(certsReq.RouteToDatabase.Protocol, newCerts.TLS, params.newUserKeys.db)
+			dbCert, err := makeDatabaseClientPEM(certsReq.RouteToDatabase.Protocol, newCerts.TLS, key)
 			if err != nil {
 				return nil, nil, trace.Wrap(err)
 			}
-			if keyRing.DBTLSCredentials == nil {
-				keyRing.DBTLSCredentials = make(map[string]TLSCredential)
+			if key.DBTLSCerts == nil {
+				key.DBTLSCerts = make(map[string][]byte)
 			}
-			keyRing.DBTLSCredentials[certsReq.RouteToDatabase.ServiceName] = TLSCredential{
-				Cert:       dbCert,
-				PrivateKey: params.newUserKeys.db,
+			key.DBTLSCerts[certsReq.RouteToDatabase.ServiceName] = dbCert
+
+		case proto.UserCertsRequest_WindowsDesktop:
+			if key.WindowsDesktopCerts == nil {
+				key.WindowsDesktopCerts = make(map[string][]byte)
 			}
-		case proto.UserCertsRequest_App:
-			if keyRing.AppTLSCredentials == nil {
-				keyRing.AppTLSCredentials = make(map[string]TLSCredential)
-			}
-			keyRing.AppTLSCredentials[certsReq.RouteToApp.Name] = TLSCredential{
-				Cert:       newCerts.TLS,
-				PrivateKey: params.newUserKeys.app,
-			}
+			key.WindowsDesktopCerts[certsReq.RouteToWindowsDesktop.WindowsDesktop] = newCerts.TLS
+
 		default:
 			return nil, nil, trace.BadParameter("server returned a TLS certificate but cert request usage was %s", certsReq.Usage)
 		}
 	}
-	keyRing.ClusterName = certsReq.RouteToCluster
+	key.ClusterName = certsReq.RouteToCluster
 
-	return keyRing, newCerts, nil
+	return key, newCerts, nil
 }

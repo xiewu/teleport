@@ -16,9 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+
 import { render, theme } from 'design/utils/testing';
 
-import Label, { Danger, Primary, Secondary, Warning } from './Label';
+import Label, { Primary, Secondary, Warning, Danger } from './Label';
 
 describe('design/Label', () => {
   const colors = [

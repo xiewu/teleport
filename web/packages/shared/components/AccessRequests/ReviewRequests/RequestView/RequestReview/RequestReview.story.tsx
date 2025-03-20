@@ -16,14 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+
 import {
-  makeEmptyAttempt,
-  makeErrorAttempt,
-  makeProcessingAttempt,
   makeSuccessAttempt,
+  makeEmptyAttempt,
+  makeProcessingAttempt,
+  makeErrorAttempt,
 } from 'shared/hooks/useAsync';
 
 import { requestRolePending } from '../../../fixtures';
+
 import RequestReview, { RequestReviewProps } from './RequestReview';
 
 export default {

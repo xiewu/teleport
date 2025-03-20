@@ -17,21 +17,21 @@ package interceptors
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 
 	"github.com/gravitational/trace"
+	"github.com/gravitational/trace/trail"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 
 	"github.com/gravitational/teleport/api/mfa"
-	"github.com/gravitational/teleport/api/trail"
 )
 
 // WithMFAUnaryInterceptor intercepts a GRPC client unary call to add MFA credentials
 // to the rpc call when an MFA response is provided through the context. Additionally,
 // when the call returns an error that indicates that MFA is required, this interceptor
 // will prompt for MFA using the given mfaCeremony and retry.
-func WithMFAUnaryInterceptor(mfaCeremony mfa.CeremonyFn) grpc.UnaryClientInterceptor {
+func WithMFAUnaryInterceptor(mfaCeremony mfa.MFACeremony) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		// Check for MFA response passed through the context.
 		if mfaResp, err := mfa.MFAResponseFromContext(ctx); err == nil {
@@ -53,7 +53,7 @@ func WithMFAUnaryInterceptor(mfaCeremony mfa.CeremonyFn) grpc.UnaryClientInterce
 		// we just want the method name.
 		splitMethod := strings.Split(method, "/")
 		readableMethodName := splitMethod[len(splitMethod)-1]
-		slog.DebugContext(ctx, "Retrying API request with Admin MFA", "method", readableMethodName)
+		logrus.Debugf("Retrying API request %q with Admin MFA", readableMethodName)
 
 		// Start an MFA prompt that shares what API request caused MFA to be prompted.
 		// ex: MFA is required for admin-level API request: "CreateUser"

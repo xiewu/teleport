@@ -18,8 +18,8 @@
 
 import { Server, ServerCredentials } from '@grpc/grpc-js';
 
-import Logger from 'teleterm/logger';
-import { RuntimeSettings, TERMINATE_MESSAGE } from 'teleterm/mainProcess/types';
+import { createStdoutLoggerService } from 'teleterm/services/logger';
+
 import {
   createInsecureServerCredentials,
   createServerCredentials,
@@ -28,7 +28,9 @@ import {
   readGrpcCert,
   shouldEncryptConnection,
 } from 'teleterm/services/grpcCredentials';
-import { createStdoutLoggerService } from 'teleterm/services/logger';
+import { RuntimeSettings, TERMINATE_MESSAGE } from 'teleterm/mainProcess/types';
+import Logger from 'teleterm/logger';
+
 import { ptyHostDefinition } from 'teleterm/sharedProcess/api/protogen/ptyHostService_pb.grpc-server';
 
 import { createPtyHostService } from './ptyHost/ptyHostService';
@@ -87,6 +89,8 @@ async function initializeServer(
       if (error) {
         return logger.error(error.message);
       }
+
+      server.start();
     });
   } catch (e) {
     logger.error('Could not start shared server', e);

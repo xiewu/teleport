@@ -16,37 +16,36 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { act, renderHook, waitFor } from '@testing-library/react';
-
+import React from 'react';
+import { MemoryRouter } from 'react-router';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { AwsRole } from 'shared/services/apps';
 
-import { app } from 'teleport/Discover/AwsMangementConsole/fixtures';
-import {
-  resourceSpecAwsRdsPostgres,
-  resourceSpecSelfHostedPostgres,
-} from 'teleport/Discover/Fixtures/databases';
-import {
-  emptyDiscoverContext,
-  RequiredDiscoverProviders,
-  resourceSpecAppAwsCliConsole,
-  resourceSpecAwsEc2Ssm,
-  resourceSpecSelfHostedKube,
-  resourceSpecServerLinuxUbuntu,
-} from 'teleport/Discover/Fixtures/fixtures';
-import {
-  type AppMeta,
-  type DbMeta,
-  type DiscoverContextState,
-  type KubeMeta,
-  type NodeMeta,
-} from 'teleport/Discover/useDiscover';
 import { createTeleportContext } from 'teleport/mocks/contexts';
-import { ExcludeUserField } from 'teleport/services/user';
+import { ContextProvider } from 'teleport';
+import { FeaturesContextProvider } from 'teleport/FeaturesContext';
+import { DiscoverProvider } from 'teleport/Discover/useDiscover';
+import cfg from 'teleport/config';
 import { userEventService } from 'teleport/services/userEvent';
+import {
+  defaultDiscoverContext,
+  defaultResourceSpec,
+} from 'teleport/Discover/Fixtures/fixtures';
 import TeleportContext from 'teleport/teleportContext';
+import { app } from 'teleport/Discover/AwsMangementConsole/fixtures';
+import { ExcludeUserField } from 'teleport/services/user';
 
 import { ResourceKind } from '../ResourceKind';
+
 import { useUserTraits } from './useUserTraits';
+
+import type {
+  AppMeta,
+  DbMeta,
+  DiscoverContextState,
+  KubeMeta,
+  NodeMeta,
+} from 'teleport/Discover/useDiscover';
 
 describe('onProceed correctly deduplicates, removes static traits, updates meta, and calls updateUser', () => {
   const teleCtx = createTeleportContext();
@@ -62,10 +61,9 @@ describe('onProceed correctly deduplicates, removes static traits, updates meta,
   });
 
   test('kubernetes', async () => {
-    const discoverCtx = emptyDiscoverContext({
-      resourceSpec: resourceSpecSelfHostedKube,
+    const discoverCtx = defaultDiscoverContext({
+      resourceSpec: defaultResourceSpec(ResourceKind.Kubernetes),
     });
-    discoverCtx.nextStep = jest.fn();
     discoverCtx.agentMeta = {
       ...discoverCtx.agentMeta,
       ...getMeta(ResourceKind.Kubernetes),
@@ -153,10 +151,9 @@ describe('onProceed correctly deduplicates, removes static traits, updates meta,
   });
 
   test('kubernetes with auto discover preserves existing + new dynamic traits', async () => {
-    const discoverCtx = emptyDiscoverContext({
-      resourceSpec: resourceSpecSelfHostedKube,
+    const discoverCtx = defaultDiscoverContext({
+      resourceSpec: defaultResourceSpec(ResourceKind.Kubernetes),
     });
-    discoverCtx.nextStep = jest.fn();
     discoverCtx.agentMeta = {
       ...discoverCtx.agentMeta,
       ...getMeta(ResourceKind.Kubernetes),
@@ -237,10 +234,9 @@ describe('onProceed correctly deduplicates, removes static traits, updates meta,
   });
 
   test('database', async () => {
-    const discoverCtx = emptyDiscoverContext({
-      resourceSpec: resourceSpecSelfHostedPostgres,
+    const discoverCtx = defaultDiscoverContext({
+      resourceSpec: defaultResourceSpec(ResourceKind.Database),
     });
-    discoverCtx.nextStep = jest.fn();
     discoverCtx.agentMeta = {
       ...discoverCtx.agentMeta,
       ...getMeta(ResourceKind.Database),
@@ -324,10 +320,9 @@ describe('onProceed correctly deduplicates, removes static traits, updates meta,
   });
 
   test('database with auto discover preserves existing + new dynamic traits', async () => {
-    const discoverCtx = emptyDiscoverContext({
-      resourceSpec: resourceSpecSelfHostedPostgres,
+    const discoverCtx = defaultDiscoverContext({
+      resourceSpec: defaultResourceSpec(ResourceKind.Database),
     });
-    discoverCtx.nextStep = jest.fn();
     discoverCtx.agentMeta = {
       ...discoverCtx.agentMeta,
       ...getMeta(ResourceKind.Database),
@@ -397,10 +392,9 @@ describe('onProceed correctly deduplicates, removes static traits, updates meta,
   });
 
   test('node', async () => {
-    const discoverCtx = emptyDiscoverContext({
-      resourceSpec: resourceSpecServerLinuxUbuntu,
+    const discoverCtx = defaultDiscoverContext({
+      resourceSpec: defaultResourceSpec(ResourceKind.Server),
     });
-    discoverCtx.nextStep = jest.fn();
     discoverCtx.agentMeta = {
       ...discoverCtx.agentMeta,
       ...getMeta(ResourceKind.Server),
@@ -486,8 +480,11 @@ describe('onProceed correctly deduplicates, removes static traits, updates meta,
         accountId: '123456789012',
       },
     ];
-    const discoverCtx = emptyDiscoverContext({
-      resourceSpec: resourceSpecAppAwsCliConsole,
+    const discoverCtx = defaultDiscoverContext({
+      resourceSpec: {
+        ...defaultResourceSpec(ResourceKind.Application),
+        appMeta: { awsConsole: true },
+      },
       agentMeta: {
         app: {
           ...app,
@@ -495,7 +492,6 @@ describe('onProceed correctly deduplicates, removes static traits, updates meta,
         },
       },
     });
-    discoverCtx.nextStep = jest.fn();
     const spyUpdateAgentMeta = jest
       .spyOn(discoverCtx, 'updateAgentMeta')
       .mockImplementation(x => x);
@@ -566,10 +562,9 @@ describe('onProceed correctly deduplicates, removes static traits, updates meta,
   });
 
   test('node with auto discover preserves existing + new dynamic traits', async () => {
-    const discoverCtx = emptyDiscoverContext({
-      resourceSpec: resourceSpecAwsEc2Ssm,
+    const discoverCtx = defaultDiscoverContext({
+      resourceSpec: defaultResourceSpec(ResourceKind.Server),
     });
-    discoverCtx.nextStep = jest.fn();
     discoverCtx.agentMeta = {
       ...discoverCtx.agentMeta,
       ...getMeta(ResourceKind.Server),
@@ -629,22 +624,21 @@ describe('onProceed correctly deduplicates, removes static traits, updates meta,
 
 describe('static and dynamic traits are correctly separated and correctly creates Option objects', () => {
   test.each`
-    resourceKind               | resourceSpec                      | traitName
-    ${ResourceKind.Kubernetes} | ${resourceSpecSelfHostedKube}     | ${'kubeUsers'}
-    ${ResourceKind.Kubernetes} | ${resourceSpecSelfHostedKube}     | ${'kubeGroups'}
-    ${ResourceKind.Server}     | ${resourceSpecServerLinuxUbuntu}  | ${'logins'}
-    ${ResourceKind.Database}   | ${resourceSpecSelfHostedPostgres} | ${'databaseNames'}
-    ${ResourceKind.Database}   | ${resourceSpecSelfHostedPostgres} | ${'databaseUsers'}
-  `('$traitName', async ({ resourceKind, resourceSpec, traitName }) => {
+    resourceKind               | traitName
+    ${ResourceKind.Kubernetes} | ${'kubeUsers'}
+    ${ResourceKind.Kubernetes} | ${'kubeGroups'}
+    ${ResourceKind.Server}     | ${'logins'}
+    ${ResourceKind.Database}   | ${'databaseNames'}
+    ${ResourceKind.Database}   | ${'databaseUsers'}
+  `('$traitName', async ({ resourceKind, traitName }) => {
     const teleCtx = createTeleportContext();
     jest
       .spyOn(teleCtx.userService, 'fetchUser')
       .mockResolvedValue(getMockUser());
 
-    const discoverCtx = emptyDiscoverContext({
-      resourceSpec,
+    const discoverCtx = defaultDiscoverContext({
+      resourceSpec: defaultResourceSpec(resourceKind),
     });
-    discoverCtx.nextStep = jest.fn();
     discoverCtx.agentMeta = {
       ...discoverCtx.agentMeta,
       ...getMeta(resourceKind),
@@ -728,10 +722,9 @@ describe('calls to nextStep respects number of steps to skip', () => {
 
     jest.spyOn(teleCtx.userService, 'fetchUser').mockResolvedValue(user);
 
-    const discoverCtx = emptyDiscoverContext({
-      resourceSpec: resourceSpecAwsRdsPostgres,
+    const discoverCtx = defaultDiscoverContext({
+      resourceSpec: defaultResourceSpec(ResourceKind.Database),
     });
-    discoverCtx.nextStep = jest.fn();
     discoverCtx.agentMeta.autoDiscovery = {
       config: { name: '', discoveryGroup: '', aws: [] },
     };
@@ -839,13 +832,12 @@ function wrapperFn(
   teleportCtx: TeleportContext
 ) {
   return ({ children }) => (
-    <RequiredDiscoverProviders
-      agentMeta={discoverCtx.agentMeta}
-      resourceSpec={discoverCtx.resourceSpec}
-      discoverCtx={discoverCtx}
-      teleportCtx={teleportCtx}
-    >
-      {children}
-    </RequiredDiscoverProviders>
+    <MemoryRouter initialEntries={[{ pathname: cfg.routes.discover }]}>
+      <ContextProvider ctx={teleportCtx}>
+        <FeaturesContextProvider value={[]}>
+          <DiscoverProvider mockCtx={discoverCtx}>{children}</DiscoverProvider>
+        </FeaturesContextProvider>
+      </ContextProvider>
+    </MemoryRouter>
   );
 }

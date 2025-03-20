@@ -12,8 +12,10 @@ the Teleport cluster.
 
 Teleport (= db_client_ca.released_version.v15 =) introduced the `db_client` CA
 to split the responsibilities of the Teleport `db` CA, which was acting as both
-host and client CA for Teleport self-hosted database access.  The `db_client` CA
-was also added as a patch in Teleport (= db_client_ca.released_version.v14 =).
+host and client CA for Teleport self-hosted database access.
+The `db_client` CA was also added as a patch in Teleport
+(= db_client_ca.released_version.v13 =) and
+(= db_client_ca.released_version.v14 =).
 
 The `db` and `db_client` CAs were both introduced as an automatic migration
 that occurs after upgrading Teleport.
@@ -58,9 +60,7 @@ certificate.
 For a dynamic database, put your CA's root certificate in `spec.tls.ca_cert`. 
 
 For examples and more information, consult the
-[configuration
-reference](../../../reference/agent-services/database-access-reference/configuration.mdx)
-for protecting databases with Teleport.
+[Database Access Configuration Reference](../../../reference/agent-services/database-access-reference/configuration.mdx).
 </details>
 
 Prior to Teleport (= db_ca.released_version =), the Teleport `host` CA was used
@@ -114,7 +114,8 @@ However, for defense in depth, these databases should only mTLS handshake with
 a client that presents a `db_client` CA-issued certificate.
 
 If your Teleport cluster was upgraded to Teleport
-\>=(= db_client_ca.released_version.v14 =) or
+\>=(= db_client_ca.released_version.v13 =),
+\>=(= db_client_ca.released_version.v14 =), or
 \>=(= db_client_ca.released_version.v15 =),
 then you should ensure that you have completed the `db_client` migration.
 To complete the `db_client` CA migration:
@@ -144,7 +145,8 @@ and you have not rotated *both* your `host` and `db` CAs at least once since
 upgrading, then you should complete the `db` CA migration.
 
 If you upgraded an existing cluster to Teleport
-\>=(= db_client_ca.released_version.v14 =) or
+\>=(= db_client_ca.released_version.v13 =),
+\>=(= db_client_ca.released_version.v14 =), or
 \>=(= db_client_ca.released_version.v15 =)
 and you have not rotated *both* your
 `db` and `db_client` CAs at least once since upgrading, then you should complete
@@ -176,6 +178,8 @@ need to rotate the `db` CA twice.
 If you need to rotate the `host` CA, we recommend completing that rotation
 before starting either of the `db` or `db_client` CA rotations: do not rotate
 other CAs in parallel with a `host` CA rotation.
+For information about `host` CA rotation, refer to the 
+[CA Rotation Guide](./ca-rotation.mdx).
 
 Database CA rotations are a little different, because they involve configuring
 external resources (self-hosted databases) with new certificates during the
@@ -183,8 +187,8 @@ rotation.
 You can (and should) rotate the `db` and `db_client` CAs at the same time to
 avoid repeating the database certificate reconfiguration steps.
 
-For information about CA rotation, refer to the 
-[CA Rotation Guide](./ca-rotation.mdx).
+For details on rotating the `db` or `db_client` CA, refer to the
+[Database CA Rotation Guide](./db-ca-rotation.mdx).
 
 ## Further reading
 

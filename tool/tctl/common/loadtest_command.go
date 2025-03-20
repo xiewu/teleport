@@ -33,6 +33,7 @@ import (
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	auditlogpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/auditlog/v1"
@@ -43,8 +44,6 @@ import (
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/utils"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // LoadtestCommand implements the `tctl loadtest` family of commands.
@@ -72,7 +71,7 @@ type LoadtestCommand struct {
 }
 
 // Initialize allows LoadtestCommand to plug itself into the CLI parser
-func (c *LoadtestCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, config *servicecfg.Config) {
+func (c *LoadtestCommand) Initialize(app *kingpin.Application, config *servicecfg.Config) {
 	c.config = config
 	loadtest := app.Command("loadtest", "Tools for generating artificial load").Hidden()
 
@@ -97,24 +96,17 @@ func (c *LoadtestCommand) Initialize(app *kingpin.Application, _ *tctlcfg.Global
 }
 
 // TryRun takes the CLI command as an argument (like "loadtest node-heartbeats") and executes it.
-func (c *LoadtestCommand) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (match bool, err error) {
-	var commandFunc func(ctx context.Context, client *authclient.Client) error
+func (c *LoadtestCommand) TryRun(ctx context.Context, cmd string, client *authclient.Client) (match bool, err error) {
 	switch cmd {
 	case c.nodeHeartbeats.FullCommand():
-		commandFunc = c.NodeHeartbeats
+		err = c.NodeHeartbeats(ctx, client)
 	case c.watch.FullCommand():
-		commandFunc = c.Watch
+		err = c.Watch(ctx, client)
 	case c.auditEvents.FullCommand():
-		commandFunc = c.AuditEvents
+		err = c.AuditEvents(ctx, client)
 	default:
 		return false, nil
 	}
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	err = commandFunc(ctx, client)
-	closeFn(ctx)
 	return true, trace.Wrap(err)
 }
 
@@ -185,7 +177,7 @@ func (c *LoadtestCommand) NodeHeartbeats(ctx context.Context, client *authclient
 					return
 				}
 				if err != nil {
-					slog.DebugContext(ctx, "Failed to upsert node", "error", err)
+					log.Debugf("Failed to upsert node: %v", err)
 					select {
 					case errch <- err:
 					default:

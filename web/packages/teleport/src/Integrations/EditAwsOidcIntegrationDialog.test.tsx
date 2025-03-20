@@ -15,22 +15,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { render, screen, fireEvent, waitFor } from 'design/utils/testing';
 import userEvent from '@testing-library/user-event';
-import { useEffect } from 'react';
-import { MemoryRouter } from 'react-router';
 
-import { fireEvent, render, screen, waitFor } from 'design/utils/testing';
-
-import cfg from 'teleport/config';
 import {
-  IntegrationAwsOidc,
+  Integration,
   IntegrationKind,
-  integrationService,
   IntegrationStatusCode,
 } from 'teleport/services/integrations';
 
 import { EditAwsOidcIntegrationDialog } from './EditAwsOidcIntegrationDialog';
-import { useIntegrationOperation } from './Operations';
 
 test('user acknowledging script was ran when reconfiguring', async () => {
   render(
@@ -51,7 +45,7 @@ test('user acknowledging script was ran when reconfiguring', async () => {
 
   // Initial state.
   expect(screen.queryByTestId('scriptbox')).not.toBeInTheDocument();
-  expect(screen.queryByLabelText(/I ran the command/i)).not.toBeInTheDocument();
+  expect(screen.queryByTestId('checkbox')).not.toBeInTheDocument();
   expect(
     screen.queryByRole('button', { name: /reconfigure/i })
   ).not.toBeInTheDocument();
@@ -80,18 +74,18 @@ test('user acknowledging script was ran when reconfiguring', async () => {
   expect(
     screen.queryByRole('button', { name: /reconfigure/i })
   ).not.toBeInTheDocument();
-  expect(screen.getByLabelText(/I ran the command/i)).toBeInTheDocument();
+  expect(screen.getByTestId('checkbox')).toBeInTheDocument();
   expect(screen.getByTestId('scriptbox')).toBeInTheDocument();
 
   // Click on checkbox should enable save button and disable edit button.
-  await userEvent.click(screen.getByRole('checkbox'));
+  userEvent.click(screen.getByRole('checkbox'));
   await waitFor(() =>
     expect(screen.getByRole('button', { name: /save/i })).toBeEnabled()
   );
   expect(screen.getByRole('button', { name: /edit/i })).toBeDisabled();
 
   // Unchecking the checkbox should disable save button.
-  await userEvent.click(screen.getByRole('checkbox'));
+  userEvent.click(screen.getByRole('checkbox'));
   await waitFor(() =>
     expect(screen.getByRole('button', { name: /save/i })).toBeDisabled()
   );
@@ -101,46 +95,6 @@ test('user acknowledging script was ran when reconfiguring', async () => {
   await waitFor(() =>
     expect(screen.getByRole('button', { name: /reconfigure/i })).toBeEnabled()
   );
-});
-
-test('health check is called before calling update', async () => {
-  const spyPing = jest
-    .spyOn(integrationService, 'pingAwsOidcIntegration')
-    .mockResolvedValue({} as any); // response doesn't matter
-
-  const spyUpdate = jest
-    .spyOn(integrationService, 'updateIntegration')
-    .mockResolvedValue({} as any); // response doesn't matter
-
-  render(
-    <MemoryRouter initialEntries={[cfg.getClusterRoute('some-cluster')]}>
-      <ComponentWithEditOperation />
-    </MemoryRouter>
-  );
-
-  // change role arn
-  fireEvent.change(screen.getByPlaceholderText(/arn:aws:iam:/i), {
-    target: { value: 'arn:aws:iam::123456789011:role/other' },
-  });
-
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: /reconfigure/i })).toBeEnabled()
-  );
-  await userEvent.click(screen.getByRole('button', { name: /reconfigure/i }));
-
-  // Click on checkbox to enable save button.
-  await userEvent.click(screen.getByRole('checkbox'));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: /save/i })).toBeEnabled()
-  );
-  await userEvent.click(screen.getByRole('button', { name: /save/i }));
-
-  await waitFor(() => expect(spyPing).toHaveBeenCalledTimes(1));
-  await waitFor(() => expect(spyUpdate).toHaveBeenCalledTimes(1));
-
-  const pingOrder = spyPing.mock.invocationCallOrder[0];
-  const createOrder = spyUpdate.mock.invocationCallOrder[0];
-  expect(pingOrder).toBeLessThan(createOrder);
 });
 
 test('render warning when s3 buckets are present', async () => {
@@ -165,7 +119,7 @@ test('render warning when s3 buckets are present', async () => {
 
   // Initial state.
   expect(screen.queryByTestId('scriptbox')).not.toBeInTheDocument();
-  expect(screen.queryByLabelText(/I ran the command/i)).not.toBeInTheDocument();
+  expect(screen.queryByTestId('checkbox')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
 
   // Check s3 related fields/warnings are rendered.
@@ -244,20 +198,19 @@ test('edit submit called with proper fields', async () => {
   await userEvent.click(screen.getByRole('button', { name: /reconfigure/i }));
   await screen.findByRole('button', { name: /edit/i });
 
-  await userEvent.click(screen.getByLabelText(/I ran the command/i));
+  userEvent.click(screen.getByTestId('checkbox'));
   await waitFor(() =>
     expect(screen.getByRole('button', { name: /save/i })).toBeEnabled()
   );
-  await userEvent.click(screen.getByRole('button', { name: /save/i }));
+  userEvent.click(screen.getByRole('button', { name: /save/i }));
   await waitFor(() => expect(mockEditFn).toHaveBeenCalledTimes(1));
 
   expect(mockEditFn).toHaveBeenCalledWith({
-    kind: IntegrationKind.AwsOidc,
     roleArn: 'arn:aws:iam::123456789011:role/other',
   });
 });
 
-const integration: IntegrationAwsOidc = {
+const integration: Integration = {
   resourceType: 'integration',
   kind: IntegrationKind.AwsOidc,
   name: 'some-integration-name',
@@ -268,18 +221,3 @@ const integration: IntegrationAwsOidc = {
   },
   statusCode: IntegrationStatusCode.Running,
 };
-
-function ComponentWithEditOperation() {
-  const integrationOps = useIntegrationOperation();
-  useEffect(() => {
-    integrationOps.onEdit(integration);
-  }, []);
-
-  return (
-    <EditAwsOidcIntegrationDialog
-      close={() => null}
-      edit={req => integrationOps.edit(req).then()}
-      integration={integration}
-    />
-  );
-}

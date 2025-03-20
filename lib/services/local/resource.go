@@ -21,6 +21,8 @@ package local
 import (
 	"context"
 	"encoding/json"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/gravitational/trace"
 
@@ -31,8 +33,8 @@ import (
 )
 
 // CreateResources attempts to dynamically create the supplied resources.
-// If any resources already exist they are skipped and not overwritten.
-// This function returns a `trace.NotImplementedError` if any resources
+// This function returns `trace.AlreadyExistsError` if one or more resources
+// would be overwritten, and `trace.NotImplementedError` if any resources
 // are of an unsupported type (see `itemsFromResources(...)`).
 //
 // NOTE: This function is non-atomic and performs no internal synchronization;
@@ -42,9 +44,20 @@ func CreateResources(ctx context.Context, b backend.Backend, resources ...types.
 	if err != nil {
 		return trace.Wrap(err)
 	}
+	// ensure all items do not exist before continuing.
+	for _, item := range items {
+		_, err = b.Get(ctx, item.Key)
+		if !trace.IsNotFound(err) {
+			if err != nil {
+				return trace.Wrap(err)
+			}
+			return trace.AlreadyExists("resource %q already exists", string(item.Key))
+		}
+	}
+	// create all items.
 	for _, item := range items {
 		_, err := b.Create(ctx, item)
-		if !trace.IsAlreadyExists(err) && err != nil {
+		if err != nil {
 			return trace.Wrap(err)
 		}
 	}
@@ -136,6 +149,7 @@ func itemFromClusterNetworkingConfig(cnc types.ClusterNetworkingConfig) (*backen
 	item := &backend.Item{
 		Key:      backend.NewKey(clusterConfigPrefix, networkingPrefix),
 		Value:    value,
+		ID:       cnc.GetResourceID(),
 		Revision: cnc.GetRevision(),
 	}
 	return item, nil
@@ -155,6 +169,7 @@ func itemFromAuthPreference(ap types.AuthPreference) (*backend.Item, error) {
 	item := &backend.Item{
 		Key:      backend.NewKey(authPrefix, preferencePrefix, generalPrefix),
 		Value:    value,
+		ID:       ap.GetResourceID(),
 		Revision: ap.GetRevision(),
 	}
 
@@ -176,6 +191,7 @@ func itemFromUser(user types.User) (*backend.Item, error) {
 		Key:      backend.NewKey(webPrefix, usersPrefix, user.GetName(), paramsPrefix),
 		Value:    value,
 		Expires:  user.Expiry(),
+		ID:       user.GetResourceID(),
 		Revision: rev,
 	}
 	return item, nil
@@ -186,6 +202,7 @@ func itemFromUser(user types.User) (*backend.Item, error) {
 func itemToUser(item backend.Item) (*types.UserV2, error) {
 	user, err := services.UnmarshalUser(
 		item.Value,
+		services.WithResourceID(item.ID),
 		services.WithExpires(item.Expires),
 		services.WithRevision(item.Revision),
 	)
@@ -213,6 +230,7 @@ func itemFromCertAuthority(ca types.CertAuthority) (*backend.Item, error) {
 		Key:      backend.NewKey(authoritiesPrefix, string(ca.GetType()), ca.GetName()),
 		Value:    value,
 		Expires:  ca.Expiry(),
+		ID:       ca.GetResourceID(),
 		Revision: rev,
 	}
 	return item, nil
@@ -233,6 +251,7 @@ func itemFromProvisionToken(p types.ProvisionToken) (*backend.Item, error) {
 		Key:      backend.NewKey(tokensPrefix, p.GetName()),
 		Value:    value,
 		Expires:  p.Expiry(),
+		ID:       p.GetResourceID(),
 		Revision: rev,
 	}
 	return item, nil
@@ -253,6 +272,7 @@ func itemFromTrustedCluster(tc types.TrustedCluster) (*backend.Item, error) {
 		Key:      backend.NewKey(trustedClustersPrefix, tc.GetName()),
 		Value:    value,
 		Expires:  tc.Expiry(),
+		ID:       tc.GetResourceID(),
 		Revision: rev,
 	}
 	return item, nil
@@ -273,6 +293,7 @@ func itemFromGithubConnector(gc types.GithubConnector) (*backend.Item, error) {
 		Key:      backend.NewKey(webPrefix, connectorsPrefix, githubPrefix, connectorsPrefix, gc.GetName()),
 		Value:    value,
 		Expires:  gc.Expiry(),
+		ID:       gc.GetResourceID(),
 		Revision: rev,
 	}
 	return item, nil
@@ -291,6 +312,7 @@ func itemFromRole(role types.Role) (*backend.Item, error) {
 		Key:      backend.NewKey(rolesPrefix, role.GetName(), paramsPrefix),
 		Value:    value,
 		Expires:  role.Expiry(),
+		ID:       role.GetResourceID(),
 		Revision: rev,
 	}
 	return item, nil
@@ -308,6 +330,7 @@ func itemFromOIDCConnector(connector types.OIDCConnector) (*backend.Item, error)
 		Key:      backend.NewKey(webPrefix, connectorsPrefix, oidcPrefix, connectorsPrefix, connector.GetName()),
 		Value:    value,
 		Expires:  connector.Expiry(),
+		ID:       connector.GetResourceID(),
 		Revision: rev,
 	}
 	return item, nil
@@ -328,6 +351,7 @@ func itemFromSAMLConnector(connector types.SAMLConnector) (*backend.Item, error)
 		Key:      backend.NewKey(webPrefix, connectorsPrefix, samlPrefix, connectorsPrefix, connector.GetName()),
 		Value:    value,
 		Expires:  connector.Expiry(),
+		ID:       connector.GetResourceID(),
 		Revision: rev,
 	}
 	return item, nil
@@ -422,6 +446,7 @@ func itemFromLock(l types.Lock) (*backend.Item, error) {
 		Key:      backend.NewKey(locksPrefix, l.GetName()),
 		Value:    value,
 		Expires:  l.Expiry(),
+		ID:       l.GetResourceID(),
 		Revision: rev,
 	}, nil
 }
@@ -434,17 +459,17 @@ var fullUsersPrefix = backend.ExactKey(webPrefix, usersPrefix)
 
 // splitUsernameAndSuffix is a helper for extracting usernames and suffixes from
 // backend key values.
-func splitUsernameAndSuffix(key backend.Key) (name string, suffix []string, err error) {
+func splitUsernameAndSuffix(key backend.Key) (name string, suffix string, err error) {
 	if !key.HasPrefix(fullUsersPrefix) {
-		return "", nil, trace.BadParameter("expected format '%s/<name>/<suffix>', got '%s'", fullUsersPrefix, key)
+		return "", "", trace.BadParameter("expected format '%s/<name>/<suffix>', got '%s'", fullUsersPrefix, key)
 	}
 	k := key.TrimPrefix(fullUsersPrefix)
 
 	components := k.Components()
 	if len(components) < 2 {
-		return "", nil, trace.BadParameter("expected format <name>/<suffix>, got %q", key)
+		return "", "", trace.BadParameter("expected format <name>/<suffix>, got %q", key)
 	}
-	return components[0], k.Components()[1:], nil
+	return string(components[0]), k.String()[len(components[0])+utf8.RuneLen(backend.Separator):], nil
 }
 
 // collectUserItems handles the case where multiple items pertain to the same user resource.
@@ -491,20 +516,20 @@ type userItems struct {
 }
 
 // Set attempts to set a field by suffix.
-func (u *userItems) Set(suffix []string, item backend.Item) (ok bool) {
-	switch {
-	case len(suffix) == 0:
-		return false
-	case suffix[0] == paramsPrefix:
+func (u *userItems) Set(suffix string, item backend.Item) (ok bool) {
+	switch suffix {
+	case paramsPrefix:
 		u.params = &item
-	case suffix[0] == pwdPrefix:
+	case pwdPrefix:
 		u.pwd = &item
-	case suffix[0] == webauthnLocalAuthPrefix:
+	case webauthnLocalAuthPrefix:
 		u.webauthnLocalAuth = &item
-	case suffix[0] == mfaDevicePrefix:
-		u.mfa = append(u.mfa, &item)
 	default:
-		return false
+		if strings.HasPrefix(suffix, mfaDevicePrefix) {
+			u.mfa = append(u.mfa, &item)
+		} else {
+			return false
+		}
 	}
 	return true
 }

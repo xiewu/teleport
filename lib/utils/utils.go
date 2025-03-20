@@ -24,8 +24,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
-	"math/rand/v2"
+	"math/rand"
 	"net"
 	"net/url"
 	"os"
@@ -39,6 +38,7 @@ import (
 	"unicode"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/gravitational/teleport"
@@ -124,17 +124,13 @@ func NewTracer(description string) *Tracer {
 
 // Start logs start of the trace
 func (t *Tracer) Start() *Tracer {
-	slog.DebugContext(context.Background(), "Tracer started",
-		"trace", t.Description)
+	log.Debugf("Tracer started %v.", t.Description)
 	return t
 }
 
 // Stop logs stop of the trace
 func (t *Tracer) Stop() *Tracer {
-	slog.DebugContext(context.Background(), "Tracer completed",
-		"trace", t.Description,
-		"duration", time.Since(t.Started),
-	)
+	log.Debugf("Tracer completed %v in %v.", t.Description, time.Since(t.Started))
 	return t
 }
 
@@ -255,6 +251,21 @@ func StringsSet(in []string) map[string]struct{} {
 		out[v] = struct{}{}
 	}
 	return out
+}
+
+// ParseOnOff parses whether value is "on" or "off", parameterName is passed for error
+// reporting purposes, defaultValue is returned when no value is set
+func ParseOnOff(parameterName, val string, defaultValue bool) (bool, error) {
+	switch val {
+	case teleport.On:
+		return true, nil
+	case teleport.Off:
+		return false, nil
+	case "":
+		return defaultValue, nil
+	default:
+		return false, trace.BadParameter("bad %q parameter value: %q, supported values are on or off", parameterName, val)
+	}
 }
 
 // IsGroupMember returns whether currently logged user is a member of a group
@@ -533,7 +544,7 @@ func ChooseRandomString(slice []string) string {
 	case 1:
 		return slice[0]
 	default:
-		return slice[rand.N(len(slice))]
+		return slice[rand.Intn(len(slice))]
 	}
 }
 
@@ -650,24 +661,10 @@ const (
 	CertTeleportClusterName = "x-teleport-cluster-name"
 	// CertTeleportUserCertificate is the certificate of the authenticated in user.
 	CertTeleportUserCertificate = "x-teleport-certificate"
-	// extIntSuffix is the suffix common to all internal extensions.
-	extIntSuffix = "@teleport.internal"
 	// ExtIntCertType is an internal extension used to propagate cert type.
-	ExtIntCertType = "certtype" + extIntSuffix
+	ExtIntCertType = "certtype@teleport"
 	// ExtIntCertTypeHost indicates a host-type certificate.
-	ExtIntCertTypeHost = "host" + extIntSuffix
+	ExtIntCertTypeHost = "host"
 	// ExtIntCertTypeUser indicates a user-type certificate.
-	ExtIntCertTypeUser = "user" + extIntSuffix
-	// ExtIntSSHAccessPermit is an internal extension used to propagate
-	// the access permit for the user.
-	ExtIntSSHAccessPermit = "ssh-access-permit" + extIntSuffix
-	// ExtIntSSHJoinPermi is an internal extension used to propagate
-	// the join permit for the user.
-	ExtIntSSHJoinPermit = "ssh-join-permit" + extIntSuffix
+	ExtIntCertTypeUser = "user"
 )
-
-// IsInternalSSHExtension returns true if the extension has the internal
-// extension suffix.
-func IsInternalSSHExtension(extension string) bool {
-	return strings.HasSuffix(extension, extIntSuffix)
-}

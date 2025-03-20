@@ -21,42 +21,46 @@ import { useEffect } from 'react';
 import Logger from 'shared/libs/logger';
 
 import init, {
-  FastPathProcessor,
   init_wasm_log,
+  FastPathProcessor,
 } from 'teleport/ironrdp/pkg/ironrdp';
+
+import { WebsocketCloseCode, TermEvent } from 'teleport/lib/term/enums';
+import { EventEmitterWebAuthnSender } from 'teleport/lib/EventEmitterWebAuthnSender';
 import { AuthenticatedWebSocket } from 'teleport/lib/AuthenticatedWebSocket';
-import { EventEmitterMfaSender } from 'teleport/lib/EventEmitterMfaSender';
-import { TermEvent, WebsocketCloseCode } from 'teleport/lib/term/enums';
-import { MfaChallengeResponse } from 'teleport/services/mfa';
 
 import Codec, {
-  FileType,
   MessageType,
+  FileType,
+  SharedDirectoryErrCode,
   PointerData,
   Severity,
-  SharedDirectoryErrCode,
-  type ButtonState,
-  type ClientScreenSpec,
-  type ClipboardData,
-  type FileSystemObject,
-  type MouseButton,
-  type PngFrame,
-  type ScrollAxis,
-  type SharedDirectoryCreateResponse,
-  type SharedDirectoryDeleteResponse,
-  type SharedDirectoryInfoResponse,
-  type SharedDirectoryListResponse,
-  type SharedDirectoryMoveResponse,
-  type SharedDirectoryReadResponse,
-  type SharedDirectoryTruncateResponse,
-  type SharedDirectoryWriteResponse,
-  type SyncKeys,
 } from './codec';
 import {
   PathDoesNotExistError,
   SharedDirectoryManager,
-  type FileOrDirInfo,
 } from './sharedDirectoryManager';
+
+import type { FileOrDirInfo } from './sharedDirectoryManager';
+import type {
+  MouseButton,
+  ButtonState,
+  ScrollAxis,
+  ClientScreenSpec,
+  PngFrame,
+  ClipboardData,
+  SharedDirectoryInfoResponse,
+  SharedDirectoryListResponse,
+  SharedDirectoryMoveResponse,
+  SharedDirectoryReadResponse,
+  SharedDirectoryWriteResponse,
+  SharedDirectoryCreateResponse,
+  SharedDirectoryDeleteResponse,
+  FileSystemObject,
+  SyncKeys,
+  SharedDirectoryTruncateResponse,
+} from './codec';
+import type { WebauthnAssertionResponse } from 'teleport/services/auth';
 
 export enum TdpClientEvent {
   TDP_CLIENT_SCREEN_SPEC = 'tdp client screen spec',
@@ -92,7 +96,7 @@ export enum LogType {
 // sending client commands, and receiving and processing server messages. Its creator is responsible for
 // ensuring the websocket gets closed and all of its event listeners cleaned up when it is no longer in use.
 // For convenience, this can be done in one fell swoop by calling Client.shutdown().
-export default class Client extends EventEmitterMfaSender {
+export default class Client extends EventEmitterWebAuthnSender {
   protected codec: Codec;
   protected socket: AuthenticatedWebSocket | undefined;
   private socketAddr: string;
@@ -284,8 +288,8 @@ export default class Client extends EventEmitterMfaSender {
             TdpClientEvent.TDP_ERROR
           );
           break;
-        case MessageType.ALERT:
-          this.handleTdpAlert(buffer);
+        case MessageType.NOTIFICATION:
+          this.handleTdpNotification(buffer);
           break;
         case MessageType.MFA_JSON:
           this.handleMfaChallenge(buffer);
@@ -361,15 +365,17 @@ export default class Client extends EventEmitterMfaSender {
     );
   }
 
-  handleTdpAlert(buffer: ArrayBuffer) {
-    const alert = this.codec.decodeAlert(buffer);
-    // TODO(zmb3): info and warning should use the same handler
-    if (alert.severity === Severity.Error) {
-      this.handleError(new Error(alert.message), TdpClientEvent.TDP_ERROR);
-    } else if (alert.severity === Severity.Warning) {
-      this.handleWarning(alert.message, TdpClientEvent.TDP_WARNING);
+  handleTdpNotification(buffer: ArrayBuffer) {
+    const notification = this.codec.decodeNotification(buffer);
+    if (notification.severity === Severity.Error) {
+      this.handleError(
+        new Error(notification.message),
+        TdpClientEvent.TDP_ERROR
+      );
+    } else if (notification.severity === Severity.Warning) {
+      this.handleWarning(notification.message, TdpClientEvent.TDP_WARNING);
     } else {
-      this.handleInfo(alert.message);
+      this.handleInfo(notification.message);
     }
   }
 
@@ -438,7 +444,7 @@ export default class Client extends EventEmitterMfaSender {
     try {
       const mfaJson = this.codec.decodeMfaJson(buffer);
       if (mfaJson.mfaType == 'n') {
-        this.emit(TermEvent.MFA_CHALLENGE, mfaJson.jsonString);
+        this.emit(TermEvent.WEBAUTHN_CHALLENGE, mfaJson.jsonString);
       } else {
         // mfaJson.mfaType === 'u', or else decodeMfaJson would have thrown an error.
         this.handleError(
@@ -688,7 +694,7 @@ export default class Client extends EventEmitterMfaSender {
     this.send(this.codec.encodeClipboardData(clipboardData));
   }
 
-  sendChallengeResponse(data: MfaChallengeResponse) {
+  sendWebAuthn(data: WebauthnAssertionResponse) {
     const msg = this.codec.encodeMfaJson({
       mfaType: 'n',
       jsonString: JSON.stringify(data),

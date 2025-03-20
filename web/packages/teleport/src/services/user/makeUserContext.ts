@@ -17,8 +17,9 @@
  */
 
 import { makeCluster } from '../clusters';
+
 import { makeAcl } from './makeAcl';
-import { AccessCapabilities, PasswordState, UserContext } from './types';
+import { UserContext, AccessCapabilities, PasswordState } from './types';
 
 export default function makeUserContext(json: any): UserContext {
   json = json || {};
@@ -53,7 +54,6 @@ function makeAccessCapabilities(json): AccessCapabilities {
   return {
     requestableRoles: json.requestableRoles || [],
     suggestedReviewers: json.suggestedReviewers || [],
-    requireReason: json.requireReason || false,
   };
 }
 

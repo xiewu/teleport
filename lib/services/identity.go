@@ -64,7 +64,9 @@ type UsersService interface {
 	// GetUsers returns a list of users registered with the local auth server
 	GetUsers(ctx context.Context, withSecrets bool) ([]types.User, error)
 	// ListUsers returns a page of users.
-	ListUsers(ctx context.Context, req *userspb.ListUsersRequest) (*userspb.ListUsersResponse, error)
+	ListUsers(ctx context.Context, pageSize int, nextToken string, withSecrets bool) ([]types.User, string, error)
+	// ListUsersExt is equivalent to ListUsers except that it supports additional parameters.
+	ListUsersExt(ctx context.Context, req *userspb.ListUsersRequest) (*userspb.ListUsersResponse, error)
 	// DeleteAllUsers deletes all users
 	DeleteAllUsers(ctx context.Context) error
 }
@@ -245,17 +247,6 @@ type Identity interface {
 
 	// GetGithubAuthRequest retrieves Github auth request by the token
 	GetGithubAuthRequest(ctx context.Context, stateToken string) (*types.GithubAuthRequest, error)
-
-	// UpsertSSOMFASessionData creates or updates SSO MFA session data in
-	// storage, for the purpose of later verifying an MFA authentication attempt.
-	// SSO MFA session data is expected to expire according to backend settings.
-	UpsertSSOMFASessionData(ctx context.Context, sd *SSOMFASessionData) error
-
-	// GetSSOMFASessionData retrieves SSO MFA session data by ID.
-	GetSSOMFASessionData(ctx context.Context, sessionID string) (*SSOMFASessionData, error)
-
-	// DeleteSSOMFASessionData deletes SSO MFA session data by ID.
-	DeleteSSOMFASessionData(ctx context.Context, sessionID string) error
 
 	// CreateUserToken creates a new user token.
 	CreateUserToken(ctx context.Context, token types.UserToken) (types.UserToken, error)

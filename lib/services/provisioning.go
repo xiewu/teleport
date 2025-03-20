@@ -85,6 +85,9 @@ func UnmarshalProvisionToken(data []byte, opts ...MarshalOption) (types.Provisio
 			return nil, trace.Wrap(err)
 		}
 		v2 := p.V2()
+		if cfg.ID != 0 {
+			v2.SetResourceID(cfg.ID)
+		}
 		if cfg.Revision != "" {
 			v2.SetRevision(cfg.Revision)
 		}
@@ -92,10 +95,13 @@ func UnmarshalProvisionToken(data []byte, opts ...MarshalOption) (types.Provisio
 	case types.V2:
 		var p types.ProvisionTokenV2
 		if err := utils.FastUnmarshal(data, &p); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 		if err := p.CheckAndSetDefaults(); err != nil {
 			return nil, trace.Wrap(err)
+		}
+		if cfg.ID != 0 {
+			p.SetResourceID(cfg.ID)
 		}
 		if cfg.Revision != "" {
 			p.SetRevision(cfg.Revision)
@@ -118,7 +124,7 @@ func MarshalProvisionToken(provisionToken types.ProvisionToken, opts ...MarshalO
 			return nil, trace.Wrap(err)
 		}
 
-		provisionToken = maybeResetProtoRevision(cfg.PreserveRevision, provisionToken)
+		provisionToken = maybeResetProtoResourceID(cfg.PreserveResourceID, provisionToken)
 		if cfg.GetVersion() == types.V1 {
 			return utils.FastMarshal(provisionToken.V1())
 		}

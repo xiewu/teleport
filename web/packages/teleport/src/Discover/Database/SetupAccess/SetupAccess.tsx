@@ -16,26 +16,26 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { useEffect, useState } from 'react';
-
-import { Box, Flex, H3, Link, Mark, Text } from 'design';
+import React, { useState, useEffect } from 'react';
+import { Box, Text, Flex, Link, Mark } from 'design';
 import { Info as InfoIcon } from 'design/Icon';
 
-import { Tabs } from 'teleport/components/Tabs';
-import { TextSelectCopyMulti } from 'teleport/components/TextSelectCopy';
-import { StyledBox } from 'teleport/Discover/Shared';
 import {
-  Option,
   SelectCreatable,
+  Option,
 } from 'teleport/Discover/Shared/SelectCreatable';
 import {
-  SetupAccessWrapper,
   useUserTraits,
-  type State,
+  SetupAccessWrapper,
 } from 'teleport/Discover/Shared/SetupAccess';
+import { StyledBox } from 'teleport/Discover/Shared';
+import { TextSelectCopyMulti } from 'teleport/components/TextSelectCopy';
 import { DbMeta } from 'teleport/Discover/useDiscover';
+import { Tabs } from 'teleport/components/Tabs';
 
 import { DatabaseEngine, DatabaseLocation } from '../../SelectResource';
+
+import type { State } from 'teleport/Discover/Shared/SetupAccess';
 
 export default function Container() {
   const state = useUserTraits();
@@ -205,11 +205,11 @@ const Info = (props: {
   <>
     <Flex mb={2}>
       <InfoIcon size="medium" mr={1} />
-      <H3>To allow access using your Database Users</H3>
+      <Text bold>To allow access using your Database Users</Text>
     </Flex>
     <DbEngineInstructions {...props} />
     <Box>
-      <H3>Access Definition</H3>
+      <Text bold>Access Definition</Text>
       <ul
         css={`
           margin-bottom: 0;
@@ -329,6 +329,34 @@ function DbEngineInstructions({
               rules that will match, otherwise PostgreSQL will offer them first,
               and the certificate-based Teleport login will fail.
             </Text>
+          </Box>
+        );
+      }
+
+      if (dbEngine === DatabaseEngine.MongoDb) {
+        return (
+          <Box mb={3}>
+            <Text mb={2}>
+              To create a user for this database, connect to this database using
+              the <Mark>mongosh</Mark>
+              or <Mark>mongo</Mark> shell and run the following command:
+            </Text>
+            <TextSelectCopyMulti
+              bash={false}
+              lines={[
+                {
+                  text:
+                    `db.getSiblingDB("$external").runCommand(\n` +
+                    `  {\n` +
+                    `    createUser: "CN=YOUR_USERNAME",\n` +
+                    `    roles: [\n` +
+                    `      { role: "readWriteAnyDatabase", db: "admin" }\n` +
+                    `    ]\n` +
+                    `  }\n` +
+                    `)`,
+                },
+              ]}
+            />
           </Box>
         );
       }

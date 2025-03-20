@@ -18,9 +18,9 @@
 
 import { waitFor } from '@testing-library/react';
 
-import Logger, { NullService } from 'teleterm/logger';
-import { makeRetryableError } from 'teleterm/services/tshd/testHelpers';
 import { MockAppContext } from 'teleterm/ui/fixtures/mocks';
+import { makeRetryableError } from 'teleterm/services/tshd/testHelpers';
+import Logger, { NullService } from 'teleterm/logger';
 
 import { retryWithRelogin } from './retryWithRelogin';
 

@@ -19,8 +19,6 @@
 package keystore
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,8 +29,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 )
 
@@ -72,7 +68,7 @@ func yubiHSMTestConfig(t *testing.T) (servicecfg.KeystoreConfig, bool) {
 		PKCS11: servicecfg.PKCS11Config{
 			Path:       yubiHSMPath,
 			SlotNumber: &slotNumber,
-			PIN:        yubiHSMPin,
+			Pin:        yubiHSMPin,
 		},
 	}, true
 }
@@ -86,7 +82,7 @@ func cloudHSMTestConfig(t *testing.T) (servicecfg.KeystoreConfig, bool) {
 		PKCS11: servicecfg.PKCS11Config{
 			Path:       "/opt/cloudhsm/lib/libcloudhsm_pkcs11.so",
 			TokenLabel: "cavium",
-			PIN:        cloudHSMPin,
+			Pin:        cloudHSMPin,
 		},
 	}, true
 }
@@ -98,7 +94,8 @@ func awsKMSTestConfig(t *testing.T) (servicecfg.KeystoreConfig, bool) {
 		return servicecfg.KeystoreConfig{}, false
 	}
 	return servicecfg.KeystoreConfig{
-		AWSKMS: &servicecfg.AWSKMSConfig{
+		AWSKMS: servicecfg.AWSKMSConfig{
+			Cluster:    "test-cluster",
 			AWSAccount: awsKMSAccount,
 			AWSRegion:  awsKMSRegion,
 		},
@@ -175,8 +172,7 @@ func softHSMTestConfig(t *testing.T) (servicecfg.KeystoreConfig, bool) {
 	cmd := exec.Command("softhsm2-util", "--init-token", "--free", "--label", tokenLabel, "--so-pin", "password", "--pin", "password")
 	t.Logf("Running command: %q", cmd)
 	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := err.(*exec.ExitError); ok {
 			require.NoError(t, exitErr, "error creating test softhsm token: %s", string(exitErr.Stderr))
 		}
 		require.NoError(t, err, "error attempting to run softhsm2-util")
@@ -186,49 +182,8 @@ func softHSMTestConfig(t *testing.T) (servicecfg.KeystoreConfig, bool) {
 		PKCS11: servicecfg.PKCS11Config{
 			Path:       path,
 			TokenLabel: tokenLabel,
-			PIN:        "password",
+			Pin:        "password",
 		},
 	}
 	return *cachedSoftHSMConfig, true
-}
-
-type testKeystoreOptions struct {
-	rsaKeyPairSource RSAKeyPairSource
-}
-
-type TestKeystoreOption func(*testKeystoreOptions)
-
-func WithRSAKeyPairSource(rsaKeyPairSource RSAKeyPairSource) TestKeystoreOption {
-	return func(opts *testKeystoreOptions) {
-		opts.rsaKeyPairSource = rsaKeyPairSource
-	}
-}
-
-// NewSoftwareKeystoreForTests returns a new *Manager that is valid for tests not specifically testing the
-// keystore functionality.
-func NewSoftwareKeystoreForTests(_ *testing.T, opts ...TestKeystoreOption) *Manager {
-	var options testKeystoreOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-	softwareBackend := newSoftwareKeyStore(&softwareConfig{rsaKeyPairSource: options.rsaKeyPairSource})
-	return &Manager{
-		backendForNewKeys:     softwareBackend,
-		usableSigningBackends: []backend{softwareBackend},
-		currentSuiteGetter: cryptosuites.GetSuiteFunc(func(context.Context) (types.SignatureAlgorithmSuite, error) {
-			return types.SignatureAlgorithmSuite_SIGNATURE_ALGORITHM_SUITE_BALANCED_V1, nil
-		}),
-	}
-}
-
-type fakeAuthPreferenceGetter struct {
-	suite types.SignatureAlgorithmSuite
-}
-
-func (f *fakeAuthPreferenceGetter) GetAuthPreference(context.Context) (types.AuthPreference, error) {
-	return &types.AuthPreferenceV2{
-		Spec: types.AuthPreferenceSpecV2{
-			SignatureAlgorithmSuite: f.suite,
-		},
-	}, nil
 }

@@ -18,8 +18,9 @@
 
 import React, { useEffect } from 'react';
 
-import { PING_INTERVAL } from 'teleport/Discover/Database/config';
 import { PingTeleportProvider } from 'teleport/Discover/Shared/PingTeleportContext';
+import { PING_INTERVAL } from 'teleport/Discover/Database/config';
+
 import { clearCachedJoinTokenResult } from 'teleport/Discover/Shared/useJoinTokenSuspender';
 
 import { ResourceKind } from '../Shared';

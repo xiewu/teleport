@@ -16,21 +16,23 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Box, Flex, H3, Indicator, Link, Text } from 'design';
+import React from 'react';
+import { Text, Box, Flex, Indicator, Link } from 'design';
 import * as Icons from 'design/Icon';
-import { P } from 'design/Text/Text';
 
-import { TextSelectCopyMulti } from 'teleport/components/TextSelectCopy';
 import useTeleport from 'teleport/useTeleport';
+import { TextSelectCopyMulti } from 'teleport/components/TextSelectCopy';
 
 import {
-  ActionButtons,
-  ButtonBlueText,
-  Header,
   HeaderSubtitle,
+  ActionButtons,
+  Header,
+  ButtonBlueText,
 } from '../../Shared';
+
+import { useIamPolicy, State } from './useIamPolicy';
+
 import type { AgentStepProps } from '../../types';
-import { State, useIamPolicy } from './useIamPolicy';
 
 export function IamPolicy(props: AgentStepProps) {
   const ctx = useTeleport();
@@ -47,7 +49,7 @@ export function IamPolicyView({
   iamPolicyName,
 }: State) {
   return (
-    <>
+    <Box maxWidth="800px">
       <Header>Configure IAM Policy</Header>
       <HeaderSubtitle>
         Teleport needs AWS IAM permissions to be able to discover and register
@@ -74,7 +76,9 @@ export function IamPolicyView({
           )}
           {attempt.status === 'success' && (
             <Box>
-              <H3>Run this AWS CLI command to create an IAM policy:</H3>
+              <Text bold>
+                Run this AWS CLI command to create an IAM policy:
+              </Text>
               <Box mt={2} mb={2}>
                 <TextSelectCopyMulti
                   lines={[
@@ -92,8 +96,10 @@ export function IamPolicyView({
                   ]}
                 />
               </Box>
-              <H3>Then attach this policy to your AWS EC2 instance role.</H3>
-              <P>
+              <Text bold>
+                Then attach this policy to your AWS EC2 instance role.
+              </Text>
+              <Text>
                 See{' '}
                 <Link
                   href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_manage-attach-detach.html#add-policies-console"
@@ -108,7 +114,7 @@ export function IamPolicyView({
                 >
                   Attach an IAM role to an instance
                 </Link>
-              </P>
+              </Text>
             </Box>
           )}
         </Flex>
@@ -120,6 +126,6 @@ export function IamPolicyView({
         />
         <ActionButtons onSkip={() => nextStep(0)} />
       </Flex>
-    </>
+    </Box>
   );
 }

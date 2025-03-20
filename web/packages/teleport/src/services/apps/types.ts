@@ -19,6 +19,7 @@
 import { AwsRole } from 'shared/services/apps';
 
 import { ResourceLabel } from 'teleport/services/agents';
+
 import type { SamlServiceProviderPreset } from 'teleport/services/samlidp/types';
 
 export interface App {
@@ -34,9 +35,7 @@ export interface App {
   fqdn: string;
   awsRoles: AwsRole[];
   awsConsole: boolean;
-  requiresRequest?: boolean;
-  isTcp?: boolean;
-  isCloud?: boolean;
+  isCloudOrTcpEndpoint?: boolean;
   // addrWithProtocol can either be a public address or
   // if public address wasn't defined, fallback to uri
   addrWithProtocol?: string;
@@ -51,35 +50,9 @@ export interface App {
   // Integration is the integration name that must be used to access this Application.
   // Only applicable to AWS App Access.
   integration?: string;
-  /** subKind is subKind of an App. */
-  subKind?: AppSubKind;
-  /**
-   * permissionSets is a list of AWS IAM Identity Center permission sets
-   * available for this App. The value is only populated if the app SubKind is
-   * aws_ic_account.
-   */
-  permissionSets?: PermissionSet[];
 }
 
 export type UserGroupAndDescription = {
   name: string;
   description: string;
-};
-
-/** AppSubKind defines names of SubKind for App resource. */
-export enum AppSubKind {
-  AwsIcAccount = 'aws_ic_account',
-}
-
-/**
- * PermissionSet defines an AWS IAM Identity Center permission set that
- * is available to an App.
- */
-export type PermissionSet = {
-  /** name is a permission set name */
-  name: string;
-  /** arn is a permission set ARN */
-  arn: string;
-  /** assignmentId is an account assignment ID. */
-  assignmentId: string;
 };

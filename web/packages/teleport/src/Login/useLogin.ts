@@ -16,27 +16,22 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { matchPath } from 'react-router';
-
-import { TrustedDeviceRequirement } from 'gen-proto-ts/teleport/legacy/types/trusted_device_requirement_pb';
 import { useAttempt } from 'shared/hooks';
 import { AuthProvider } from 'shared/services';
 
+import session from 'teleport/services/websession';
+import history from 'teleport/services/history';
 import cfg from 'teleport/config';
 import auth, { UserCredentials } from 'teleport/services/auth';
-import history from 'teleport/services/history';
-import { storageService } from 'teleport/services/storageService';
-import session from 'teleport/services/websession';
 
 export default function useLogin() {
   const [attempt, attemptActions] = useAttempt({ isProcessing: false });
   const [checkingValidSession, setCheckingValidSession] = useState(true);
-  const licenseAcknowledged = storageService.getLicenseAcknowledged();
 
   const authProviders = cfg.getAuthProviders();
   const auth2faType = cfg.getAuth2faType();
-  const defaultConnectorName = cfg.getDefaultConnectorName();
   const isLocalAuthEnabled = cfg.getLocalAuthFlag();
   const motd = cfg.getMotd();
   const [showMotd, setShowMotd] = useState<boolean>(() => {
@@ -50,24 +45,6 @@ export default function useLogin() {
 
   function acknowledgeMotd() {
     setShowMotd(false);
-  }
-
-  // onSuccess can receive a device webtoken. If so, it will
-  // enable a prompt to allow users to authorize the current
-  function onSuccess({
-    deviceWebToken,
-    trustedDeviceRequirement,
-  }: LoginResponse) {
-    // deviceWebToken will only exist on a login response
-    // from enterprise but just in case there is a version mismatch
-    // between the webclient and proxy
-    if (trustedDeviceRequirement === TrustedDeviceRequirement.REQUIRED) {
-      session.setDeviceTrustRequired();
-    }
-    if (deviceWebToken && cfg.isEnterprise) {
-      return authorizeWithDeviceTrust(deviceWebToken);
-    }
-    return loginSuccess();
   }
 
   useEffect(() => {
@@ -97,7 +74,6 @@ export default function useLogin() {
 
   function onLogin(email, password, token) {
     attemptActions.start();
-    storageService.clearLoginTime();
     auth
       .login(email, password, token)
       .then(onSuccess)
@@ -108,7 +84,6 @@ export default function useLogin() {
 
   function onLoginWithWebauthn(creds?: UserCredentials) {
     attemptActions.start();
-    storageService.clearLoginTime();
     auth
       .loginWithWebauthn(creds)
       .then(onSuccess)
@@ -119,24 +94,17 @@ export default function useLogin() {
 
   function onLoginWithSso(provider: AuthProvider) {
     attemptActions.start();
-    storageService.clearLoginTime();
     const appStartRoute = getEntryRoute();
     const ssoUri = cfg.getSsoUrl(provider.url, provider.name, appStartRoute);
     history.push(ssoUri, true);
   }
-
-  // Move the default connector to the front of the list so that it shows up at the top.
-  const sortedProviders = moveToFront(
-    authProviders,
-    p => p.name === defaultConnectorName
-  );
 
   return {
     attempt,
     onLogin,
     checkingValidSession,
     onLoginWithSso,
-    authProviders: sortedProviders,
+    authProviders,
     auth2faType,
     preferredMfaType: cfg.getPreferredMfaType(),
     isLocalAuthEnabled,
@@ -144,35 +112,13 @@ export default function useLogin() {
     clearAttempt: attemptActions.clear,
     isPasswordlessEnabled: cfg.isPasswordlessEnabled(),
     primaryAuthType: cfg.getPrimaryAuthType(),
-    licenseAcknowledged,
-    setLicenseAcknowledged: storageService.setLicenseAcknowledged,
     motd,
     showMotd,
     acknowledgeMotd,
   };
 }
 
-type DeviceWebToken = {
-  id: string;
-  token: string;
-};
-
-type LoginResponse = {
-  deviceWebToken?: DeviceWebToken;
-  trustedDeviceRequirement?: TrustedDeviceRequirement;
-};
-
-function authorizeWithDeviceTrust(token: DeviceWebToken) {
-  let redirect = history.getRedirectParam();
-  const authorize = cfg.getDeviceTrustAuthorizeRoute(
-    token.id,
-    token.token,
-    redirect
-  );
-  history.push(authorize, true);
-}
-
-function loginSuccess() {
+function onSuccess() {
   const redirect = getEntryRoute();
   const withPageRefresh = true;
   history.push(redirect, withPageRefresh);
@@ -198,18 +144,3 @@ export type State = ReturnType<typeof useLogin> & {
   isRecoveryEnabled?: boolean;
   onRecover?: (isRecoverPassword: boolean) => void;
 };
-
-/**
- * moveToFront returns a copy of an array with the element that matches the condition to the front of it.
- */
-function moveToFront<T>(arr: T[], condition: (item: T) => boolean): T[] {
-  const copy = [...arr];
-  const index = copy.findIndex(condition);
-
-  if (index > 0) {
-    const [item] = copy.splice(index, 1);
-    copy.unshift(item);
-  }
-
-  return copy;
-}

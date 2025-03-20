@@ -17,5 +17,4 @@
  */
 
 import ManualDeploy from './ManualDeploy';
-
 export { ManualDeploy };

@@ -17,14 +17,13 @@
  */
 
 import { createGlobalStyle, css } from 'styled-components';
-
 import { getPlatformType } from 'design/platform';
 
 const GlobalStyle = createGlobalStyle`
 
   html {
     font-family: ${props => props.theme.font};
-    ${props => props.theme.typography.body2};
+    ${props => props.theme.typography.body1};
   }
 
   body {

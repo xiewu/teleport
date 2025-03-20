@@ -19,19 +19,17 @@
 package services
 
 import (
-	"context"
-	"log/slog"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/constants"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
-	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/modules"
-	"github.com/gravitational/teleport/lib/utils"
 )
 
 // NewSystemAutomaticAccessApproverRole creates a new Role that is allowed to
@@ -104,10 +102,6 @@ func NewSystemAutomaticAccessBotUser() types.User {
 // NewPresetEditorRole returns a new pre-defined role for cluster
 // editors who can edit cluster configuration resources.
 func NewPresetEditorRole() types.Role {
-	// IMPORTANT: Before adding new defaults, please make sure that the
-	// underlying field is supported by the standard role editor UI. This role
-	// should be editable with a rich UI, without requiring the user to dive into
-	// YAML.
 	role := &types.RoleV6{
 		Kind:    types.KindRole,
 		Version: types.V7,
@@ -120,31 +114,16 @@ func NewPresetEditorRole() types.Role {
 			},
 		},
 		Spec: types.RoleSpecV6{
-			// IMPORTANT: Before adding new defaults, please make sure that the
-			// underlying field is supported by the standard role editor UI. This role
-			// should be editable with a rich UI, without requiring the user to dive into
-			// YAML.
 			Options: types.RoleOptions{
 				CertificateFormat: constants.CertificateFormatStandard,
 				MaxSessionTTL:     types.NewDuration(apidefaults.MaxCertDuration),
-				SSHPortForwarding: &types.SSHPortForwarding{
-					Remote: &types.SSHRemotePortForwarding{
-						Enabled: types.NewBoolOption(true),
-					},
-					Local: &types.SSHLocalPortForwarding{
-						Enabled: types.NewBoolOption(true),
-					},
-				},
-				ForwardAgent: types.NewBool(true),
-				BPF:          apidefaults.EnhancedEvents(),
+				PortForwarding:    types.NewBoolOption(true),
+				ForwardAgent:      types.NewBool(true),
+				BPF:               apidefaults.EnhancedEvents(),
 				RecordSession: &types.RecordSession{
 					Desktop: types.NewBoolOption(false),
 				},
 			},
-			// IMPORTANT: Before adding new defaults, please make sure that the
-			// underlying field is supported by the standard role editor UI. This role
-			// should be editable with a rich UI, without requiring the user to dive into
-			// YAML.
 			Allow: types.RoleConditions{
 				Namespaces: []string{apidefaults.Namespace},
 				Rules: []types.Rule{
@@ -183,6 +162,7 @@ func NewPresetEditorRole() types.Role {
 					types.NewRule(types.KindPlugin, RW()),
 					types.NewRule(types.KindOktaImportRule, RW()),
 					types.NewRule(types.KindOktaAssignment, RW()),
+					types.NewRule(types.KindAssistant, append(RW(), types.VerbUse)),
 					types.NewRule(types.KindLock, RW()),
 					types.NewRule(types.KindIntegration, append(RW(), types.VerbUse)),
 					types.NewRule(types.KindBilling, RW()),
@@ -194,23 +174,12 @@ func NewPresetEditorRole() types.Role {
 					types.NewRule(types.KindAuditQuery, append(RW(), types.VerbUse)),
 					types.NewRule(types.KindAccessGraph, RW()),
 					types.NewRule(types.KindServerInfo, RW()),
-					types.NewRule(types.KindAccessMonitoringRule, RW()),
 					types.NewRule(types.KindAppServer, RW()),
-					types.NewRule(types.KindVnetConfig, RW()),
-					types.NewRule(types.KindBotInstance, RW()),
+					types.NewRule(types.KindAccessMonitoringRule, RW()),
 					types.NewRule(types.KindAccessGraphSettings, RW()),
 					types.NewRule(types.KindSPIFFEFederation, RW()),
-					types.NewRule(types.KindNotification, RW()),
-					types.NewRule(types.KindStaticHostUser, RW()),
-					types.NewRule(types.KindUserTask, RW()),
-					types.NewRule(types.KindIdentityCenter, RW()),
-					types.NewRule(types.KindContact, RW()),
-					types.NewRule(types.KindWorkloadIdentity, RW()),
 					types.NewRule(types.KindAutoUpdateVersion, RW()),
 					types.NewRule(types.KindAutoUpdateConfig, RW()),
-					types.NewRule(types.KindAutoUpdateAgentRollout, RO()),
-					types.NewRule(types.KindGitServer, RW()),
-					types.NewRule(types.KindWorkloadIdentityX509Revocation, RW()),
 				},
 			},
 		},
@@ -221,10 +190,6 @@ func NewPresetEditorRole() types.Role {
 // NewPresetAccessRole creates a role for users who are allowed to initiate
 // interactive sessions.
 func NewPresetAccessRole() types.Role {
-	// IMPORTANT: Before adding new defaults, please make sure that the
-	// underlying field is supported by the standard role editor UI. This role
-	// should be editable with a rich UI, without requiring the user to dive into
-	// YAML.
 	role := &types.RoleV6{
 		Kind:    types.KindRole,
 		Version: types.V7,
@@ -237,29 +202,14 @@ func NewPresetAccessRole() types.Role {
 			},
 		},
 		Spec: types.RoleSpecV6{
-			// IMPORTANT: Before adding new defaults, please make sure that the
-			// underlying field is supported by the standard role editor UI. This role
-			// should be editable with a rich UI, without requiring the user to dive into
-			// YAML.
 			Options: types.RoleOptions{
 				CertificateFormat: constants.CertificateFormatStandard,
 				MaxSessionTTL:     types.NewDuration(apidefaults.MaxCertDuration),
-				SSHPortForwarding: &types.SSHPortForwarding{
-					Remote: &types.SSHRemotePortForwarding{
-						Enabled: types.NewBoolOption(true),
-					},
-					Local: &types.SSHLocalPortForwarding{
-						Enabled: types.NewBoolOption(true),
-					},
-				},
-				ForwardAgent:  types.NewBool(true),
-				BPF:           apidefaults.EnhancedEvents(),
-				RecordSession: &types.RecordSession{Desktop: types.NewBoolOption(true)},
+				PortForwarding:    types.NewBoolOption(true),
+				ForwardAgent:      types.NewBool(true),
+				BPF:               apidefaults.EnhancedEvents(),
+				RecordSession:     &types.RecordSession{Desktop: types.NewBoolOption(true)},
 			},
-			// IMPORTANT: Before adding new defaults, please make sure that the
-			// underlying field is supported by the standard role editor UI. This role
-			// should be editable with a rich UI, without requiring the user to dive into
-			// YAML.
 			Allow: types.RoleConditions{
 				Namespaces:            []string{apidefaults.Namespace},
 				NodeLabels:            types.Labels{types.Wildcard: []string{types.Wildcard}},
@@ -279,9 +229,6 @@ func NewPresetAccessRole() types.Role {
 						Verbs:     []string{types.Wildcard},
 					},
 				},
-				GitHubPermissions: []types.GitHubPermission{{
-					Organizations: []string{teleport.TraitInternalGitHubOrgs},
-				}},
 				Rules: []types.Rule{
 					types.NewRule(types.KindEvent, RO()),
 					{
@@ -290,15 +237,12 @@ func NewPresetAccessRole() types.Role {
 						Where:     "contains(session.participants, user.metadata.name)",
 					},
 					types.NewRule(types.KindInstance, RO()),
+					types.NewRule(types.KindAssistant, append(RW(), types.VerbUse)),
 					types.NewRule(types.KindClusterMaintenanceConfig, RO()),
 				},
 			},
 		},
 	}
-	// IMPORTANT: Before adding new defaults, please make sure that the
-	// underlying field is supported by the standard role editor UI. This role
-	// should be editable with a rich UI, without requiring the user to dive into
-	// YAML.
 	role.SetLogins(types.Allow, []string{teleport.TraitInternalLoginsVariable})
 	role.SetWindowsLogins(types.Allow, []string{teleport.TraitInternalWindowsLoginsVariable})
 	role.SetKubeUsers(types.Allow, []string{teleport.TraitInternalKubeUsersVariable})
@@ -313,10 +257,6 @@ func NewPresetAccessRole() types.Role {
 // auditor - someone who can review cluster events and replay sessions,
 // but can't initiate interactive sessions or modify configuration.
 func NewPresetAuditorRole() types.Role {
-	// IMPORTANT: Before adding new defaults, please make sure that the
-	// underlying field is supported by the standard role editor UI. This role
-	// should be editable with a rich UI, without requiring the user to dive into
-	// YAML.
 	role := &types.RoleV6{
 		Kind:    types.KindRole,
 		Version: types.V7,
@@ -346,12 +286,11 @@ func NewPresetAuditorRole() types.Role {
 					types.NewRule(types.KindInstance, RO()),
 					types.NewRule(types.KindSecurityReport, append(RO(), types.VerbUse)),
 					types.NewRule(types.KindAuditQuery, append(RO(), types.VerbUse)),
-					types.NewRule(types.KindBotInstance, RO()),
-					types.NewRule(types.KindNotification, RO()),
 				},
 			},
 		},
 	}
+	role.SetLogins(types.Allow, []string{"no-login-" + uuid.New().String()})
 	return role
 }
 
@@ -554,35 +493,7 @@ func NewPresetRequireTrustedDeviceRole() types.Role {
 	}
 }
 
-// NewPresetWildcardWorkloadIdentityIssuerRole returns a new pre-defined role
-// for issuing workload identities.
-func NewPresetWildcardWorkloadIdentityIssuerRole() types.Role {
-	role := &types.RoleV6{
-		Kind:    types.KindRole,
-		Version: types.V7,
-		Metadata: types.Metadata{
-			Name:        teleport.PresetWildcardWorkloadIdentityIssuerRoleName,
-			Namespace:   apidefaults.Namespace,
-			Description: "Issue workload identities",
-			Labels: map[string]string{
-				types.TeleportInternalResourceType: types.PresetResource,
-			},
-		},
-		Spec: types.RoleSpecV6{
-			Allow: types.RoleConditions{
-				WorkloadIdentityLabels: types.Labels{
-					types.Wildcard: []string{types.Wildcard},
-				},
-				Rules: []types.Rule{
-					types.NewRule(types.KindWorkloadIdentity, RO()),
-				},
-			},
-		},
-	}
-	return role
-}
-
-// SystemOktaAccessRoleName is the name of the system role that allows
+// NewSystemOktaAccessRoleName is the system role that allows
 // access to Okta resources. This will be used by the Okta requester role to
 // search for Okta resources.
 func NewSystemOktaAccessRole() types.Role {
@@ -618,7 +529,7 @@ func NewSystemOktaAccessRole() types.Role {
 	return role
 }
 
-// SystemOktaRequesterRoleName is a name of a system role that allows
+// NewSystemOktaRequesterRoleName is a system role that allows
 // for requesting access to Okta resources. This differs from the requester role
 // in that it allows for requesting longer lived access.
 func NewSystemOktaRequesterRole() types.Role {
@@ -647,99 +558,6 @@ func NewSystemOktaRequesterRole() types.Role {
 	return role
 }
 
-// NewSystemIdentityCenterAccessRole creates a role that allows access to AWS
-// IdentityCenter resources via Access Requests
-func NewSystemIdentityCenterAccessRole() types.Role {
-	if modules.GetModules().BuildType() != modules.BuildEnterprise {
-		return nil
-	}
-	return &types.RoleV6{
-		Kind:    types.KindRole,
-		Version: types.V7,
-		Metadata: types.Metadata{
-			Name:        teleport.SystemIdentityCenterAccessRoleName,
-			Namespace:   apidefaults.Namespace,
-			Description: "Access AWS IAM Identity Center resources",
-			Labels: map[string]string{
-				types.TeleportInternalResourceType: types.SystemResource,
-				// OriginLabel should not be set to AWS Identity center because:
-				// - identity center is not the one owning this role, this role
-				//   is part of the Teleport system requirements
-				// - setting the label to a value not support in older agents
-				//   (v16) will cause them to crash.
-			},
-		},
-		Spec: types.RoleSpecV6{
-			Allow: types.RoleConditions{
-				AccountAssignments: defaultAllowAccountAssignments(true)[teleport.SystemIdentityCenterAccessRoleName],
-			},
-		},
-	}
-}
-
-// NewPresetTerraformProviderRole returns a new pre-defined role for the Teleport Terraform provider.
-// This role can edit any Terraform-supported resource.
-func NewPresetTerraformProviderRole() types.Role {
-	role := &types.RoleV6{
-		Kind:    types.KindRole,
-		Version: types.V7,
-		Metadata: types.Metadata{
-			Name:        teleport.PresetTerraformProviderRoleName,
-			Namespace:   apidefaults.Namespace,
-			Description: "Default Terraform provider role",
-			Labels: map[string]string{
-				types.TeleportInternalResourceType: types.PresetResource,
-			},
-		},
-		Spec: types.RoleSpecV6{
-			Allow: types.RoleConditions{
-				// In Teleport, you can only see what you have access to. To be able to reconcile
-				// Apps, Databases, Dynamic Windows Desktops, and Nodes, Terraform must be able to
-				// access them all.
-				// For Databases and Nodes, Terraform cannot actually access them because it has no
-				// Login/user set.
-				AppLabels:            map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
-				DatabaseLabels:       map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
-				NodeLabels:           map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
-				WindowsDesktopLabels: map[string]apiutils.Strings{types.Wildcard: []string{types.Wildcard}},
-				// Every resource currently supported by the Terraform provider.
-				Rules: []types.Rule{
-					// You must add new resources as separate rules for the
-					// default rule addition logic to work properly.
-					types.NewRule(types.KindAccessList, RW()),
-					types.NewRule(types.KindApp, RW()),
-					types.NewRule(types.KindClusterAuthPreference, RW()),
-					types.NewRule(types.KindClusterMaintenanceConfig, RW()),
-					types.NewRule(types.KindClusterNetworkingConfig, RW()),
-					types.NewRule(types.KindDatabase, RW()),
-					types.NewRule(types.KindDevice, RW()),
-					types.NewRule(types.KindGithub, RW()),
-					types.NewRule(types.KindLoginRule, RW()),
-					types.NewRule(types.KindNode, RW()),
-					types.NewRule(types.KindOIDC, RW()),
-					types.NewRule(types.KindOktaImportRule, RW()),
-					types.NewRule(types.KindRole, RW()),
-					types.NewRule(types.KindSAML, RW()),
-					types.NewRule(types.KindSessionRecordingConfig, RW()),
-					types.NewRule(types.KindToken, RW()),
-					types.NewRule(types.KindTrustedCluster, RW()),
-					types.NewRule(types.KindUser, RW()),
-					types.NewRule(types.KindBot, RW()),
-					types.NewRule(types.KindInstaller, RW()),
-					types.NewRule(types.KindAccessMonitoringRule, RW()),
-					types.NewRule(types.KindDynamicWindowsDesktop, RW()),
-					types.NewRule(types.KindStaticHostUser, RW()),
-					types.NewRule(types.KindWorkloadIdentity, RW()),
-					types.NewRule(types.KindGitServer, RW()),
-					types.NewRule(types.KindAutoUpdateConfig, RW()),
-					types.NewRule(types.KindAutoUpdateVersion, RW()),
-				},
-			},
-		},
-	}
-	return role
-}
-
 // bootstrapRoleMetadataLabels are metadata labels that will be applied to each role.
 // These are intended to add labels for older roles that didn't previously have them.
 func bootstrapRoleMetadataLabels() map[string]map[string]string {
@@ -757,21 +575,15 @@ func bootstrapRoleMetadataLabels() map[string]map[string]string {
 			types.TeleportInternalResourceType: types.SystemResource,
 			types.OriginLabel:                  types.OriginOkta,
 		},
-		// We unset the OriginLabel on the system AWS IC role because this value
-		// was not supported on v16 agents and this crashes them.
-		teleport.SystemIdentityCenterAccessRoleName: {
-			types.TeleportInternalResourceType: types.SystemResource,
-		},
 		// Group access, reviewer and requester are intentionally not added here as there may be
 		// existing customer defined roles that have these labels.
 	}
 }
 
 var defaultAllowRulesMap = map[string][]types.Rule{
-	teleport.PresetAuditorRoleName:           NewPresetAuditorRole().GetRules(types.Allow),
-	teleport.PresetEditorRoleName:            NewPresetEditorRole().GetRules(types.Allow),
-	teleport.PresetAccessRoleName:            NewPresetAccessRole().GetRules(types.Allow),
-	teleport.PresetTerraformProviderRoleName: NewPresetTerraformProviderRole().GetRules(types.Allow),
+	teleport.PresetAuditorRoleName: NewPresetAuditorRole().GetRules(types.Allow),
+	teleport.PresetEditorRoleName:  NewPresetEditorRole().GetRules(types.Allow),
+	teleport.PresetAccessRoleName:  NewPresetAccessRole().GetRules(types.Allow),
 }
 
 // defaultAllowRules has the Allow rules that should be set as default when
@@ -790,16 +602,10 @@ func defaultAllowRules() map[string][]types.Rule {
 // - DatabaseServiceLabels (db_service_labels)
 // - GroupLabels
 func defaultAllowLabels(enterprise bool) map[string]types.RoleConditions {
-	wildcardLabels := types.Labels{types.Wildcard: []string{types.Wildcard}}
 	conditions := map[string]types.RoleConditions{
 		teleport.PresetAccessRoleName: {
-			DatabaseServiceLabels: wildcardLabels,
+			DatabaseServiceLabels: types.Labels{types.Wildcard: []string{types.Wildcard}},
 			DatabaseRoles:         []string{teleport.TraitInternalDBRolesVariable},
-		},
-		teleport.PresetTerraformProviderRoleName: {
-			AppLabels:      wildcardLabels,
-			DatabaseLabels: wildcardLabels,
-			NodeLabels:     wildcardLabels,
 		},
 	}
 
@@ -822,7 +628,6 @@ func defaultAllowAccessRequestConditions(enterprise bool) map[string]*types.Acce
 				SearchAsRoles: []string{
 					teleport.PresetAccessRoleName,
 					teleport.PresetGroupAccessRoleName,
-					teleport.SystemIdentityCenterAccessRoleName,
 				},
 			},
 			teleport.SystemOktaRequesterRoleName: {
@@ -846,12 +651,10 @@ func defaultAllowAccessReviewConditions(enterprise bool) map[string]*types.Acces
 				PreviewAsRoles: []string{
 					teleport.PresetAccessRoleName,
 					teleport.PresetGroupAccessRoleName,
-					teleport.SystemIdentityCenterAccessRoleName,
 				},
 				Roles: []string{
 					teleport.PresetAccessRoleName,
 					teleport.PresetGroupAccessRoleName,
-					teleport.SystemIdentityCenterAccessRoleName,
 				},
 			},
 		}
@@ -860,24 +663,9 @@ func defaultAllowAccessReviewConditions(enterprise bool) map[string]*types.Acces
 	return map[string]*types.AccessReviewConditions{}
 }
 
-func defaultAllowAccountAssignments(enterprise bool) map[string][]types.IdentityCenterAccountAssignment {
-	if enterprise {
-		return map[string][]types.IdentityCenterAccountAssignment{
-			teleport.SystemIdentityCenterAccessRoleName: {
-				{
-					Account:       types.Wildcard,
-					PermissionSet: types.Wildcard,
-				},
-			},
-		}
-	}
-
-	return map[string][]types.IdentityCenterAccountAssignment{}
-}
-
 // AddRoleDefaults adds default role attributes to a preset role.
 // Only attributes whose resources are not already defined (either allowing or denying) are added.
-func AddRoleDefaults(ctx context.Context, role types.Role) (types.Role, error) {
+func AddRoleDefaults(role types.Role) (types.Role, error) {
 	changed := false
 
 	oldLabels := role.GetAllLabels()
@@ -931,10 +719,7 @@ func AddRoleDefaults(ctx context.Context, role types.Role) (types.Role, error) {
 				continue
 			}
 
-			slog.DebugContext(ctx, "Adding default allow rule to role",
-				"rule", defaultRule,
-				"role", role.GetName(),
-			)
+			log.Debugf("Adding default allow rule %v for role %q", defaultRule, role.GetName())
 			rules := role.GetRules(types.Allow)
 			rules = append(rules, defaultRule)
 			role.SetRules(types.Allow, rules)
@@ -949,21 +734,15 @@ func AddRoleDefaults(ctx context.Context, role types.Role) (types.Role, error) {
 	if ok {
 		for _, kind := range []string{
 			types.KindApp,
-			types.KindDatabase,
 			types.KindDatabaseService,
-			types.KindNode,
 			types.KindUserGroup,
 		} {
 			var labels types.Labels
 			switch kind {
 			case types.KindApp:
 				labels = defaultLabels.AppLabels
-			case types.KindDatabase:
-				labels = defaultLabels.DatabaseLabels
 			case types.KindDatabaseService:
 				labels = defaultLabels.DatabaseServiceLabels
-			case types.KindNode:
-				labels = defaultLabels.NodeLabels
 			case types.KindUserGroup:
 				labels = defaultLabels.GroupLabels
 			}
@@ -979,28 +758,18 @@ func AddRoleDefaults(ctx context.Context, role types.Role) (types.Role, error) {
 		}
 	}
 
-	if roleUpdated := applyAccessRequestConditionDefaults(role, enterprise); roleUpdated {
-		changed = true
-	}
-
-	if roleUpdated := applyAccessReviewConditionDefaults(role, enterprise); roleUpdated {
-		changed = true
-	}
-
-	if len(role.GetIdentityCenterAccountAssignments(types.Allow)) == 0 {
-		assignments := defaultAllowAccountAssignments(enterprise)[role.GetName()]
-		if assignments != nil {
-			role.SetIdentityCenterAccountAssignments(types.Allow, assignments)
+	if role.GetAccessRequestConditions(types.Allow).IsEmpty() {
+		arc := defaultAllowAccessRequestConditions(enterprise)[role.GetName()]
+		if arc != nil {
+			role.SetAccessRequestConditions(types.Allow, *arc)
 			changed = true
 		}
 	}
 
-	// GitHub permissions.
-	if len(role.GetGitHubPermissions(types.Allow)) == 0 {
-		if githubOrgs := defaultGitHubOrgs()[role.GetName()]; len(githubOrgs) > 0 {
-			role.SetGitHubPermissions(types.Allow, []types.GitHubPermission{{
-				Organizations: githubOrgs,
-			}})
+	if role.GetAccessReviewConditions(types.Allow).IsEmpty() {
+		arc := defaultAllowAccessReviewConditions(enterprise)[role.GetName()]
+		if arc != nil {
+			role.SetAccessReviewConditions(types.Allow, *arc)
 			changed = true
 		}
 	}
@@ -1010,72 +779,6 @@ func AddRoleDefaults(ctx context.Context, role types.Role) (types.Role, error) {
 	}
 
 	return role, nil
-}
-
-func mergeStrings(dst, src []string) (merged []string, changed bool) {
-	items := utils.NewSet[string](dst...)
-	items.Add(src...)
-	if len(items) == len(dst) {
-		return dst, false
-	}
-	dst = items.Elements()
-	slices.Sort(dst)
-	return dst, true
-}
-
-func applyAccessRequestConditionDefaults(role types.Role, enterprise bool) bool {
-	defaults := defaultAllowAccessRequestConditions(enterprise)[role.GetName()]
-	if defaults == nil {
-		return false
-	}
-
-	target := role.GetAccessRequestConditions(types.Allow)
-	changed := false
-	if target.IsEmpty() {
-		target = *defaults
-		changed = true
-	} else {
-		var rolesUpdated bool
-
-		target.Roles, rolesUpdated = mergeStrings(target.Roles, defaults.Roles)
-		changed = changed || rolesUpdated
-
-		target.SearchAsRoles, rolesUpdated = mergeStrings(target.SearchAsRoles, defaults.SearchAsRoles)
-		changed = changed || rolesUpdated
-	}
-
-	if changed {
-		role.SetAccessRequestConditions(types.Allow, target)
-	}
-
-	return changed
-}
-
-func applyAccessReviewConditionDefaults(role types.Role, enterprise bool) bool {
-	defaults := defaultAllowAccessReviewConditions(enterprise)[role.GetName()]
-	if defaults == nil {
-		return false
-	}
-
-	target := role.GetAccessReviewConditions(types.Allow)
-	changed := false
-	if target.IsEmpty() {
-		target = *defaults
-		changed = true
-	} else {
-		var rolesUpdated bool
-
-		target.Roles, rolesUpdated = mergeStrings(target.Roles, defaults.Roles)
-		changed = changed || rolesUpdated
-
-		target.PreviewAsRoles, rolesUpdated = mergeStrings(target.PreviewAsRoles, defaults.PreviewAsRoles)
-		changed = changed || rolesUpdated
-	}
-
-	if changed {
-		role.SetAccessReviewConditions(types.Allow, target)
-	}
-	return changed
 }
 
 func labelMatchersUnset(role types.Role, kind string) (bool, error) {
@@ -1104,10 +807,13 @@ func resourceBelongsToRules(rules []types.Rule, resources []string) bool {
 }
 
 func updateAllowLabels(role types.Role, kind string, defaultLabels types.Labels) (bool, error) {
-	var changed bool
-	if unset, err := labelMatchersUnset(role, kind); err != nil {
+	unset, err := labelMatchersUnset(role, kind)
+	if err != nil {
 		return false, trace.Wrap(err)
-	} else if unset && len(defaultLabels) > 0 {
+	}
+
+	var changed bool
+	if unset && len(defaultLabels) > 0 {
 		role.SetLabelMatchers(types.Allow, kind, types.LabelMatchers{
 			Labels: defaultLabels,
 		})
@@ -1115,10 +821,4 @@ func updateAllowLabels(role types.Role, kind string, defaultLabels types.Labels)
 	}
 
 	return changed, nil
-}
-
-func defaultGitHubOrgs() map[string][]string {
-	return map[string][]string{
-		teleport.PresetAccessRoleName: []string{teleport.TraitInternalGitHubOrgs},
-	}
 }

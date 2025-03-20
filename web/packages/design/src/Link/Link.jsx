@@ -16,9 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
 
-import { color, space } from 'design/system';
+import { space, color } from 'design/system';
 
 function Link({ ...props }) {
   return <StyledButtonLink {...props} />;
@@ -30,6 +31,7 @@ const StyledButtonLink = styled.a.attrs({
   rel: 'noreferrer',
 })`
   color: ${({ theme }) => theme.colors.buttons.link.default};
+  font-weight: normal;
   background: none;
   text-decoration: underline;
   text-transform: none;

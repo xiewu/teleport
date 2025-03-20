@@ -74,7 +74,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"log/slog"
 	"os"
 	"runtime/cgo"
 	"sync"
@@ -84,44 +83,37 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/srv/desktop/tdp"
 	"github.com/gravitational/teleport/lib/utils"
-	logutils "github.com/gravitational/teleport/lib/utils/log"
 )
 
 func init() {
-	var rustLogLevel string
-
 	// initialize the Rust logger by setting $RUST_LOG based
-	// on the slog log level
+	// on the logrus log level
 	// (unless RUST_LOG is already explicitly set, then we
 	// assume the user knows what they want)
-	rl := os.Getenv("RUST_LOG")
-	if rl == "" {
-		ctx := context.Background()
-		switch {
-		case slog.Default().Enabled(ctx, logutils.TraceLevel):
+	if rl := os.Getenv("RUST_LOG"); rl == "" {
+		var rustLogLevel string
+		switch l := logrus.GetLevel(); l {
+		case logrus.TraceLevel:
 			rustLogLevel = "trace"
-		case slog.Default().Enabled(ctx, slog.LevelDebug):
+		case logrus.DebugLevel:
 			rustLogLevel = "debug"
-		case slog.Default().Enabled(ctx, slog.LevelInfo):
+		case logrus.InfoLevel:
 			rustLogLevel = "info"
-		case slog.Default().Enabled(ctx, slog.LevelWarn):
+		case logrus.WarnLevel:
 			rustLogLevel = "warn"
 		default:
 			rustLogLevel = "error"
 		}
 
-		// sspi-rs info-level logs are extremely verbose, so filter them out by default
-		// TODO(zmb3): remove this after sspi-rs logging is cleaned up
-		rustLogLevel += ",sspi=warn"
-
 		os.Setenv("RUST_LOG", rustLogLevel)
 	}
 
-	C.rdpclient_init_log()
+	C.init()
 }
 
 // Client is the RDP client.
@@ -235,10 +227,10 @@ func (c *Client) readClientUsername() error {
 		}
 		u, ok := msg.(tdp.ClientUsername)
 		if !ok {
-			c.cfg.Logger.DebugContext(context.Background(), "Received unexpected ClientUsername message", "message_type", logutils.TypeAttr(msg))
+			c.cfg.Log.Debugf("Expected ClientUsername message, got %T", msg)
 			continue
 		}
-		c.cfg.Logger.DebugContext(context.Background(), "Got RDP username", "username", u.Username)
+		c.cfg.Log.Debugf("Got RDP username %q", u.Username)
 		c.username = u.Username
 		return nil
 	}
@@ -248,20 +240,20 @@ func (c *Client) readClientSize() error {
 	for {
 		s, err := c.cfg.Conn.ReadClientScreenSpec()
 		if err != nil {
-			c.cfg.Logger.DebugContext(context.Background(), "Failed to read client screen spec", "error", err)
+			c.cfg.Log.Debug("Error reading client screen spec: %v", err)
 			continue
 		}
 
 		if c.cfg.hasSizeOverride() {
 			// Some desktops have a screen size in their resource definition.
 			// If non-zero then we always request this screen size.
-			c.cfg.Logger.DebugContext(context.Background(), "Forcing a fixed screen size", "width", c.cfg.Width, "height", c.cfg.Height)
+			c.cfg.Log.Debugf("Forcing a screen size of %dx%d", c.cfg.Width, c.cfg.Height)
 			c.requestedWidth = uint16(c.cfg.Width)
 			c.requestedHeight = uint16(c.cfg.Height)
 		} else {
 			// If not otherwise specified, we request the screen size based
 			// on what the client (browser) reports.
-			c.cfg.Logger.DebugContext(context.Background(), "Got RDP screen size", "width", s.Width, "height", s.Height)
+			c.cfg.Log.Debugf("Got RDP screen size %dx%d", s.Width, s.Height)
 			c.requestedWidth = uint16(s.Width)
 			c.requestedHeight = uint16(s.Height)
 		}
@@ -271,7 +263,7 @@ func (c *Client) readClientSize() error {
 				"screen size of %d x %d is greater than the maximum allowed by RDP (%d x %d)",
 				s.Width, s.Height, types.MaxRDPScreenWidth, types.MaxRDPScreenHeight,
 			)
-			if err := c.sendTDPAlert(err.Error(), tdp.SeverityError); err != nil {
+			if err := c.sendTDPNotification(err.Error(), tdp.SeverityError); err != nil {
 				return trace.Wrap(err)
 			}
 			return trace.Wrap(err)
@@ -281,42 +273,24 @@ func (c *Client) readClientSize() error {
 	}
 }
 
-func (c *Client) sendTDPAlert(message string, severity tdp.Severity) error {
-	return c.cfg.Conn.WriteMessage(tdp.Alert{Message: message, Severity: severity})
+func (c *Client) sendTDPNotification(message string, severity tdp.Severity) error {
+	return c.cfg.Conn.WriteMessage(tdp.Notification{Message: message, Severity: severity})
 }
 
 func (c *Client) startRustRDP(ctx context.Context) error {
-	c.cfg.Logger.InfoContext(ctx, "Rust RDP loop starting")
-	defer c.cfg.Logger.InfoContext(ctx, "Rust RDP loop finished")
+	c.cfg.Log.Info("Rust RDP loop starting")
+	defer c.cfg.Log.Info("Rust RDP loop finished")
 
 	userCertDER, userKeyDER, err := c.cfg.GenerateUserCert(ctx, c.username, c.cfg.CertTTL)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	// [username] need only be valid for the duration of
-	// C.client_run. It is copied on the Rust side and
-	// thus can be freed here.
-	username := C.CString(c.username)
-	defer C.free(unsafe.Pointer(username))
-
 	// [addr] need only be valid for the duration of
 	// C.client_run. It is copied on the Rust side and
 	// thus can be freed here.
 	addr := C.CString(c.cfg.Addr)
 	defer C.free(unsafe.Pointer(addr))
-
-	// [kdcAddr] need only be valid for the duration of
-	// C.client_run. It is copied on the Rust side and
-	// thus can be freed here.
-	kdcAddr := C.CString(c.cfg.KDCAddr)
-	defer C.free(unsafe.Pointer(kdcAddr))
-
-	// [computerName] need only be valid for the duration of
-	// C.client_run. It is copied on the Rust side and
-	// thus can be freed here.
-	computerName := C.CString(c.cfg.ComputerName)
-	defer C.free(unsafe.Pointer(computerName))
 
 	cert_der, err := utils.UnsafeSliceData(userCertDER)
 	if err != nil {
@@ -348,12 +322,7 @@ func (c *Client) startRustRDP(ctx context.Context) error {
 	res := C.client_run(
 		C.uintptr_t(c.handle),
 		C.CGOConnectParams{
-			ad:               C.bool(c.cfg.AD),
-			nla:              C.bool(c.cfg.NLA),
-			go_username:      username,
-			go_addr:          addr,
-			go_computer_name: computerName,
-			go_kdc_addr:      kdcAddr,
+			go_addr: addr,
 			// cert length and bytes.
 			cert_der_len: C.uint32_t(len(userCertDER)),
 			cert_der:     (*C.uint8_t)(cert_der),
@@ -375,7 +344,7 @@ func (c *Client) startRustRDP(ctx context.Context) error {
 		defer C.free_string(res.message)
 	}
 
-	// If the client exited with an error, send a TDP notification and return it.
+	// If the client exited with an error, send a tdp error notification and return it.
 	if res.err_code != C.ErrCodeSuccess {
 		var err error
 
@@ -385,7 +354,7 @@ func (c *Client) startRustRDP(ctx context.Context) error {
 			err = trace.Errorf("RDP client exited with an unknown error")
 		}
 
-		c.sendTDPAlert(err.Error(), tdp.SeverityError)
+		c.sendTDPNotification(err.Error(), tdp.SeverityError)
 		return err
 	}
 
@@ -395,9 +364,8 @@ func (c *Client) startRustRDP(ctx context.Context) error {
 		message = "RDP client exited gracefully"
 	}
 
-	c.cfg.Logger.InfoContext(ctx, message)
-
-	c.sendTDPAlert(message, tdp.SeverityError)
+	c.cfg.Log.Info(message)
+	c.sendTDPNotification(message, tdp.SeverityError)
 
 	return nil
 }
@@ -412,8 +380,8 @@ func (c *Client) stopRustRDP() error {
 // start_input_streaming kicks off goroutines for input/output streaming and returns right
 // away. Use Wait to wait for them to finish.
 func (c *Client) startInputStreaming(stopCh chan struct{}) error {
-	c.cfg.Logger.InfoContext(context.Background(), "TDP input streaming starting")
-	defer c.cfg.Logger.InfoContext(context.Background(), "TDP input streaming finished")
+	c.cfg.Log.Info("TDP input streaming starting")
+	defer c.cfg.Log.Info("TDP input streaming finished")
 
 	var withheldResize *tdp.ClientScreenSpec
 	for {
@@ -430,7 +398,7 @@ func (c *Client) startInputStreaming(stopCh chan struct{}) error {
 			c.cfg.Conn.SendNotification(err.Error(), tdp.SeverityWarning)
 			continue
 		} else if err != nil {
-			c.cfg.Logger.WarnContext(context.Background(), "Failed reading TDP input message", "error", err)
+			c.cfg.Log.Warningf("Failed reading TDP input message: %v", err)
 			return err
 		}
 
@@ -440,10 +408,10 @@ func (c *Client) startInputStreaming(stopCh chan struct{}) error {
 				// Withhold the latest screen size until the client is ready for input. This ensures
 				// that the client receives the correct screen size when it is ready.
 				withheldResize = &m
-				c.cfg.Logger.DebugContext(context.Background(), "Withholding screen size until client is ready for input", "width", m.Width, "height", m.Height)
+				c.cfg.Log.Debugf("Withholding screen size until client is ready for input: %dx%d", m.Width, m.Height)
 			default:
 				// Ignore all messages except ClientScreenSpec until the client is ready for input.
-				c.cfg.Logger.DebugContext(context.Background(), "Dropping TDP input message, not ready for input")
+				c.cfg.Log.Debugf("Dropping TDP input message, not ready for input: %T", msg)
 			}
 
 			continue
@@ -452,7 +420,7 @@ func (c *Client) startInputStreaming(stopCh chan struct{}) error {
 		c.UpdateClientActivity()
 
 		if withheldResize != nil {
-			c.cfg.Logger.DebugContext(context.Background(), "Sending withheld screen size to client")
+			c.cfg.Log.Debug("Sending withheld screen size to client")
 			if err := c.handleTDPInput(*withheldResize); err != nil {
 				return trace.Wrap(err)
 			}
@@ -475,7 +443,7 @@ func (c *Client) handleTDPInput(msg tdp.Message) error {
 			return nil
 		}
 
-		c.cfg.Logger.DebugContext(context.Background(), "Client changed screen size", "width", m.Width, "height", m.Height)
+		c.cfg.Log.Debugf("Client changed screen size: %dx%d", m.Width, m.Height)
 		if errCode := C.client_write_screen_resize(
 			C.uintptr_t(c.handle),
 			C.uint32_t(m.Width),
@@ -571,7 +539,7 @@ func (c *Client) handleTDPInput(msg tdp.Message) error {
 		}
 	case tdp.ClipboardData:
 		if !c.cfg.AllowClipboard {
-			c.cfg.Logger.DebugContext(context.Background(), "Received clipboard data, but clipboard is disabled")
+			c.cfg.Log.Debug("Received clipboard data, but clipboard is disabled")
 			return nil
 		}
 		if len(m) > 0 {
@@ -583,7 +551,7 @@ func (c *Client) handleTDPInput(msg tdp.Message) error {
 				return trace.Errorf("ClipboardData: client_update_clipboard (len=%v): %v", len(m), errCode)
 			}
 		} else {
-			c.cfg.Logger.WarnContext(context.Background(), "Received an empty clipboard message")
+			c.cfg.Log.Warn("Received an empty clipboard message")
 		}
 	case tdp.SharedDirectoryAnnounce:
 		if c.cfg.AllowDirectorySharing {
@@ -725,7 +693,7 @@ func (c *Client) handleTDPInput(msg tdp.Message) error {
 	case tdp.RDPResponsePDU:
 		pduLen := uint32(len(m))
 		if pduLen == 0 {
-			c.cfg.Logger.ErrorContext(context.Background(), "response PDU empty")
+			c.cfg.Log.Error("response PDU empty")
 		}
 		rdpResponsePDU := (*C.uint8_t)(unsafe.SliceData(m))
 
@@ -735,10 +703,8 @@ func (c *Client) handleTDPInput(msg tdp.Message) error {
 			return trace.Errorf("RDPResponsePDU failed: %v", errCode)
 		}
 	default:
-		c.cfg.Logger.WarnContext(
-			context.Background(),
-			"Skipping unimplemented TDP message",
-			"type", logutils.TypeAttr(msg),
+		c.cfg.Log.Warnf(
+			"Skipping unimplemented TDP message: %T", msg,
 		)
 	}
 
@@ -831,37 +797,37 @@ func cgo_write_rdp_license(handle C.uintptr_t, req *C.CGOLicenseRequest, data *C
 }
 
 func (c *Client) readRDPLicense(ctx context.Context, key types.RDPLicenseKey) ([]byte, error) {
-	log := c.cfg.Logger.With(
-		"issuer", key.Issuer,
-		"company", key.Company,
-		"version", key.Version,
-		"product", key.ProductID,
-	)
+	log := c.cfg.Log.WithFields(logrus.Fields{
+		"issuer":  key.Issuer,
+		"company": key.Company,
+		"version": key.Version,
+		"product": key.ProductID,
+	})
 
 	license, err := c.cfg.LicenseStore.ReadRDPLicense(ctx, &key)
 	switch {
 	case trace.IsNotFound(err):
-		log.InfoContext(ctx, "existing RDP license not found")
+		log.Info("existing RDP license not found")
 	case err != nil:
-		log.ErrorContext(ctx, "could not look up existing RDP license", "error", err)
+		log.Error("could not look up existing RDP license", "error", err)
 	case len(license) > 0:
-		log.InfoContext(ctx, "found existing RDP license")
+		log.Info("found existing RDP license")
 	}
 
 	return license, trace.Wrap(err)
 }
 
 func (c *Client) writeRDPLicense(ctx context.Context, key types.RDPLicenseKey, license []byte) error {
-	log := c.cfg.Logger.With(
-		"issuer", key.Issuer,
-		"company", key.Company,
-		"version", key.Version,
-		"product", key.ProductID,
-	)
-	log.InfoContext(ctx, "writing RDP license to storage")
+	log := c.cfg.Log.WithFields(logrus.Fields{
+		"issuer":  key.Issuer,
+		"company": key.Company,
+		"version": key.Version,
+		"product": key.ProductID,
+	})
+	log.Info("writing RDP license to storage")
 	err := c.cfg.LicenseStore.WriteRDPLicense(ctx, &key, license)
 	if err != nil {
-		log.ErrorContext(ctx, "could not write RDP license", "error", err)
+		log.Error("could not write RDP license", "error", err)
 	}
 	return trace.Wrap(err)
 }
@@ -883,7 +849,7 @@ func (c *Client) handleRDPFastPathPDU(data []byte) C.CGOErrCode {
 	atomic.StoreUint32(&c.readyForInput, 1)
 
 	if err := c.cfg.Conn.WriteMessage(tdp.RDPFastPathPDU(data)); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed handling RDPFastPathPDU", "error", err)
+		c.cfg.Log.Errorf("failed handling RDPFastPathPDU: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -905,11 +871,11 @@ func cgo_handle_rdp_connection_activated(
 }
 
 func (c *Client) handleRDPConnectionActivated(ioChannelID, userChannelID, screenWidth, screenHeight C.uint16_t) C.CGOErrCode {
-	c.cfg.Logger.DebugContext(context.Background(), "Received RDP channel IDs", "io_channel_id", ioChannelID, "user_channel_id", userChannelID)
+	c.cfg.Log.Debugf("Received RDP channel IDs: io_channel_id=%d, user_channel_id=%d", ioChannelID, userChannelID)
 
 	// Note: RDP doesn't always use the resolution we asked for.
 	// This is especially true when we request dimensions that are not a multiple of 4.
-	c.cfg.Logger.DebugContext(context.Background(), "RDP server provided resolution", "width", screenWidth, "height", screenHeight)
+	c.cfg.Log.Debugf("RDP server provided resolution of %dx%d", screenWidth, screenHeight)
 
 	if err := c.cfg.Conn.WriteMessage(tdp.ConnectionActivated{
 		IOChannelID:   uint16(ioChannelID),
@@ -917,7 +883,7 @@ func (c *Client) handleRDPConnectionActivated(ioChannelID, userChannelID, screen
 		ScreenWidth:   uint16(screenWidth),
 		ScreenHeight:  uint16(screenHeight),
 	}); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed handling connection initialization", "error", err)
+		c.cfg.Log.Errorf("failed handling RDPChannelIDs: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -936,10 +902,10 @@ func cgo_handle_remote_copy(handle C.uintptr_t, data *C.uint8_t, length C.uint32
 // handleRemoteCopy is called from Rust when data is copied
 // on the remote desktop
 func (c *Client) handleRemoteCopy(data []byte) C.CGOErrCode {
-	c.cfg.Logger.DebugContext(context.Background(), "Received clipboard data from Windows desktop", "len", len(data))
+	c.cfg.Log.Debugf("Received %d bytes of clipboard data from Windows desktop", len(data))
 
 	if err := c.cfg.Conn.WriteMessage(tdp.ClipboardData(data)); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed handling remote copy", "error", err)
+		c.cfg.Log.Errorf("failed handling remote copy: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -966,7 +932,7 @@ func (c *Client) sharedDirectoryAcknowledge(ack tdp.SharedDirectoryAcknowledge) 
 	}
 
 	if err := c.cfg.Conn.WriteMessage(ack); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed to send SharedDirectoryAcknowledge", "error", err)
+		c.cfg.Log.Errorf("failed to send SharedDirectoryAcknowledge: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -993,7 +959,7 @@ func (c *Client) sharedDirectoryInfoRequest(req tdp.SharedDirectoryInfoRequest) 
 	}
 
 	if err := c.cfg.Conn.WriteMessage(req); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed to send SharedDirectoryAcknowledge", "error", err)
+		c.cfg.Log.Errorf("failed to send SharedDirectoryAcknowledge: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -1022,7 +988,7 @@ func (c *Client) sharedDirectoryCreateRequest(req tdp.SharedDirectoryCreateReque
 	}
 
 	if err := c.cfg.Conn.WriteMessage(req); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed to send SharedDirectoryCreateRequest", "error", err)
+		c.cfg.Log.Errorf("failed to send SharedDirectoryCreateRequest: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -1049,7 +1015,7 @@ func (c *Client) sharedDirectoryDeleteRequest(req tdp.SharedDirectoryDeleteReque
 	}
 
 	if err := c.cfg.Conn.WriteMessage(req); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed to send SharedDirectoryDeleteRequest", "error", err)
+		c.cfg.Log.Errorf("failed to send SharedDirectoryDeleteRequest: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -1076,7 +1042,7 @@ func (c *Client) sharedDirectoryListRequest(req tdp.SharedDirectoryListRequest) 
 	}
 
 	if err := c.cfg.Conn.WriteMessage(req); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed to send SharedDirectoryListRequest", "error", err)
+		c.cfg.Log.Errorf("failed to send SharedDirectoryListRequest: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -1105,7 +1071,7 @@ func (c *Client) sharedDirectoryReadRequest(req tdp.SharedDirectoryReadRequest) 
 	}
 
 	if err := c.cfg.Conn.WriteMessage(req); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed to send SharedDirectoryReadRequest", "error", err)
+		c.cfg.Log.Errorf("failed to send SharedDirectoryReadRequest: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -1135,7 +1101,7 @@ func (c *Client) sharedDirectoryWriteRequest(req tdp.SharedDirectoryWriteRequest
 	}
 
 	if err := c.cfg.Conn.WriteMessage(req); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed to send SharedDirectoryWriteRequest", "error", err)
+		c.cfg.Log.Errorf("failed to send SharedDirectoryWriteRequest: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
@@ -1161,10 +1127,11 @@ func (c *Client) sharedDirectoryMoveRequest(req tdp.SharedDirectoryMoveRequest) 
 	}
 
 	if err := c.cfg.Conn.WriteMessage(req); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed to send SharedDirectoryMoveRequest", "error", err)
+		c.cfg.Log.Errorf("failed to send SharedDirectoryMoveRequest: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
+
 }
 
 //export cgo_tdp_sd_truncate_request
@@ -1187,10 +1154,11 @@ func (c *Client) sharedDirectoryTruncateRequest(req tdp.SharedDirectoryTruncateR
 	}
 
 	if err := c.cfg.Conn.WriteMessage(req); err != nil {
-		c.cfg.Logger.ErrorContext(context.Background(), "failed to send SharedDirectoryTruncateRequest", "error", err)
+		c.cfg.Log.Errorf("failed to send SharedDirectoryTruncateRequest: %v", err)
 		return C.ErrCodeFailure
 	}
 	return C.ErrCodeSuccess
+
 }
 
 // GetClientLastActive returns the time of the last recorded activity.

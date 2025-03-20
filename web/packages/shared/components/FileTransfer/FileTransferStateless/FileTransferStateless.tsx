@@ -16,15 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
-
 import { ButtonIcon, Flex, Text } from 'design';
 import { Cross as CloseIcon } from 'design/Icon';
 
-import { DownloadForm } from './DownloadForm';
-import { FileList } from './FileList';
 import { FileTransferDialogDirection, TransferredFile } from './types';
+import { DownloadForm } from './DownloadForm';
 import { UploadForm } from './UploadForm';
+import { FileList } from './FileList';
 
 export interface FileTransferStatelessProps {
   openedDialog: FileTransferDialogDirection;
@@ -57,6 +57,7 @@ export function FileTransferStateless(props: FileTransferStatelessProps) {
   return (
     <Container
       data-testid="file-transfer-container"
+      backgroundColor={props.backgroundColor}
       onKeyDown={e => {
         if (e.key !== 'Escape') {
           return;
@@ -74,8 +75,7 @@ export function FileTransferStateless(props: FileTransferStatelessProps) {
         <ButtonClose onClick={props.onClose} />
       </Flex>
       {items.Form}
-      {/* TODO(bl-nero): This should be a part of the new input design (in the helper text line). */}
-      <Text color="error.hover" typography="body3" mt={1}>
+      <Text color="error.hover" typography="body2" mt={1}>
         {props.errorText}
       </Text>
       <FileList files={props.files} onCancel={props.onCancel} />

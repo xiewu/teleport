@@ -17,5 +17,4 @@
  */
 
 import JoinedUsers from './JoinedUsers';
-
 export default JoinedUsers;

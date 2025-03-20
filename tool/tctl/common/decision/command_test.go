@@ -17,36 +17,12 @@
 package decision_test
 
 import (
-	"bytes"
 	"context"
-	"errors"
-	"testing"
 
-	"github.com/alecthomas/kingpin/v2"
-	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 
 	decisionpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/decision/v1alpha1"
-	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/lib/auth/authclient"
-	"github.com/gravitational/teleport/tool/tctl/common/decision"
 )
-
-type fakeClient struct {
-	clusterName    string
-	decisionClient decisionpb.DecisionServiceClient
-}
-
-func (c fakeClient) GetClusterName(_ context.Context) (types.ClusterName, error) {
-	return types.NewClusterName(types.ClusterNameSpecV2{
-		ClusterName: c.clusterName,
-		ClusterID:   c.clusterName,
-	})
-}
-
-func (c fakeClient) DecisionClient() decisionpb.DecisionServiceClient {
-	return c.decisionClient
-}
 
 type fakeDecisionServiceClient struct {
 	decisionpb.DecisionServiceClient
@@ -63,29 +39,4 @@ func (f fakeDecisionServiceClient) EvaluateSSHAccess(ctx context.Context, in *de
 // EvaluateDatabaseAccess evaluate a database access attempt.
 func (f fakeDecisionServiceClient) EvaluateDatabaseAccess(ctx context.Context, in *decisionpb.EvaluateDatabaseAccessRequest, opts ...grpc.CallOption) (*decisionpb.EvaluateDatabaseAccessResponse, error) {
 	return f.databaseResponse, nil
-}
-
-func TestCommands(t *testing.T) {
-	var output bytes.Buffer
-	cmd := decision.Command{Output: &output}
-
-	cmd.Initialize(kingpin.New("tctl", "test"), nil, nil)
-
-	match, err := cmd.TryRun(context.Background(), "decision evaluate-ssh-access", func(ctx context.Context) (client *authclient.Client, close func(context.Context), err error) {
-		return nil, nil, errors.New("fail")
-	})
-	assert.True(t, match, "evaluate SSH command did not match")
-	assert.Error(t, err, "expected failure from init function")
-
-	match, err = cmd.TryRun(context.Background(), "decision evaluate-db-access", func(ctx context.Context) (client *authclient.Client, close func(context.Context), err error) {
-		return nil, nil, errors.New("fail")
-	})
-	assert.True(t, match, "evaluate database command did not match")
-	assert.Error(t, err, "expected failure from init function")
-
-	match, err = cmd.TryRun(context.Background(), "decision evaluate-foo", func(ctx context.Context) (client *authclient.Client, close func(context.Context), err error) {
-		return nil, nil, errors.New("fail")
-	})
-	assert.False(t, match, "evaluate foo command matched")
-	assert.NoError(t, err, "error received when no command matched")
 }

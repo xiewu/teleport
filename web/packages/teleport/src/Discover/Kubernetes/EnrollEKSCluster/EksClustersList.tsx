@@ -16,18 +16,20 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import Table from 'design/DataTable';
 import { FetchStatus } from 'design/DataTable/types';
 
-import cfg from 'teleport/config';
 import {
   DisableableCell as Cell,
-  ItemStatus,
-  labelMatcher,
-  Labels,
-  RadioCell,
   StatusCell,
+  ItemStatus,
+  RadioCell,
+  Labels,
+  labelMatcher,
 } from 'teleport/Discover/Shared';
+
+import cfg from 'teleport/config';
 
 import { CheckedEksCluster } from './EnrollEksCluster';
 

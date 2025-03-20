@@ -16,16 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { useContext, useState } from 'react';
-
+import React, { useState, useContext } from 'react';
 import { Option } from 'shared/components/Select';
+
 import useAttempt, { Attempt } from 'shared/hooks/useAttemptNext';
 
 import { ResourceLabel } from 'teleport/services/agents';
 import {
+  createBot as serviceCreateBot,
   createBotToken,
   GITHUB_ACTIONS_LABEL_KEY,
-  createBot as serviceCreateBot,
 } from 'teleport/services/bot';
 import {
   BotUiFlow,
@@ -33,6 +33,7 @@ import {
   GitHubRepoRule,
   RefType,
 } from 'teleport/services/bot/types';
+
 import useTeleport from 'teleport/useTeleport';
 
 export const GITHUB_HOST = 'github.com';
@@ -196,7 +197,7 @@ export function parseRepoAddress(repoAddr: string): {
   let url;
   try {
     url = new URL(repoAddr);
-  } catch {
+  } catch (e) {
     throw new Error('Must be a valid URL');
   }
 

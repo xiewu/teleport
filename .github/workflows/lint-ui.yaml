@@ -8,7 +8,7 @@ on:
       - 'gen/proto/js/**'
       - 'gen/proto/ts/**'
       - 'package.json'
-      - 'pnpm-lock.yaml'
+      - 'yarn.lock'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'tsconfig.json'
@@ -19,7 +19,7 @@ on:
       - 'gen/proto/js/**'
       - 'gen/proto/ts/**'
       - 'package.json'
-      - 'pnpm-lock.yaml'
+      - 'yarn.lock'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'tsconfig.json'
@@ -30,7 +30,7 @@ jobs:
     name: Prettier, ESLint, & TSC
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/gravitational/teleport-buildbox:teleport17
+      image: ghcr.io/gravitational/teleport-buildbox:teleport15
     steps:
       - name: Checkout OSS Teleport
         uses: actions/checkout@v4
@@ -39,22 +39,17 @@ jobs:
         run: |
           node --version
 
-      - name: Install JS dependencies
-        run: |
-          npm install -g corepack@0.31.0
-          pnpm install --frozen-lockfile
+      - name: Install Yarn dependencies
+        run: bash web/packages/build/scripts/yarn-install-frozen-lockfile.sh
 
       - name: Build WASM
-        run: pnpm build-wasm
+        run: yarn build-wasm
 
       - name: Run Type Check
-        run: pnpm type-check
+        run: yarn type-check
 
       - name: Run lint
-        run: pnpm lint
+        run: yarn lint
 
       - name: Run Storybook smoke test
-        run: pnpm storybook-smoke-test
-
-      - name: Lint licenses
-        run: make lint-license
+        run: yarn storybook-smoke-test

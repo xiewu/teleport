@@ -16,8 +16,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ClusterInfo } from 'teleport/services/clusters';
-
 export const clusters = [
   {
     clusterId: 'localhost',
@@ -430,16 +428,3 @@ export const clusters = [
     proxyVersion: '1.14.3',
   },
 ];
-
-export const clusterInfoFixture: ClusterInfo = {
-  authVersion: 'v17.0.0',
-  clusterId: 'cluster-id',
-  connectedText: '',
-  isCloud: false,
-  lastConnected: new Date(),
-  proxyVersion: 'v17.0.0',
-  publicURL: 'example.teleport.com',
-  status: 'active',
-  url: 'example.teleport.com',
-  licenseExpiryDateText: new Date().toISOString(),
-};

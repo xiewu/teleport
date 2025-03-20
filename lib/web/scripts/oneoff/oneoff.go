@@ -22,7 +22,6 @@ import (
 	"bytes"
 	_ "embed"
 	"slices"
-	"strings"
 	"text/template"
 
 	"github.com/gravitational/trace"
@@ -64,12 +63,9 @@ type OneOffScriptParams struct {
 	// Used for testing.
 	binSudo string
 
-	// Entrypoint is the name of the binary from the teleport package. Defaults to "teleport", but can be set to
-	// other binaries such as "teleport-update" or "tbot".
-	Entrypoint string
-	// EntrypointArgs is the arguments to pass to the Entrypoint binary.
+	// TeleportArgs is the arguments to pass to the teleport binary.
 	// Eg, 'version'
-	EntrypointArgs string
+	TeleportArgs string
 
 	// BinUname is the binary used to get OS name and Architecture of the host.
 	// Defaults to `uname`.
@@ -92,21 +88,14 @@ type OneOffScriptParams struct {
 	// - teleport-ent
 	TeleportFlavor string
 
-	// TeleportFIPS represents if the script should install a FIPS build of Teleport.
-	TeleportFIPS bool
-
 	// SuccessMessage is a message shown to the user after the one off is completed.
 	SuccessMessage string
 }
 
 // CheckAndSetDefaults checks if the required params ara present.
 func (p *OneOffScriptParams) CheckAndSetDefaults() error {
-	if p.EntrypointArgs == "" {
+	if p.TeleportArgs == "" {
 		return trace.BadParameter("missing teleport args")
-	}
-
-	if p.Entrypoint == "" {
-		p.Entrypoint = "teleport"
 	}
 
 	if p.BinUname == "" {
@@ -128,7 +117,6 @@ func (p *OneOffScriptParams) CheckAndSetDefaults() error {
 	if p.CDNBaseURL == "" {
 		p.CDNBaseURL = teleportassets.CDNBaseURL()
 	}
-	p.CDNBaseURL = strings.TrimRight(p.CDNBaseURL, "/")
 
 	if p.TeleportFlavor == "" {
 		p.TeleportFlavor = types.PackageNameOSS

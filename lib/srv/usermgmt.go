@@ -134,7 +134,7 @@ type HostUsersBackend interface {
 	// CreateGroup creates a group on a host.
 	CreateGroup(group string, gid string) error
 	// CreateUser creates a user on a host.
-	CreateUser(name string, groups []string, opts host.UserOpts) error
+	CreateUser(name string, groups []string, home, uid, gid string) error
 	// DeleteUser deletes a user from a host.
 	DeleteUser(name string) error
 	// CreateHomeDirectory creates the users home directory and copies in /etc/skel
@@ -272,9 +272,6 @@ func (u *HostSudoersManagement) RemoveSudoers(name string) error {
 // unmanagedUserErr is returned when attempting to modify or interact with a user that is not managed by Teleport.
 var unmanagedUserErr = errors.New("user not managed by teleport")
 
-// staticConversionErr is returned when attempting to convert a managed host user to or from a static host user
-var staticConversionErr = errors.New("managed host users can not be converted to or from a static host user")
-
 func (u *HostUserManagement) updateUser(hostUser HostUser, ui services.HostUsersInfo) error {
 	ctx := u.ctx
 	log := u.log.With(
@@ -284,7 +281,7 @@ func (u *HostUserManagement) updateUser(hostUser HostUser, ui services.HostUsers
 		"gid", hostUser.GID,
 	)
 
-	if ui.Mode == services.HostUserModeKeep {
+	if ui.Mode == types.CreateHostUserMode_HOST_USER_MODE_KEEP {
 		_, hasKeepGroup := hostUser.Groups[types.TeleportKeepGroup]
 		if !hasKeepGroup {
 			home, err := u.backend.GetDefaultHomeDirectory(hostUser.Name)
@@ -336,40 +333,35 @@ func (u *HostUserManagement) createUser(name string, ui services.HostUsersInfo) 
 		"host_username", name,
 		"mode", ui.Mode,
 		"uid", ui.UID,
-		"shell", ui.Shell,
 	)
 
 	log.DebugContext(u.ctx, "Attempting to create host user", "gid", ui.GID)
 
 	var err error
-	userOpts := host.UserOpts{
-		UID:   ui.UID,
-		GID:   ui.GID,
-		Shell: ui.Shell,
-	}
+	var home string
 
 	switch ui.Mode {
-	case services.HostUserModeKeep, services.HostUserModeStatic:
-		userOpts.Home, err = u.backend.GetDefaultHomeDirectory(name)
+	case types.CreateHostUserMode_HOST_USER_MODE_KEEP:
+		home, err = u.backend.GetDefaultHomeDirectory(name)
 		if err != nil {
 			return trace.Wrap(err)
 		}
 	}
 
-	err = u.doWithUserLock(func(_ types.SemaphoreLease) error {
-		if ui.Mode == services.HostUserModeDrop {
+	return trace.Wrap(u.doWithUserLock(func(_ types.SemaphoreLease) error {
+		if ui.Mode != types.CreateHostUserMode_HOST_USER_MODE_KEEP {
 			if err := u.storage.UpsertHostUserInteractionTime(u.ctx, name, time.Now()); err != nil {
 				return trace.Wrap(err)
 			}
 		}
 
-		userOpts.GID, err = u.resolveGID(name, ui.Groups, ui.GID)
+		gid, err := u.resolveGID(name, ui.Groups, ui.GID)
 		if err != nil {
 			return trace.Wrap(err)
 		}
 
-		log.InfoContext(u.ctx, "Creating host user", "gid", userOpts.GID)
-		err = u.backend.CreateUser(name, ui.Groups, userOpts)
+		log.InfoContext(u.ctx, "Creating host user", "gid", gid)
+		err = u.backend.CreateUser(name, ui.Groups, home, ui.UID, gid)
 		if err != nil && !trace.IsAlreadyExists(err) {
 			return trace.WrapWithMessage(err, "error while creating user")
 		}
@@ -379,22 +371,20 @@ func (u *HostUserManagement) createUser(name string, ui services.HostUsersInfo) 
 			return trace.Wrap(err)
 		}
 
-		if userOpts.Home != "" {
-			log.InfoContext(u.ctx, "Attempting to create home directory", "home", userOpts.Home, "gid", userOpts.GID)
-			if err := u.backend.CreateHomeDirectory(userOpts.Home, user.Uid, user.Gid); err != nil {
+		if home != "" {
+			log.InfoContext(u.ctx, "Attempting to create home directory", "home", home, "gid", gid)
+			if err := u.backend.CreateHomeDirectory(home, user.Uid, user.Gid); err != nil {
 				if !os.IsExist(err) {
 					return trace.Wrap(err)
 				}
-				log.InfoContext(u.ctx, "Home directory already exists", "home", userOpts.Home, "gid", userOpts.GID)
+				log.InfoContext(u.ctx, "Home directory already exists", "home", home, "gid", gid)
 			} else {
-				log.InfoContext(u.ctx, "Created home directory", "home", userOpts.Home, "gid", userOpts.GID)
+				log.InfoContext(u.ctx, "Created home directory", "home", home, "gid", gid)
 			}
 		}
 
 		return nil
-	})
-
-	return trace.Wrap(err)
+	}))
 }
 
 func (u *HostUserManagement) ensureGroupsExist(groups ...string) error {
@@ -436,12 +426,6 @@ func (u *HostUserManagement) UpsertUser(name string, ui services.HostUsersInfo) 
 	log.DebugContext(u.ctx, "Resolving groups for user")
 	groups, err := ResolveGroups(log, hostUser, ui)
 	if err != nil {
-		if errors.Is(err, staticConversionErr) {
-			log.DebugContext(u.ctx, "Aborting host user creation, can't convert between auto-provisioned and static host users.",
-				"login", name)
-
-		}
-
 		if errors.Is(err, unmanagedUserErr) {
 			log.DebugContext(u.ctx, "Aborting host user creation, can't update unmanaged user unless explicitly migrating.",
 				"login", name)
@@ -458,7 +442,7 @@ func (u *HostUserManagement) UpsertUser(name string, ui services.HostUsersInfo) 
 	ui.Groups = groups
 
 	var closer io.Closer
-	if ui.Mode == services.HostUserModeDrop {
+	if ui.Mode == types.CreateHostUserMode_HOST_USER_MODE_INSECURE_DROP {
 		closer = &userCloser{
 			username: name,
 			users:    u,
@@ -485,8 +469,6 @@ func (u *HostUserManagement) UpsertUser(name string, ui services.HostUsersInfo) 
 	return closer, nil
 }
 
-const userLeaseDuration = time.Second * 20
-
 func (u *HostUserManagement) doWithUserLock(f func(types.SemaphoreLease) error) error {
 	lock, err := services.AcquireSemaphoreWithRetry(u.ctx,
 		services.AcquireSemaphoreWithRetryConfig{
@@ -495,7 +477,7 @@ func (u *HostUserManagement) doWithUserLock(f func(types.SemaphoreLease) error) 
 				SemaphoreKind: types.SemaphoreKindHostUserModification,
 				SemaphoreName: "host_user_modification",
 				MaxLeases:     1,
-				Expires:       time.Now().Add(userLeaseDuration),
+				Expires:       time.Now().Add(time.Second * 20),
 			},
 			Retry: retryutils.LinearConfig{
 				Step: time.Second * 5,
@@ -558,35 +540,26 @@ func (u *HostUserManagement) DeleteAllUsers() error {
 		return trace.Wrap(err)
 	}
 	var errs []error
-	u.doWithUserLock(func(l types.SemaphoreLease) error {
-		for _, name := range users {
-			if time.Until(l.Expires) < userLeaseDuration/2 {
-				l.Expires = time.Now().Add(userLeaseDuration / 2)
-				if err := u.storage.KeepAliveSemaphoreLease(u.ctx, l); err != nil {
-					u.log.DebugContext(u.ctx, "Failed to keep alive host user lease", "error", err)
-				}
-			}
-
-			lt, err := u.storage.GetHostUserInteractionTime(u.ctx, name)
-			if err != nil {
-				u.log.DebugContext(u.ctx, "Failed to find user login time", "host_username", name, "error", err)
-				continue
-			}
-
+	for _, name := range users {
+		lt, err := u.storage.GetHostUserInteractionTime(u.ctx, name)
+		if err != nil {
+			u.log.DebugContext(u.ctx, "Failed to find user login time", "host_username", name, "error", err)
+			continue
+		}
+		u.doWithUserLock(func(l types.SemaphoreLease) error {
 			if time.Since(lt) < u.userGrace {
 				// small grace period in order to avoid deleting users
 				// in-between them starting their SSH session and
 				// entering the shell
-				continue
+				return nil
 			}
+			errs = append(errs, u.DeleteUser(name, teleportGroup.Gid))
 
-			if err := u.DeleteUser(name, teleportGroup.Gid); err != nil {
-				errs = append(errs, err)
-			}
-		}
-
-		return nil
-	})
+			l.Expires = time.Now().Add(time.Second * 10)
+			u.storage.KeepAliveSemaphoreLease(u.ctx, l)
+			return nil
+		})
+	}
 	return trace.NewAggregate(errs...)
 }
 
@@ -630,7 +603,6 @@ func (u *HostUserManagement) UserCleanup() {
 		if err := u.DeleteAllUsers(); err != nil {
 			u.log.ErrorContext(u.ctx, "Error during temporary insecure-drop user cleanup", "error", err)
 		}
-
 		select {
 		case <-cleanupTicker.C:
 		case <-u.ctx.Done():
@@ -649,7 +621,7 @@ func (u *HostUserManagement) Shutdown() {
 func (u *HostUserManagement) UserExists(username string) error {
 	_, err := u.backend.Lookup(username)
 	if err != nil {
-		if errors.Is(err, user.UnknownUserError(username)) {
+		if err == user.UnknownUserError(username) {
 			return trace.NotFound("User not found: %s", err)
 		}
 		return trace.Wrap(err)
@@ -715,17 +687,14 @@ func ResolveGroups(logger *slog.Logger, hostUser *HostUser, ui services.HostUser
 	// groups since we'll compute the correct group below
 	delete(groups, types.TeleportKeepGroup)
 	delete(groups, types.TeleportDropGroup)
-	delete(groups, types.TeleportStaticGroup)
 
 	// if we assign a teleport group, it will always coincide with the mode we're currently in, so we can compute it right away
 	teleportGroup := ""
 	switch ui.Mode {
-	case services.HostUserModeDrop:
+	case types.CreateHostUserMode_HOST_USER_MODE_INSECURE_DROP:
 		teleportGroup = types.TeleportDropGroup
-	case services.HostUserModeKeep:
+	case types.CreateHostUserMode_HOST_USER_MODE_KEEP:
 		teleportGroup = types.TeleportKeepGroup
-	case services.HostUserModeStatic:
-		teleportGroup = types.TeleportStaticGroup
 	}
 
 	log := logger.With("teleport_group", teleportGroup)
@@ -739,18 +708,11 @@ func ResolveGroups(logger *slog.Logger, hostUser *HostUser, ui services.HostUser
 		_, hasDropGroup := hostUser.Groups[types.TeleportDropGroup]
 		_, hasKeepGroup := hostUser.Groups[types.TeleportKeepGroup]
 
-		migrateStaticUser := ui.TakeOwnership && ui.Mode == services.HostUserModeStatic
-		migrateKeepUser := hasExplicitKeepGroup && ui.Mode == services.HostUserModeKeep
+		migrateKeepUser := hasExplicitKeepGroup && ui.Mode == types.CreateHostUserMode_HOST_USER_MODE_KEEP
 
 		managedUser := hasKeepGroup || hasDropGroup
-		_, staticUser := hostUser.Groups[types.TeleportStaticGroup]
-		inStaticMode := ui.Mode == services.HostUserModeStatic
 
-		if (inStaticMode && managedUser) || (!inStaticMode && staticUser) {
-			return nil, trace.Wrap(staticConversionErr)
-		}
-
-		if !(managedUser || staticUser || migrateStaticUser || migrateKeepUser) {
+		if !(managedUser || migrateKeepUser) {
 			return nil, trace.Wrap(unmanagedUserErr)
 		}
 

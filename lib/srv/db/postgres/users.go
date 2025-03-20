@@ -24,7 +24,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -33,6 +32,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v4"
 	"github.com/lib/pq"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport/api/types"
 	apiawsutils "github.com/gravitational/teleport/api/utils/aws"
@@ -40,17 +40,19 @@ import (
 	"github.com/gravitational/teleport/lib/srv/db/common"
 	"github.com/gravitational/teleport/lib/srv/db/common/databaseobjectimportrule"
 	"github.com/gravitational/teleport/lib/srv/db/common/permissions"
-	"github.com/gravitational/teleport/lib/srv/db/objects"
 )
 
-// connectAsAdmin connects as the admin user to the default database, per database settings, or as a fallback to the one specified in sessionCtx.
-func (e *Engine) connectAsAdminDefaultDatabase(ctx context.Context, sessionCtx *common.Session) (*pgx.Conn, error) {
-	return e.newConnector(sessionCtx).withDefaultDatabase().connectAsAdmin(ctx)
-}
-
-// connectAsAdmin connects as the admin user to the database specified in sessionCtx.
-func (e *Engine) connectAsAdminSessionDatabase(ctx context.Context, sessionCtx *common.Session) (*pgx.Conn, error) {
-	return e.newConnector(sessionCtx).connectAsAdmin(ctx)
+// connectAsAdmin connect to the database from db route as admin user.
+// If useDefaultDatabase is true and a default database is configured for the admin user, it will be used instead.
+func (e *Engine) connectAsAdmin(ctx context.Context, sessionCtx *common.Session, useDefaultDatabase bool) (*pgx.Conn, error) {
+	loginDatabase := sessionCtx.DatabaseName
+	if useDefaultDatabase && sessionCtx.Database.GetAdminUser().DefaultDatabase != "" {
+		loginDatabase = sessionCtx.Database.GetAdminUser().DefaultDatabase
+	} else {
+		e.Log.WithField("database", loginDatabase).Info("Connecting to session database")
+	}
+	conn, err := e.pgxConnect(ctx, sessionCtx.WithUserAndDatabase(sessionCtx.Database.GetAdminUser().Name, loginDatabase))
+	return conn, trace.Wrap(err)
 }
 
 // ActivateUser creates or enables the database user.
@@ -64,7 +66,7 @@ func (e *Engine) ActivateUser(ctx context.Context, sessionCtx *common.Session) e
 		return trace.BadParameter("auto-user provisioning is not supported for RDS reader endpoints")
 	}
 
-	conn, err := e.connectAsAdminDefaultDatabase(ctx, sessionCtx)
+	conn, err := e.connectAsAdmin(ctx, sessionCtx, true)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -73,7 +75,7 @@ func (e *Engine) ActivateUser(ctx context.Context, sessionCtx *common.Session) e
 	// We could call this once when the database is being initialized but
 	// doing it here has a nice "self-healing" property in case the Teleport
 	// bookkeeping group or stored procedures get deleted or changed offband.
-	logger := e.Log.With("user", sessionCtx.DatabaseUser)
+	logger := e.Log.WithField("user", sessionCtx.DatabaseUser)
 	err = withRetry(ctx, logger, func() error {
 		return trace.Wrap(e.updateAutoUsersRole(ctx, conn, sessionCtx.Database.GetAdminUser().Name))
 	})
@@ -81,11 +83,7 @@ func (e *Engine) ActivateUser(ctx context.Context, sessionCtx *common.Session) e
 		return trace.Wrap(err)
 	}
 
-	err = withRetry(ctx, logger, func() error {
-		err := e.createProcedures(ctx, sessionCtx, conn, []string{activateProcName, deactivateProcName})
-		return trace.Wrap(err)
-	})
-	if err != nil {
+	if err := e.createProcedures(ctx, sessionCtx, conn, []string{activateProcName, deactivateProcName}); err != nil {
 		return trace.Wrap(err)
 	}
 
@@ -94,12 +92,12 @@ func (e *Engine) ActivateUser(ctx context.Context, sessionCtx *common.Session) e
 		return trace.Wrap(err)
 	}
 
-	logger.InfoContext(ctx, "Activating PostgreSQL user", "roles", roles)
+	logger.WithField("roles", roles).Info("Activating PostgreSQL user")
 	err = withRetry(ctx, logger, func() error {
 		return trace.Wrap(e.callProcedure(ctx, sessionCtx, conn, activateProcName, sessionCtx.DatabaseUser, roles))
 	})
 	if err != nil {
-		logger.DebugContext(ctx, "Call teleport_activate_user failed.", "error", err)
+		logger.WithError(err).Debug("Call teleport_activate_user failed.")
 		errOut := convertActivateError(sessionCtx, err)
 		e.Audit.OnDatabaseUserCreate(ctx, sessionCtx, errOut)
 		return trace.Wrap(errOut)
@@ -108,7 +106,7 @@ func (e *Engine) ActivateUser(ctx context.Context, sessionCtx *common.Session) e
 
 	err = e.applyPermissions(ctx, sessionCtx)
 	if err != nil {
-		logger.WarnContext(e.Context, "Failed to apply permissions.", "error", err)
+		logger.WithError(err).Warn("Failed to apply permissions.")
 		return trace.Wrap(err)
 	}
 	return nil
@@ -188,56 +186,57 @@ func (e *Engine) granularPermissionsEnabled(sessionCtx *common.Session) bool {
 }
 
 func (e *Engine) applyPermissions(ctx context.Context, sessionCtx *common.Session) error {
-	logger := e.Log.With("user", sessionCtx.DatabaseUser)
+	logger := e.Log.WithField("user", sessionCtx.DatabaseUser)
 	allow, _, err := sessionCtx.Checker.GetDatabasePermissions(sessionCtx.Database)
 	if err != nil {
-		logger.ErrorContext(e.Context, "Failed to calculate effective database permissions.", "error", err)
+		logger.WithError(err).Error("Failed to calculate effective database permissions.")
 		return trace.Wrap(err)
 	}
 	if len(allow) == 0 {
-		logger.InfoContext(e.Context, "Skipping applying fine-grained permissions: none to apply.")
+		logger.Info("Skipping applying fine-grained permissions: none to apply.")
 		return nil
 	}
 
 	if len(sessionCtx.DatabaseRoles) > 0 {
-		logger.ErrorContext(ctx, "Cannot apply fine-grained permissions: non-empty list of database roles.", "roles", sessionCtx.DatabaseRoles)
+		logger.WithField("roles", sessionCtx.DatabaseRoles).Error("Cannot apply fine-grained permissions: non-empty list of database roles.")
 		return trace.BadParameter("fine-grained database permissions and database roles are mutually exclusive, yet both were provided.")
 	}
 
-	fetcher, err := objects.GetObjectFetcher(ctx, sessionCtx.Database, objects.ObjectFetcherConfig{
-		ImportRules: e.AuthClient,
-		Auth:        e.Auth,
-		GCPClients:  e.GCPClients,
-		Log:         e.Log,
-	})
+	rules, err := e.AuthClient.GetDatabaseObjectImportRules(ctx)
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	objsImported, err := fetcher.FetchOneDatabase(ctx, sessionCtx.DatabaseName)
+
+	conn, err := e.connectAsAdmin(ctx, sessionCtx, false)
+	if err != nil {
+		e.Log.WithError(err).Error("Failed to connect to the database.")
+		return trace.Wrap(err)
+	}
+	defer conn.Close(ctx)
+
+	objsFetched, err := fetchDatabaseObjects(ctx, sessionCtx, conn)
 	if err != nil {
 		return trace.Wrap(err)
 	}
+	counts, _ := permissions.CountObjectKinds(objsFetched)
+	e.Log.WithField("total", len(objsFetched)).Infof("Database objects fetched from the database (%v).", counts)
+
+	objsImported, errCount := databaseobjectimportrule.ApplyDatabaseObjectImportRules(e.Log, rules, sessionCtx.Database, objsFetched)
+	counts, _ = permissions.CountObjectKinds(objsImported)
+	e.Log.WithField("err_count", errCount).WithField("total", len(objsFetched)).Infof("Database objects imported (%v).", counts)
 
 	permissionSet, err := permissions.CalculatePermissions(sessionCtx.Checker, sessionCtx.Database, objsImported)
 	if err != nil {
 		return trace.Wrap(err)
 	}
-
 	summary, eventData := permissions.SummarizePermissions(permissionSet)
-	logger.InfoContext(ctx, "Calculated database permissions.", "summary", summary)
+	logger.Infof("Calculated database permissions: %v.", summary)
 	e.auditUserPermissions(sessionCtx, eventData)
 
 	perms, err := convertPermissions(permissionSet)
 	if err != nil {
 		return trace.Wrap(err)
 	}
-
-	conn, err := e.connectAsAdminSessionDatabase(ctx, sessionCtx)
-	if err != nil {
-		e.Log.ErrorContext(ctx, "Failed to connect to the database.", "error", err)
-		return trace.Wrap(err)
-	}
-	defer conn.Close(ctx)
 
 	// teleport_remove_permissions and teleport_update_permissions are created in pg_temp table of the session database.
 	// teleport_remove_permissions gets called by teleport_update_permissions as needed.
@@ -257,14 +256,10 @@ func (e *Engine) applyPermissions(ctx context.Context, sessionCtx *common.Sessio
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) {
 			if pgErr.Code == common.SQLStatePermissionsChanged {
-				logger.ErrorContext(ctx, "User permissions have changed, rejecting connection",
-					"error", err,
-				)
+				logger.WithError(err).Error("Permissions have changed, rejecting connection.")
 			}
 		} else {
-			logger.ErrorContext(ctx, "Failed to update user permissions",
-				"error", err,
-			)
+			logger.WithError(err).Error("Failed to update permissions.")
 		}
 		return trace.Wrap(err)
 	}
@@ -272,14 +267,14 @@ func (e *Engine) applyPermissions(ctx context.Context, sessionCtx *common.Sessio
 }
 
 func (e *Engine) removePermissions(ctx context.Context, sessionCtx *common.Session) error {
-	logger := e.Log.With("user", sessionCtx.DatabaseUser)
+	logger := e.Log.WithField("user", sessionCtx.DatabaseUser)
 	if !e.granularPermissionsEnabled(sessionCtx) {
-		logger.InfoContext(ctx, "Granular database permissions not enabled, skipping removal step.")
+		logger.Info("Granular database permissions not enabled, skipping removal step.")
 		return nil
 	}
 
-	logger.InfoContext(ctx, "Removing permissions from PostgreSQL user.")
-	conn, err := e.connectAsAdminSessionDatabase(ctx, sessionCtx)
+	logger.Info("Removing permissions from PostgreSQL user")
+	conn, err := e.connectAsAdmin(ctx, sessionCtx, false)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -299,9 +294,7 @@ func (e *Engine) removePermissions(ctx context.Context, sessionCtx *common.Sessi
 		return trace.Wrap(err)
 	})
 	if err != nil {
-		logger.ErrorContext(ctx, "Removing permissions from user failed",
-			"error", err,
-		)
+		logger.WithError(err).Error(ctx, "Removing permissions from user failed")
 		return trace.Wrap(err)
 	}
 	return nil
@@ -316,22 +309,18 @@ func (e *Engine) DeactivateUser(ctx context.Context, sessionCtx *common.Session)
 	// removal may yield errors, but we will still attempt to deactivate the user.
 	errRemove := trace.Wrap(e.removePermissions(ctx, sessionCtx))
 
-	conn, err := e.connectAsAdminDefaultDatabase(ctx, sessionCtx)
+	conn, err := e.connectAsAdmin(ctx, sessionCtx, true)
 	if err != nil {
 		return trace.NewAggregate(errRemove, trace.Wrap(err))
 	}
 	defer conn.Close(ctx)
 
-	logger := e.Log.With("user", sessionCtx.DatabaseUser)
-	logger.InfoContext(ctx, "Deactivating PostgreSQL user.")
-	err = withRetry(ctx, logger, func() error {
-		err := e.createProcedures(ctx, sessionCtx, conn, []string{deactivateProcName})
+	if err := e.createProcedures(ctx, sessionCtx, conn, []string{deactivateProcName}); err != nil {
 		return trace.Wrap(err)
-	})
-	if err != nil {
-		return trace.NewAggregate(errRemove, trace.Wrap(err))
 	}
 
+	logger := e.Log.WithField("user", sessionCtx.DatabaseUser)
+	logger.Info("Deactivating PostgreSQL user.")
 	err = withRetry(ctx, logger, func() error {
 		return trace.Wrap(e.callProcedure(ctx, sessionCtx, conn, deactivateProcName, sessionCtx.DatabaseUser))
 	})
@@ -353,14 +342,14 @@ func (e *Engine) DeleteUser(ctx context.Context, sessionCtx *common.Session) err
 	// removal may yield errors, but we will still attempt to delete the user.
 	errRemove := trace.Wrap(e.removePermissions(ctx, sessionCtx))
 
-	conn, err := e.connectAsAdminDefaultDatabase(ctx, sessionCtx)
+	conn, err := e.connectAsAdmin(ctx, sessionCtx, true)
 	if err != nil {
 		return trace.NewAggregate(errRemove, trace.Wrap(err))
 	}
 	defer conn.Close(ctx)
 
-	logger := e.Log.With("user", sessionCtx.DatabaseUser)
-	logger.InfoContext(ctx, "Deleting PostgreSQL user.")
+	logger := e.Log.WithField("user", sessionCtx.DatabaseUser)
+	logger.Info("Deleting PostgreSQL user.")
 	err = withRetry(ctx, logger, func() error {
 		err := e.createProcedures(ctx, sessionCtx, conn, []string{deleteProcName, deactivateProcName})
 		return trace.Wrap(err)
@@ -389,12 +378,12 @@ func (e *Engine) DeleteUser(ctx context.Context, sessionCtx *common.Session) err
 	deleted := true
 	switch state {
 	case common.SQLStateUserDropped:
-		logger.DebugContext(ctx, "User deleted successfully.")
+		logger.Debug("User deleted successfully.")
 	case common.SQLStateUserDeactivated:
 		deleted = false
-		logger.InfoContext(ctx, "Unable to delete user, it was disabled instead.")
+		logger.Info("Unable to delete user, it was disabled instead.")
 	default:
-		logger.WarnContext(ctx, "Unable to determine user deletion state.")
+		logger.Warn("Unable to determine user deletion state.")
 	}
 	e.Audit.OnDatabaseUserDeactivate(ctx, sessionCtx, deleted, nil)
 
@@ -433,9 +422,9 @@ func (e *Engine) updateAutoUsersRole(ctx context.Context, conn *pgx.Conn, adminU
 		if !strings.Contains(err.Error(), "already exists") {
 			return trace.Wrap(err)
 		}
-		e.Log.DebugContext(ctx, "PostgreSQL role already exists", "role", teleportAutoUserRole)
+		e.Log.Debugf("PostgreSQL role %q already exists.", teleportAutoUserRole)
 	} else {
-		e.Log.DebugContext(ctx, "Created PostgreSQL role", "role", teleportAutoUserRole)
+		e.Log.Debugf("Created PostgreSQL role %q.", teleportAutoUserRole)
 	}
 
 	// v16 Postgres changed the role grant permissions model such that you can
@@ -460,14 +449,29 @@ func (e *Engine) updateAutoUsersRole(ctx context.Context, conn *pgx.Conn, adminU
 	_, err = conn.Exec(ctx, stmt)
 	if err != nil {
 		if !strings.Contains(err.Error(), "cannot be granted back") && !strings.Contains(err.Error(), "already") {
-			e.Log.DebugContext(ctx, "Failed to grant required role to the Teleport database admin, user auto-provisioning may not work until the database admin is granted the role by a superuser",
-				"role", teleportAutoUserRole,
-				"database_admin", adminUser,
-				"error", err,
+			e.Log.WithError(err).Debugf("Failed to grant required role %q to the Teleport database admin %q, user auto-provisioning may not work until the database admin is granted the role by a superuser",
+				teleportAutoUserRole,
+				adminUser,
 			)
 		}
 	}
+
 	return nil
+}
+
+// pgxConnect connects to the database using pgx driver which is higher-level
+// than pgconn and is easier to use for executing queries.
+func (e *Engine) pgxConnect(ctx context.Context, sessionCtx *common.Session) (*pgx.Conn, error) {
+	config, err := e.getConnectConfig(ctx, sessionCtx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	pgxConf, err := pgx.ParseConfig("")
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	pgxConf.Config = *config
+	return pgx.ConnectConfig(ctx, pgxConf)
 }
 
 // callProcedure calls the procedure with the provided arguments.
@@ -492,14 +496,14 @@ func (e *Engine) createProcedures(ctx context.Context, sessionCtx *common.Sessio
 			return trace.NotImplemented("procedure %q is not available for %s databases", procName, sessionCtx.Database.GetType())
 		}
 
-		logger := e.Log.With("procedure", procName)
+		logger := e.Log.WithField("procedure", procName)
 
 		if _, err := conn.Exec(ctx, proc); err != nil {
-			logger.ErrorContext(ctx, "Failed to install procedure.")
+			logger.Error("Failed to install procedure.")
 			return trace.Wrap(err)
 		}
 
-		logger.DebugContext(ctx, "Installed procedure.")
+		logger.Debug("Installed procedure.")
 	}
 
 	return nil
@@ -660,13 +664,13 @@ var (
 // withRetry is a helper for auto user operations that runs a given func a
 // finite number of times until it returns nil error or the given context is
 // done.
-func withRetry(ctx context.Context, log *slog.Logger, f func() error) error {
+func withRetry(ctx context.Context, log logrus.FieldLogger, f func() error) error {
 	linear, err := retryutils.NewLinear(retryutils.LinearConfig{
 		// arbitrarily copied settings from retry logic in lib/backend/pgbk.
 		First:  0,
 		Step:   100 * time.Millisecond,
 		Max:    750 * time.Millisecond,
-		Jitter: retryutils.HalfJitter,
+		Jitter: retryutils.NewHalfJitter(),
 	})
 	if err != nil {
 		return trace.Wrap(err)
@@ -680,7 +684,7 @@ func withRetry(ctx context.Context, log *slog.Logger, f func() error) error {
 		}
 
 		if isRetryable(err) {
-			log.DebugContext(ctx, "User operation failed, retrying", "error", err)
+			log.WithError(err).Debug("User operation failed, retrying")
 		} else {
 			return trace.Wrap(err)
 		}

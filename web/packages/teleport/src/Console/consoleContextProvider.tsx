@@ -17,7 +17,6 @@
  */
 
 import React, { PropsWithChildren } from 'react';
-
 import { useStore } from 'shared/libs/stores';
 
 import ConsoleContext from './consoleContext';

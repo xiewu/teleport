@@ -17,14 +17,13 @@
  */
 
 import { ReactElement, useEffect, useState } from 'react';
-
 import { useAttempt } from 'shared/hooks';
 
-import cfg from 'teleport/config';
-import auth from 'teleport/services/auth/auth';
-import { storageService } from 'teleport/services/storageService';
 import { ExcludeUserField, User } from 'teleport/services/user';
 import useTeleport from 'teleport/useTeleport';
+import cfg from 'teleport/config';
+import { storageService } from 'teleport/services/storageService';
+import auth from 'teleport/services/auth/auth';
 
 export default function useUsers({
   InviteCollaborators,
@@ -33,6 +32,13 @@ export default function useUsers({
   const ctx = useTeleport();
   const [attempt, attemptActions] = useAttempt({ isProcessing: true });
   const [users, setUsers] = useState([] as User[]);
+  // if the cluster has billing enabled, and usageBasedBilling, and they haven't acknowledged
+  // the info yet
+  const [showMauInfo, setShowMauInfo] = useState(
+    ctx.getFeatureFlags().billing &&
+      cfg.isUsageBasedBilling &&
+      !storageService.getUsersMauAcknowledged()
+  );
   const [operation, setOperation] = useState({
     type: 'none',
   } as Operation);
@@ -88,16 +94,24 @@ export default function useUsers({
   }
 
   async function onCreate(u: User) {
-    const mfaResponse = await auth.getMfaChallengeResponseForAdminAction(true);
+    const webauthnResponse = await auth.getWebauthnResponseForAdminAction(true);
     return ctx.userService
-      .createUser(u, ExcludeUserField.Traits, mfaResponse)
+      .createUser(u, ExcludeUserField.Traits, webauthnResponse)
       .then(result => setUsers([result, ...users]))
       .then(() =>
-        ctx.userService.createResetPasswordToken(u.name, 'invite', mfaResponse)
+        ctx.userService.createResetPasswordToken(
+          u.name,
+          'invite',
+          webauthnResponse
+        )
       );
   }
 
-  function onInviteCollaboratorsClose() {
+  function onInviteCollaboratorsClose(newUsers?: User[]) {
+    if (newUsers && newUsers.length > 0) {
+      setUsers([...newUsers, ...users]);
+    }
+
     setInviteCollaboratorsOpen(false);
     setOperation({ type: 'none' });
   }
@@ -116,26 +130,17 @@ export default function useUsers({
 
   function onDismissUsersMauNotice() {
     storageService.setUsersMAUAcknowledged();
+    setShowMauInfo(false);
   }
 
   useEffect(() => {
     attemptActions.do(() => ctx.userService.fetchUsers().then(setUsers));
   }, []);
 
-  // if the cluster has billing enabled, and usageBasedBilling, and they haven't acknowledged
-  // the info yet
-  const showMauInfo =
-    ctx.getFeatureFlags().billing &&
-    cfg.isUsageBasedBilling &&
-    !storageService.getUsersMauAcknowledged();
-
-  const usersAcl = ctx.storeUser.getUserAccess();
-
   return {
     attempt,
     users,
     fetchRoles,
-    usersAcl,
     operation,
     onStartCreate,
     onStartDelete,

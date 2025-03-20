@@ -16,10 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 
-import Flex from '../Flex';
 import Text from '../Text';
+import Flex from '../Flex';
+
 import { Toggle } from './Toggle';
 
 export default {

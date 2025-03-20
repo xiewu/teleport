@@ -5,7 +5,17 @@ layout: tocless-doc
 videoBanner: gBQyj_X1LVw
 ---
 
-(!docs/pages/includes/device-trust/support-notice.mdx!)
+<Admonition type="note">
+  Device Trust supports the following components:
+
+  - User devices: macOS, Windows and Linux.
+  - Teleport client: `tsh` and Teleport connect.
+  - Resources: Apps (role-based enforcement only), SSH nodes, databases, and
+    Kubernetes clusters
+
+  Support for the Web UI and desktop access are planned for upcoming Teleport
+  versions.
+</Admonition>
 
 ## Concepts
 
@@ -69,7 +79,7 @@ the better the ongoing guarantees that the device itself is trustworthy.
 
 ## Device Trust enforcement
 
-Enforcing Device Trust means configuring Teleport with Device Trust mode, i.e. applying
+Enforcing Device Trust means configuring Teleport with device trust mode, i.e. applying
 `device_trust_mode: required` rule, which tells Teleport Auth Service to only allow access
 with a trusted and an authenticated device, in addition to establishing the user's identity and enforcing
 the necessary roles.

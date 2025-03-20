@@ -49,7 +49,6 @@ func onDaemonStart(cf *CLIConf) error {
 		PrehogAddr:         cf.DaemonPrehogAddr,
 		KubeconfigsDir:     cf.DaemonKubeconfigsDir,
 		AgentsDir:          cf.DaemonAgentsDir,
-		InstallationID:     cf.DaemonInstallationID,
 		AddKeysToAgent:     cf.AddKeysToAgent,
 	})
 	if err != nil {

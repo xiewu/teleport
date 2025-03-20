@@ -36,10 +36,13 @@ func UnmarshalExternalAuditStorage(data []byte, opts ...MarshalOption) (*externa
 	}
 	var out *externalauditstorage.ExternalAuditStorage
 	if err := utils.FastUnmarshal(data, &out); err != nil {
-		return nil, trace.BadParameter("%s", err)
+		return nil, trace.BadParameter(err.Error())
 	}
 	if err := out.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
+	}
+	if cfg.ID != 0 {
+		out.SetResourceID(cfg.ID)
 	}
 	if cfg.Revision != "" {
 		out.SetRevision(cfg.Revision)
@@ -61,8 +64,9 @@ func MarshalExternalAuditStorage(externalAuditStorage *externalauditstorage.Exte
 		return nil, trace.Wrap(err)
 	}
 
-	if !cfg.PreserveRevision {
+	if !cfg.PreserveResourceID {
 		copy := *externalAuditStorage
+		copy.SetResourceID(0)
 		copy.SetRevision("")
 		externalAuditStorage = &copy
 	}

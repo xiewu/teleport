@@ -1,6 +1,6 @@
 /**
  * Teleport
- * Copyright (C) 2024  Gravitational, Inc.
+ * Copyright (C) 2024 Gravitational, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -16,12 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-
-import { ButtonSecondary } from 'design/Button';
+import React, { useState } from 'react';
 import Validation from 'shared/components/Validation';
+import { ButtonSecondary } from 'design/Button';
 
-import { Label, LabelsInput } from './LabelsInput';
+import { LabelsInput, Label } from './LabelsInput';
 
 export default {
   title: 'Teleport/LabelsInput',
@@ -102,10 +101,9 @@ export const AtLeastOneRequired = () => {
   return (
     <Validation>
       <LabelsInput
-        legend="Labels"
         labels={labels}
         setLabels={setLables}
-        required={true}
+        areLabelsRequired={true}
       />
     </Validation>
   );

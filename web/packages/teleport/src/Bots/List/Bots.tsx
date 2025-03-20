@@ -16,21 +16,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-
-import { Alert, Box, Button, Indicator } from 'design';
-import { HoverTooltip } from 'design/Tooltip';
+import React, { useEffect, useState } from 'react';
 import { useAttemptNext } from 'shared/hooks';
+import { Link } from 'react-router-dom';
+import { HoverTooltip } from 'shared/components/ToolTip';
+import { Alert, Box, ButtonPrimary, Indicator } from 'design';
 
-import { BotList } from 'teleport/Bots/List/BotList';
 import {
   FeatureBox,
   FeatureHeader,
   FeatureHeaderTitle,
 } from 'teleport/components/Layout';
-import { InfoGuideWrapper } from 'teleport/components/SlidingSidePanel/InfoGuideSidePanel';
-import cfg from 'teleport/config';
+import { BotList } from 'teleport/Bots/List/BotList';
 import {
   deleteBot,
   editBot,
@@ -40,7 +37,8 @@ import {
 import { FlatBot } from 'teleport/services/bot/types';
 import useTeleport from 'teleport/useTeleport';
 
-import { InfoGuide } from '../InfoGuide';
+import cfg from 'teleport/config';
+
 import { EmptyState } from './EmptyState/EmptyState';
 
 export function Bots() {
@@ -145,32 +143,24 @@ export function Bots() {
       <FeatureHeader>
         <FeatureHeaderTitle>Bots</FeatureHeaderTitle>
         <Box ml="auto">
-          <InfoGuideWrapper guide={<InfoGuide />}>
-            <HoverTooltip
-              tipContent={
-                hasAddBotPermissions
-                  ? ''
-                  : `Insufficient permissions. Reach out to your Teleport administrator
+          <HoverTooltip
+            tipContent={
+              hasAddBotPermissions
+                ? ''
+                : `Insufficient permissions. Reach out to your Teleport administrator
     to request bot creation permissions.`
-              }
+            }
+          >
+            <ButtonPrimary
+              ml="auto"
+              width="240px"
+              as={Link}
+              to={cfg.getBotsNewRoute()}
+              disabled={!hasAddBotPermissions}
             >
-              <Button
-                intent="primary"
-                fill={
-                  fetchAttempt.status === 'success' && bots.length === 0
-                    ? 'filled'
-                    : 'border'
-                }
-                ml="auto"
-                width="240px"
-                as={Link}
-                to={cfg.getBotsNewRoute()}
-                disabled={!hasAddBotPermissions}
-              >
-                Enroll New Bot
-              </Button>
-            </HoverTooltip>
-          </InfoGuideWrapper>
+              Enroll New Bot
+            </ButtonPrimary>
+          </HoverTooltip>
         </Box>
       </FeatureHeader>
       {fetchAttempt.status == 'failed' && (

@@ -84,6 +84,10 @@ export {
   /**
    * @deprecated Import directly from gen-proto-ts instead.
    */
+  AuthSettings,
+  /**
+   * @deprecated Import directly from gen-proto-ts instead.
+   */
   AuthProvider,
 } from 'gen-proto-ts/teleport/lib/teleterm/v1/auth_settings_pb';
 export {
@@ -136,4 +140,11 @@ export type GetResourcesParams = {
   startKey?: string;
   // query is used for advanced search.
   query?: string;
+};
+
+/** @deprecated Use `AccessRequest` instead. */
+export type AssumedRequest = {
+  id: string;
+  expires: Date;
+  roles: string[];
 };

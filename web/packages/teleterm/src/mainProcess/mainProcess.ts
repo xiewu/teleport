@@ -16,13 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ChildProcess, exec, fork, spawn } from 'node:child_process';
-import fs from 'node:fs/promises';
+import { ChildProcess, fork, spawn, exec } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { promisify } from 'node:util';
 
-import { ChannelCredentials } from '@grpc/grpc-js';
-import { GrpcTransport } from '@protobuf-ts/grpc-transport';
 import {
   app,
   dialog,
@@ -32,52 +30,55 @@ import {
   nativeTheme,
   shell,
 } from 'electron';
+import { ChannelCredentials } from '@grpc/grpc-js';
+import { GrpcTransport } from '@protobuf-ts/grpc-transport';
 
-import Logger from 'teleterm/logger';
-import { getAssetPath } from 'teleterm/mainProcess/runtimeSettings';
+import { FileStorage, RuntimeSettings } from 'teleterm/types';
+import { subscribeToFileStorageEvents } from 'teleterm/services/fileStorage';
+import {
+  LoggerColor,
+  KeepLastChunks,
+  createFileLoggerService,
+} from 'teleterm/services/logger';
 import {
   ChildProcessAddresses,
-  MainProcessClient,
   MainProcessIpc,
   RendererIpc,
   TERMINATE_MESSAGE,
 } from 'teleterm/mainProcess/types';
+import { getAssetPath } from 'teleterm/mainProcess/runtimeSettings';
+import { RootClusterUri } from 'teleterm/ui/uri';
+import Logger from 'teleterm/logger';
+import * as grpcCreds from 'teleterm/services/grpcCredentials';
+import { createTshdClient, TshdClient } from 'teleterm/services/tshd';
+import { loggingInterceptor } from 'teleterm/services/tshd/interceptors';
+import { staticConfig } from 'teleterm/staticConfig';
 import {
   TSH_AUTOUPDATE_ENV_VAR,
   TSH_AUTOUPDATE_OFF,
 } from 'teleterm/node/tshAutoupdate';
-import { subscribeToFileStorageEvents } from 'teleterm/services/fileStorage';
-import * as grpcCreds from 'teleterm/services/grpcCredentials';
-import {
-  createFileLoggerService,
-  KeepLastChunks,
-  LoggerColor,
-} from 'teleterm/services/logger';
-import { createTshdClient, TshdClient } from 'teleterm/services/tshd';
-import { loggingInterceptor } from 'teleterm/services/tshd/interceptors';
-import { staticConfig } from 'teleterm/staticConfig';
-import { FileStorage, RuntimeSettings } from 'teleterm/types';
-import { RootClusterUri } from 'teleterm/ui/uri';
 
 import {
   ConfigService,
   subscribeToConfigServiceEvents,
 } from '../services/config';
-import { downloadAgent, FileDownloader, verifyAgent } from './agentDownloader';
-import { AgentRunner } from './agentRunner';
-import { subscribeToTabContextMenuEvent } from './contextMenus/tabContextMenu';
+
 import { subscribeToTerminalContextMenuEvent } from './contextMenus/terminalContextMenu';
+import { subscribeToTabContextMenuEvent } from './contextMenus/tabContextMenu';
+import { resolveNetworkAddress, ResolveError } from './resolveNetworkAddress';
+import { WindowsManager } from './windowsManager';
+import { downloadAgent, verifyAgent, FileDownloader } from './agentDownloader';
 import {
-  createAgentConfigFile,
-  generateAgentConfigPaths,
   getAgentsDir,
+  createAgentConfigFile,
   isAgentConfigFileCreated,
   removeAgentDirectory,
-  type CreateAgentConfigFileArgs,
+  generateAgentConfigPaths,
 } from './createAgentConfigFile';
-import { ResolveError, resolveNetworkAddress } from './resolveNetworkAddress';
+import { AgentRunner } from './agentRunner';
 import { terminateWithTimeout } from './terminateWithTimeout';
-import { WindowsManager } from './windowsManager';
+
+import type { CreateAgentConfigFileArgs } from './createAgentConfigFile';
 
 type Options = {
   settings: RuntimeSettings;
@@ -225,7 +226,6 @@ export default class MainProcess {
       `--prehog-addr=${staticConfig.prehogAddress}`,
       `--kubeconfigs-dir=${settings.kubeConfigsDir}`,
       `--agents-dir=${agentsDir}`,
-      `--installation-id=${settings.installationId}`,
       `--add-keys-to-agent=${this.configService.get('sshAgent.addKeysToAgent').value}`,
     ];
 
@@ -338,45 +338,6 @@ export default class MainProcess {
       dialog.showSaveDialog({
         defaultPath: path.basename(filePath),
       })
-    );
-
-    ipcMain.handle(
-      MainProcessIpc.SaveTextToFile,
-      async (
-        _,
-        {
-          text,
-          defaultBasename,
-        }: Parameters<MainProcessClient['saveTextToFile']>[0]
-      ): ReturnType<MainProcessClient['saveTextToFile']> => {
-        const { canceled, filePath } = await dialog.showSaveDialog({
-          // Don't trust the renderer and make sure defaultBasename is indeed a basename only.
-          // defaultPath accepts different kinds of paths. For security reasons, the renderer should
-          // not be able to influence _where_ the file is saved, only how the file is named.
-          defaultPath: path.basename(defaultBasename),
-          properties: [
-            'createDirectory', // macOS only
-            'showOverwriteConfirmation', // Linux only.
-          ],
-        });
-
-        if (canceled) {
-          return { canceled };
-        }
-
-        try {
-          await fs.writeFile(filePath, text, {
-            // Overwrite file.
-            flag: 'w',
-          });
-        } catch (error) {
-          // Log the original error on this side of the context bridge.
-          this.logger.error(`Could not save text to "${filePath}"`, error);
-          throw error;
-        }
-
-        return { canceled };
-      }
     );
 
     ipcMain.handle('main-process-force-focus-window', () => {
@@ -546,10 +507,7 @@ export default class MainProcess {
     );
 
     subscribeToTerminalContextMenuEvent(this.configService);
-    subscribeToTabContextMenuEvent(
-      this.settings.availableShells,
-      this.configService
-    );
+    subscribeToTabContextMenuEvent();
     subscribeToConfigServiceEvents(this.configService);
     subscribeToFileStorageEvents(this.appStateFileStorage);
   }

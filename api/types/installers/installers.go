@@ -22,6 +22,9 @@ import (
 	"github.com/gravitational/teleport/api/types"
 )
 
+//go:embed installer.sh.tmpl
+var defaultInstallScript string
+
 //go:embed agentless-installer.sh.tmpl
 var defaultAgentlessInstallScript string
 
@@ -32,6 +35,10 @@ const InstallerScriptName = types.DefaultInstallerScriptName
 // InstallerScriptName is the name of the by default populated, EC2
 // installer script when agentless mode is enabled for a matcher
 const InstallerScriptNameAgentless = types.DefaultInstallerScriptNameAgentless
+
+// DefaultInstaller represents a the default installer script provided
+// by teleport
+var DefaultInstaller = types.MustNewInstallerV1(InstallerScriptName, defaultInstallScript)
 
 // DefaultAgentlessInstaller represents a the default agentless installer script provided
 // by teleport

@@ -15,20 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::client::{ClientError, ClientResult};
+#[cfg(feature = "fips")]
+use static_init::dynamic;
 use tokio::net::TcpStream;
 
 #[cfg(feature = "fips")]
 pub type TlsStream<S> = tokio_boring::SslStream<S>;
 
-// rdpclient_assert_fips_enabled asserts that FIPS is compiled in and enabled.
 #[cfg(feature = "fips")]
-#[no_mangle]
-pub extern "C" fn rdpclient_assert_fips_enabled() {
-    assert!(
-        boring::fips::enabled(),
-        "FIPS module for rdpclient not available"
-    );
-}
+#[dynamic(0)]
+static mut FIPS_CHECK: () = unsafe {
+    // Make sure that we really have FIPS enabled.
+    // This assert will run at the start of the program and panic if we
+    // build for FIPS but it's somehow disabled
+    use boring;
+    assert!(boring::fips::enabled(), "FIPS mode not enabled");
+};
 
 #[cfg(not(feature = "fips"))]
 pub type TlsStream<S> = ironrdp_tls::TlsStream<S>;
@@ -54,11 +56,7 @@ pub(crate) async fn upgrade(
             .peer_certificate()
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "peer certificate is missing"))?;
         let public_key = cert.public_key()?;
-        let mut bytes: Vec<u8> = public_key.public_key_to_der()?;
-        // boring uses additional DER element before raw key data compared to rustls, so we have to skip it
-        if bytes.len() >= 24 {
-            bytes.drain(0..24);
-        }
+        let bytes = public_key.public_key_to_der()?;
         Ok((tls_stream, bytes))
     }
     #[cfg(not(feature = "fips"))]

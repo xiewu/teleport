@@ -20,7 +20,8 @@ package gitlab
 
 import (
 	"context"
-	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -34,18 +35,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/lib/cryptosuites"
+	"github.com/gravitational/teleport/lib/services"
 )
 
 type fakeIDP struct {
-	t         *testing.T
-	signer    jose.Signer
-	publicKey crypto.PublicKey
-	server    *httptest.Server
+	t          *testing.T
+	signer     jose.Signer
+	privateKey *rsa.PrivateKey
+	server     *httptest.Server
 }
 
 func newFakeIDP(t *testing.T) *fakeIDP {
-	privateKey, err := cryptosuites.GenerateKeyWithAlgorithm(cryptosuites.RSA2048)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
 	signer, err := jose.NewSigner(
@@ -55,9 +56,9 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 	require.NoError(t, err)
 
 	f := &fakeIDP{
-		signer:    signer,
-		publicKey: privateKey.Public(),
-		t:         t,
+		signer:     signer,
+		privateKey: privateKey,
+		t:          t,
 	}
 
 	providerMux := http.NewServeMux()
@@ -111,7 +112,7 @@ func (f *fakeIDP) handleJWKSEndpoint(w http.ResponseWriter, r *http.Request) {
 	jwks := jose.JSONWebKeySet{
 		Keys: []jose.JSONWebKey{
 			{
-				Key: f.publicKey,
+				Key: &f.privateKey.PublicKey,
 			},
 		},
 	}
@@ -152,7 +153,7 @@ func (f *fakeIDP) issueToken(
 
 type mockClusterNameGetter string
 
-func (m mockClusterNameGetter) GetClusterName(_ context.Context) (types.ClusterName, error) {
+func (m mockClusterNameGetter) GetClusterName(opts ...services.MarshalOption) (types.ClusterName, error) {
 	return types.NewClusterName(types.ClusterNameSpecV2{
 		ClusterID:   uuid.NewString(),
 		ClusterName: string(m),

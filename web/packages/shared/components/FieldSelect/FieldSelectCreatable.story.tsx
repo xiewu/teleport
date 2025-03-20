@@ -17,11 +17,11 @@
  */
 
 import { useState } from 'react';
-
 import { Flex } from 'design';
-import { Option } from 'shared/components/Select';
-import Validation from 'shared/components/Validation';
+
 import { wait } from 'shared/utils/wait';
+import Validation from 'shared/components/Validation';
+import { Option } from 'shared/components/Select';
 
 import {
   FieldSelectCreatable,
@@ -71,7 +71,7 @@ export function Default() {
             defaultOptions={true}
             loadOptions={async () => {
               await wait(400);
-              return Promise.reject<Option[]>('Network error');
+              return Promise.reject('Network error');
             }}
             noOptionsMessage={() => 'No options'}
           />

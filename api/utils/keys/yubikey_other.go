@@ -24,20 +24,14 @@ import (
 
 var errPIVUnavailable = errors.New("PIV is unavailable in current build")
 
-func getOrGenerateYubiKeyPrivateKey(ctx context.Context, policy PrivateKeyPolicy, slot PIVSlot, _ HardwareKeyPrompt) (*PrivateKey, error) {
+func getOrGenerateYubiKeyPrivateKey(ctx context.Context, policy PrivateKeyPolicy, slot PIVSlot) (*PrivateKey, error) {
 	return nil, trace.Wrap(errPIVUnavailable)
 }
 
-func parseYubiKeyPrivateKeyData(keyDataBytes []byte, _ HardwareKeyPrompt) (*PrivateKey, error) {
+func parseYubiKeyPrivateKeyData(keyDataBytes []byte) (*PrivateKey, error) {
 	return nil, trace.Wrap(errPIVUnavailable)
 }
 
 func (s PIVSlot) validate() error {
 	return trace.Wrap(errPIVUnavailable)
-}
-
-// IsHardware returns true if [k] is a hardware PIV key.
-func (k *PrivateKey) IsHardware() bool {
-	// Built without PIV support - this must be false.
-	return false
 }

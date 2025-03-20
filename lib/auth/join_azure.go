@@ -19,12 +19,10 @@
 package auth
 
 import (
-	"cmp"
 	"context"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
-	"log/slog"
 	"net/url"
 	"slices"
 	"strings"
@@ -32,8 +30,6 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
-	armpolicy "github.com/Azure/azure-sdk-for-go/sdk/azcore/arm/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/coreos/go-oidc"
 	"github.com/digitorus/pkcs7"
 	"github.com/go-jose/go-jose/v3/jwt"
@@ -42,20 +38,12 @@ import (
 
 	"github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/client/proto"
-	workloadidentityv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/workloadidentity/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/cloud/azure"
 	"github.com/gravitational/teleport/lib/utils"
 )
 
-const (
-	azureAccessTokenAudience = "https://management.azure.com/"
-
-	// azureUserAgent specifies the Azure User-Agent identification for telemetry.
-	azureUserAgent = "teleport"
-	// azureVirtualMachine specifies the Azure virtual machine resource type.
-	azureVirtualMachine = "virtualMachines"
-)
+const azureAccessTokenAudience = "https://management.azure.com/"
 
 // Structs for unmarshaling attested data. Schema can be found at
 // https://learn.microsoft.com/en-us/azure/virtual-machines/linux/instance-metadata-service?tabs=linux#response-2
@@ -88,23 +76,9 @@ type attestedData struct {
 
 type accessTokenClaims struct {
 	jwt.Claims
-	TenantID string `json:"tid"`
-	Version  string `json:"ver"`
-
-	// Azure JWT tokens include two optional claims that can be used to validate
-	// the subscription and resource group of a joining node. These claims hold
-	// different values depending on the assigned Managed Identity of the Azure VM:
-	// - xms_mirid:
-	//   - For System-Assigned Identity it represents the resource id of the VM.
-	//   - For User-Assigned Identity it represents the resource id of the user-assigned identity.
-	// - xms_az_rid:
-	//   - For System-Assigned Identity this claim is omitted.
-	//   - For User-Assigned Identity it represents the resource id of the VM.
-	//
-	// More details at: https://learn.microsoft.com/en-us/answers/questions/1282788/existence-of-xms-az-rid-field-in-activity-logs-of
-
-	ManangedIdentityResourceID string `json:"xms_mirid"`
-	AzureResourceID            string `json:"xms_az_rid"`
+	ResourceID string `json:"xms_mirid"`
+	TenantID   string `json:"tid"`
+	Version    string `json:"ver"`
 }
 
 type azureVerifyTokenFunc func(ctx context.Context, rawIDToken string) (*accessTokenClaims, error)
@@ -170,16 +144,7 @@ func (cfg *azureRegisterConfig) CheckAndSetDefaults(ctx context.Context) error {
 	}
 	if cfg.getVMClient == nil {
 		cfg.getVMClient = func(subscriptionID string, token *azure.StaticCredential) (azure.VirtualMachinesClient, error) {
-			// The User-Agent is added for debugging purposes. It helps identify
-			// and isolate teleport traffic.
-			opts := &armpolicy.ClientOptions{
-				ClientOptions: policy.ClientOptions{
-					Telemetry: policy.TelemetryOptions{
-						ApplicationID: azureUserAgent,
-					},
-				},
-			}
-			client, err := azure.NewVirtualMachinesClient(subscriptionID, token, opts)
+			client, err := azure.NewVirtualMachinesClient(subscriptionID, token, nil)
 			return client, trace.Wrap(err)
 		}
 	}
@@ -245,16 +210,8 @@ func parseAndVerifyAttestedData(ctx context.Context, adBytes []byte, challenge s
 }
 
 // verifyVMIdentity verifies that the provided access token came from the
-// correct Azure VM. Returns the Azure join attributes
-func verifyVMIdentity(
-	ctx context.Context,
-	cfg *azureRegisterConfig,
-	accessToken,
-	subscriptionID,
-	vmID string,
-	requestStart time.Time,
-	logger *slog.Logger,
-) (joinAttrs *workloadidentityv1pb.JoinAttrsAzure, err error) {
+// correct Azure VM.
+func verifyVMIdentity(ctx context.Context, cfg *azureRegisterConfig, accessToken, subscriptionID, vmID string, requestStart time.Time) (*azure.VirtualMachine, error) {
 	tokenClaims, err := cfg.verify(ctx, accessToken)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -282,23 +239,6 @@ func verifyVMIdentity(
 		return nil, trace.Wrap(err)
 	}
 
-	// Listing all VMs in an Azure subscription during the verification process
-	// is problematic when there are a large number of VMs in an Azure subscription.
-	// In some cases this can lead to throttling due to Azure API rate limits.
-	// To address the issue, the verification process will first attempt to
-	// parse required VM identifiers from the token claims. If this method fails,
-	// fallback to the original method of listing VMs and parsing the VM identifiers
-	// from the VM resource.
-	vmSubscription, vmResourceGroup, err := claimsToIdentifiers(tokenClaims)
-	if err == nil {
-		if subscriptionID != vmSubscription {
-			return nil, trace.AccessDenied("subscription ID mismatch between attested data and access token")
-		}
-		return azureJoinToAttrs(vmSubscription, vmResourceGroup), nil
-	}
-	logger.WarnContext(ctx, "Failed to parse VM identifiers from claims. Retrying with Azure VM API.",
-		"error", err)
-
 	tokenCredential := azure.NewStaticCredential(azcore.AccessToken{
 		Token:     accessToken,
 		ExpiresOn: tokenClaims.Expiry.Time(),
@@ -308,7 +248,7 @@ func verifyVMIdentity(
 		return nil, trace.Wrap(err)
 	}
 
-	resourceID, err := arm.ParseResourceID(tokenClaims.ManangedIdentityResourceID)
+	resourceID, err := arm.ParseResourceID(tokenClaims.ResourceID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -319,8 +259,8 @@ func verifyVMIdentity(
 	// is for the VM itself and we can use it to look up the VM.
 	// This will also match scale set VMs (VMSS), the vmClient is responsible
 	// for properly retrieving their information.
-	if slices.Contains(resourceID.ResourceType.Types, azureVirtualMachine) {
-		vm, err = vmClient.Get(ctx, tokenClaims.ManangedIdentityResourceID)
+	if slices.Contains(resourceID.ResourceType.Types, "virtualMachines") {
+		vm, err = vmClient.Get(ctx, tokenClaims.ResourceID)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -339,35 +279,21 @@ func verifyVMIdentity(
 			return nil, trace.Wrap(err)
 		}
 	}
-	return azureJoinToAttrs(vm.Subscription, vm.ResourceGroup), nil
+
+	return vm, nil
 }
 
-// claimsToIdentifiers returns the vm identifiers from the provided claims.
-func claimsToIdentifiers(tokenClaims *accessTokenClaims) (subscriptionID, resourceGroupID string, err error) {
-	// xms_az_rid claim is omitted when the VM is assigned a System-Assigned Identity.
-	// The xms_mirid claim should be used instead.
-	rid := cmp.Or(tokenClaims.AzureResourceID, tokenClaims.ManangedIdentityResourceID)
-	resourceID, err := arm.ParseResourceID(rid)
-	if err != nil {
-		return "", "", trace.Wrap(err, "failed to parse resource id from claims")
-	}
-	if !slices.Contains(resourceID.ResourceType.Types, azureVirtualMachine) {
-		return "", "", trace.BadParameter("unexpected resource type: %q", resourceID.ResourceType.Type)
-	}
-	return resourceID.SubscriptionID, resourceID.ResourceGroupName, nil
-}
-
-func checkAzureAllowRules(vmID string, attrs *workloadidentityv1pb.JoinAttrsAzure, token *types.ProvisionTokenV2) error {
-	for _, rule := range token.Spec.Azure.Allow {
-		if rule.Subscription != attrs.Subscription {
+func checkAzureAllowRules(vm *azure.VirtualMachine, token string, allowRules []*types.ProvisionTokenSpecV2Azure_Rule) error {
+	for _, rule := range allowRules {
+		if rule.Subscription != vm.Subscription {
 			continue
 		}
-		if !azureResourceGroupIsAllowed(rule.ResourceGroups, attrs.ResourceGroup) {
+		if !azureResourceGroupIsAllowed(rule.ResourceGroups, vm.ResourceGroup) {
 			continue
 		}
 		return nil
 	}
-	return trace.AccessDenied("instance %v did not match any allow rules in token %v", vmID, token.GetName())
+	return trace.AccessDenied("instance %v did not match any allow rules in token %v", vm.Name, token)
 }
 func azureResourceGroupIsAllowed(allowedResourceGroups []string, vmResourceGroup string) bool {
 	if len(allowedResourceGroups) == 0 {
@@ -388,47 +314,37 @@ func azureResourceGroupIsAllowed(allowedResourceGroups []string, vmResourceGroup
 	return false
 }
 
-func azureJoinToAttrs(subscriptionID, resourceGroupID string) *workloadidentityv1pb.JoinAttrsAzure {
-	return &workloadidentityv1pb.JoinAttrsAzure{
-		Subscription:  subscriptionID,
-		ResourceGroup: resourceGroupID,
-	}
-}
-
-func (a *Server) checkAzureRequest(
-	ctx context.Context,
-	challenge string,
-	req *proto.RegisterUsingAzureMethodRequest,
-	cfg *azureRegisterConfig,
-) (*workloadidentityv1pb.JoinAttrsAzure, error) {
+func (a *Server) checkAzureRequest(ctx context.Context, challenge string, req *proto.RegisterUsingAzureMethodRequest, cfg *azureRegisterConfig) error {
 	requestStart := a.clock.Now()
 	tokenName := req.RegisterUsingTokenRequest.Token
 	provisionToken, err := a.GetToken(ctx, tokenName)
 	if err != nil {
-		return nil, trace.Wrap(err)
+		return trace.Wrap(err)
 	}
 	if provisionToken.GetJoinMethod() != types.JoinMethodAzure {
-		return nil, trace.AccessDenied("this token does not support the Azure join method")
-	}
-	token, ok := provisionToken.(*types.ProvisionTokenV2)
-	if !ok {
-		return nil, trace.BadParameter("azure join method only supports ProvisionTokenV2, '%T' was provided", provisionToken)
+		return trace.AccessDenied("this token does not support the Azure join method")
 	}
 
 	subID, vmID, err := parseAndVerifyAttestedData(ctx, req.AttestedData, challenge, cfg.certificateAuthorities)
 	if err != nil {
-		return nil, trace.Wrap(err)
+		return trace.Wrap(err)
 	}
 
-	attrs, err := verifyVMIdentity(ctx, cfg, req.AccessToken, subID, vmID, requestStart, a.logger)
+	vm, err := verifyVMIdentity(ctx, cfg, req.AccessToken, subID, vmID, requestStart)
 	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	if err := checkAzureAllowRules(vmID, attrs, token); err != nil {
-		return attrs, trace.Wrap(err)
+		return trace.Wrap(err)
 	}
 
-	return attrs, nil
+	token, ok := provisionToken.(*types.ProvisionTokenV2)
+	if !ok {
+		return trace.BadParameter("azure join method only supports ProvisionTokenV2, '%T' was provided", provisionToken)
+	}
+
+	if err := checkAzureAllowRules(vm, token.GetName(), token.Spec.Azure.Allow); err != nil {
+		return trace.Wrap(err)
+	}
+
+	return nil
 }
 
 func generateAzureChallenge() (string, error) {
@@ -436,13 +352,13 @@ func generateAzureChallenge() (string, error) {
 	return challenge, trace.Wrap(err)
 }
 
-// RegisterUsingAzureMethodWithOpts registers the caller using the Azure join method
+// RegisterUsingAzureMethod registers the caller using the Azure join method
 // and returns signed certs to join the cluster.
 //
 // The caller must provide a ChallengeResponseFunc which returns a
 // *proto.RegisterUsingAzureMethodRequest with a signed attested data document
 // including the challenge as a nonce.
-func (a *Server) RegisterUsingAzureMethodWithOpts(
+func (a *Server) RegisterUsingAzureMethod(
 	ctx context.Context,
 	challengeResponse client.RegisterAzureChallengeResponseFunc,
 	opts ...azureRegisterOption,
@@ -452,7 +368,9 @@ func (a *Server) RegisterUsingAzureMethodWithOpts(
 	defer func() {
 		// Emit a log message and audit event on join failure.
 		if err != nil {
-			a.handleJoinFailure(ctx, err, provisionToken, nil, joinRequest)
+			a.handleJoinFailure(
+				err, provisionToken, nil, joinRequest,
+			)
 		}
 	}()
 
@@ -483,8 +401,7 @@ func (a *Server) RegisterUsingAzureMethodWithOpts(
 		return nil, trace.Wrap(err)
 	}
 
-	joinAttrs, err := a.checkAzureRequest(ctx, challenge, req, cfg)
-	if err != nil {
+	if err := a.checkAzureRequest(ctx, challenge, req, cfg); err != nil {
 		return nil, trace.Wrap(err)
 	}
 
@@ -494,9 +411,6 @@ func (a *Server) RegisterUsingAzureMethodWithOpts(
 			provisionToken,
 			req.RegisterUsingTokenRequest,
 			nil,
-			&workloadidentityv1pb.JoinAttrs{
-				Azure: joinAttrs,
-			},
 		)
 		return certs, trace.Wrap(err)
 	}
@@ -507,19 +421,6 @@ func (a *Server) RegisterUsingAzureMethodWithOpts(
 		nil,
 	)
 	return certs, trace.Wrap(err)
-}
-
-// RegisterUsingAzureMethod registers the caller using the Azure join method
-// and returns signed certs to join the cluster.
-//
-// The caller must provide a ChallengeResponseFunc which returns a
-// *proto.RegisterUsingAzureMethodRequest with a signed attested data document
-// including the challenge as a nonce.
-func (a *Server) RegisterUsingAzureMethod(
-	ctx context.Context,
-	challengeResponse client.RegisterAzureChallengeResponseFunc,
-) (certs *proto.Certs, err error) {
-	return a.RegisterUsingAzureMethodWithOpts(ctx, challengeResponse)
 }
 
 // fixAzureSigningAlgorithm fixes a mismatch between the object IDs of the

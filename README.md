@@ -17,7 +17,7 @@ Teleport works with SSH, Kubernetes, databases, RDP, and web services.
 
 <div align="center">
    <a href="https://goteleport.com/download">
-   <img src="./assets/img/hero-teleport-platform.png" width=750/>
+   <img src="./assets/img/hero-teleport-platform.svg" width=750/>
    </a>
    <div align="center" style="padding: 25px">
       <a href="https://goteleport.com/download">
@@ -47,7 +47,6 @@ Teleport works with SSH, Kubernetes, databases, RDP, and web services.
 1. [Support and Contributing](#support-and-contributing)
 1. [Is Teleport Secure and Production Ready?](#is-teleport-secure-and-production-ready)
 1. [Who Built Teleport?](#who-built-teleport)
-1. [License](#license)
 
 ## Introduction
 
@@ -55,12 +54,12 @@ Teleport includes an identity-aware access proxy, a CA that issues short-lived c
 
 We have implemented Teleport as a single Go binary that integrates with multiple protocols and cloud services:
 
-* [SSH nodes](https://goteleport.com/docs/enroll-resources/server-access/introduction/).
-* [Kubernetes clusters](https://goteleport.com/docs/enroll-resources/kubernetes-access/introduction/)
+* [SSH nodes](https://goteleport.com/docs/enroll-resources/server-access/).
+* [Kubernetes clusters](https://goteleport.com/docs/enroll-resources/kubernetes-access/)
 * [PostgreSQL, MongoDB, CockroachDB and MySQL databases](https://goteleport.com/docs/enroll-resources/database-access/).
-* [Internal Web apps](https://goteleport.com/docs/enroll-resources/application-access/introduction/).
-* [Windows Hosts](https://goteleport.com/docs/enroll-resources/desktop-access/introduction/).
-* [Networked servers](https://goteleport.com/docs/enroll-resources/server-access/introduction/).
+* [Internal Web apps](https://goteleport.com/docs/enroll-resources/application-access/).
+* [Windows Hosts](https://goteleport.com/docs/enroll-resources/desktop-access/).
+* [Networked servers](https://goteleport.com/docs/enroll-resources/server-access/).
 
 You can set up Teleport as a [Linux daemon](https://goteleport.com/docs/admin-guides/deploy-a-cluster/linux-demo) or a [Kubernetes deployment](https://goteleport.com/docs/admin-guides/deploy-a-cluster/helm-deployments/).
 
@@ -69,7 +68,7 @@ Teleport focuses on best practices for infrastructure security:
 - No need to manage shared secrets such as SSH keys or Kubernetes tokens: it uses certificate-based auth with certificate expiration for all protocols.
 - Two-factor authentication (2FA) for everything.
 - Collaboratively troubleshoot issues through session sharing.
-- Single sign-on (SSO) for everything via GitHub Auth, OpenID Connect, or SAML with endpoints like Okta or Microsoft Entra ID.
+- Single sign-on (SSO) for everything via GitHub Auth, OpenID Connect, or SAML with endpoints like Okta or Active Directory.
 - Infrastructure introspection: Use Teleport via the CLI or Web UI to view the status of every SSH node, database instance, Kubernetes cluster, or internal web app.
 
 Teleport uses [Go crypto](https://godoc.org/golang.org/x/crypto). It is _fully compatible with OpenSSH_, `sshd` servers, and `ssh` clients, Kubernetes clusters and more.
@@ -87,15 +86,15 @@ Teleport uses [Go crypto](https://godoc.org/golang.org/x/crypto). It is _fully c
 ## Installing and Running
 
 To set up a single-instance Teleport cluster, follow our [getting started
-guide](https://goteleport.com/docs/admin-guides/deploy-a-cluster/linux-demo/). You can then register your
+guide](https://goteleport.com/docs/get-started). You can then register your
 servers, Kubernetes clusters, and other infrastructure with your Teleport
 cluster.
 
-You can also get started with Teleport Enterprise Cloud, a managed Teleport
-deployment that makes it easier to enable secure access to your infrastructure.
+You can also get started with Teleport Team, a managed Teleport deployment that
+makes it easier for small organizations to enable secure access to their
+infrastructure.
 
-[Sign up for a free trial](https://goteleport.com/signup) of Teleport Enterprise
-Cloud.
+[Sign up for a free trial](https://goteleport.com/signup) of Teleport Team.
 
 Follow our guide to [registering your first
 server](https://goteleport.com/docs/get-started/)
@@ -105,23 +104,26 @@ with Teleport Enterprise Cloud.
 
 ### Deploy Teleport
 
-If you wish to deploy Teleport inside a Docker container see the
+If you wish to deploy Teleport inside a Docker container see the 
 [installation guide](https://goteleport.com/docs/installation/#running-teleport-on-docker).
 
 ### For Local Testing and Development
 
-To run a full test suite locally, see [the test dependencies list](BUILD_macos.md#local-tests-dependencies)
+Follow the instructions in the [docker/README](docker/README.md) file.
+
+To run a full test suite locally, see [the test dependencies list](BUILD_macos.md#local-tests-dependencies) 
 
 ## Building Teleport
 
 The `teleport` repository contains the Teleport daemon binary (written in Go)
-and a web UI written in TypeScript.
+and a web UI written in Javascript (a git submodule located in the `webassets/`
+directory).
 
 If your intention is to build and deploy for use in a production infrastructure
 a released tag should be used.  The default branch, `master`, is the current
 development branch for an upcoming major version.  Get the latest release tags
 listed at https://goteleport.com/download/ and then use that tag in the `git clone`.
-For example `git clone https://github.com/gravitational/teleport.git -b v16.0.0` gets release v16.0.0.
+For example `git clone https://github.com/gravitational/teleport.git -b v15.0.0` gets release v15.0.0.
 
 ### Dockerized Build
 
@@ -141,20 +143,14 @@ Ensure you have installed correct versions of necessary dependencies:
 * `Go` version from
   [go.mod](https://github.com/gravitational/teleport/blob/master/go.mod#L3)
 * If you wish to build the Rust-powered features like Desktop Access, see the
-  `Rust` and `Cargo` versions in
+  `Rust` and `Cargo` version in
   [build.assets/Makefile](https://github.com/gravitational/teleport/blob/master/build.assets/Makefile#L21)
   (search for `RUST_VERSION`)
-* For `tsh` version > `10.x` with FIDO2 support, you will need `libfido2` and
-  `pkg-config` installed locally
-* To build the web UI:
-  * [`pnpm`](https://pnpm.io/installation#using-corepack). If you have Node.js installed, run `corepack enable pnpm` to make `pnpm` available.
-  * If you prefer not to install/use pnpm, but have docker available, you can run `make docker-ui` instead.
-  * The `Rust` and `Cargo` version in [build.assets/Makefile](https://github.com/gravitational/teleport/blob/master/build.assets/versions.mk#L11) (search for `RUST_VERSION`) are required.
-  * The [`wasm-pack`](https://github.com/rustwasm/wasm-pack) version in [build.assets/Makefile](https://github.com/gravitational/teleport/blob/master/build.assets/versions.mk#L12) (search for `WASM_PACK_VERSION`) is required.
-  * [`binaryen`](https://github.com/WebAssembly/binaryen) (which contains `wasm-opt`) is required to be installed manually
-    on linux aarch64 (64-bit ARM). You can check if it's already installed on your system by running `which wasm-opt`. If not you can install it like `apt-get install binaryen` (for Debian-based Linux). `wasm-pack` will install this automatically on other platforms.
+* For `tsh` version > `10.x` with FIDO support, you will need `libfido` and `openssl 1.1` installed locally
+* To build the web UI, [`yarn`](https://classic.yarnpkg.com/en/docs/install)(< 2.0.0) is required.
+  * If you prefer not to install/use yarn, but have docker available, you can run `make docker-ui` instead.
 
-For an example of Dev Environment setup on a Mac, see [these instructions](BUILD_macos.md).
+For an example of Dev Environment setup on a Mac, see [these instructions](BUILD_macos.md). 
 
 #### Perform a build
 
@@ -165,7 +161,7 @@ For an example of Dev Environment setup on a Mac, see [these instructions](BUILD
    without swap will **not** work.
 >* This will build the latest version of Teleport, **regardless** of whether it
    is stable. If you want to build the latest stable release, run `git checkout`
-   and `git submodule update --recursive` to the corresponding tag (for example,
+   and `git submodule update --recursive` to the corresponding tag (for example, 
 >* run `git checkout v8.0.0`) **before** performing a build.
 
 Get the source
@@ -175,37 +171,38 @@ git clone https://github.com/gravitational/teleport.git
 cd teleport
 ```
 
-To perform a build
+To perform a build 
 
 ```shell
 make full
 ```
 
-`tsh` dynamically links against libfido2 by default, to support development
-environments, as long as the library itself can be found:
+To build `tsh` with Apple TouchID support enabled:
+
+> **Important**
+> 
+>`tsh` binaries with Touch ID support are only functional using binaries signed
+with Teleport's Apple Developer ID and notarized by Apple. If you are a Teleport
+maintainer, ask the team for access.
 
 ```shell
-$ brew install libfido2 pkg-config  # Replace with your package manager of choice
-
-$ make build/tsh
-> libfido2 found, setting FIDO2=dynamic
-> (...)
+make build/tsh TOUCHID=yes
 ```
 
-Release binaries are linked statically against libfido2. You may switch the
-linking mode using the FIDO2 variable:
+To build `tsh` with `libfido`:
 
-```shell
-make build/tsh FIDO2=dynamic # dynamic linking
-make build/tsh FIDO2=static  # static linking, for an easy setup use `make enter`
-                             # or `build.assets/macos/build-fido2-macos.sh`.
-make build/tsh FIDO2=off     # doesn't link libfido2 in any way
-```
+  ```shell
+  make build/tsh FIDO2=dynamic
+  ```
 
-`tsh` builds with Touch ID support require access to an Apple Developer account.
-If you are a Teleport maintainer, ask the team for access.
+  * On a Mac, with `libfido` and `openssl 3` installed via `homebrew`
 
-#### Build output and run locally
+    ```shell
+    export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig"
+    make build/tsh FIDO2=dynamic
+    ```
+
+#### Build output and running locally
 
 If the build succeeds, the installer will place the binaries in the `build` directory.
 
@@ -329,7 +326,7 @@ Why is a specific version of a module imported?
 
 ### Devbox Build (experimental)
 
-**Note**: Devbox support is still experimental. It's very possible things may not work as intended.
+**Note**: Devbox support is still experimental. It's very possible things make not work as intended.
 
 Teleport can be built using [devbox](https://www.jetpack.io/devbox). To use devbox, follow
 the instructions to install devbox [here](https://www.jetpack.io/devbox/docs/quickstart/) and
@@ -374,15 +371,15 @@ We offer a few different options for support. First of all, we try to provide cl
 ## Is Teleport Secure and Production-Ready?
 
 Yes -- Teleport is production-ready and designed to protect and facilitate
-access to the most precious and mission-critical applications.
+access to the most precious and mission critical applications.
 
 Teleport has completed several security audits from nationally and
-internationally recognized technology security companies.
+internationally recognized technology security companies. 
 
 We publicize some of our audit results, security philosophy and related
 information on our [trust page](https://trust.goteleport.com/).
 
-You can see the list of companies that use Teleport in production on the Teleport
+You can see the list of companies who use Teleport in production on the Teleport
 [product page](https://goteleport.com/case-study/).
 
 ## Who Built Teleport?
@@ -390,17 +387,3 @@ You can see the list of companies that use Teleport in production on the Telepor
 Teleport was created by [Gravitational, Inc.](https://goteleport.com). We have
 built Teleport by borrowing from our previous experiences at Rackspace. [Learn more
 about Teleport and our history](https://goteleport.com/about/).
-
-## License
-
-Teleport is distributed in multiple forms with different licensing implications.
-
-The Teleport API module (all code in this repository under `/api`) is available
-under the [Apache 2.0 license](./api/LICENSE).
-
-The remainder of the source code in this repository is available under the
-[GNU Affero General Public License](./LICENSE). Users compiling Teleport
-from source must comply with the terms of this license.
-
-Teleport Community Edition builds distributed on http://goteleport.com/download
-are available under a [modified Apache 2.0 license](./build.assets/LICENSE-community).

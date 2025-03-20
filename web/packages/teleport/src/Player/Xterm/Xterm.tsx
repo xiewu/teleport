@@ -16,34 +16,20 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import styled, { useTheme } from 'styled-components';
+import React, { useEffect, useRef } from 'react';
 
 import { getPlatformType } from 'design/platform';
-import { TerminalSearch } from 'shared/components/TerminalSearch';
+import { useTheme } from 'styled-components';
 
-import StyledXterm from 'teleport/Console/StyledXterm';
-import { TermEvent } from 'teleport/lib/term/enums';
 import Terminal from 'teleport/lib/term/terminal';
 import Tty from 'teleport/lib/term/tty';
+import { TermEvent } from 'teleport/lib/term/enums';
+import StyledXterm from 'teleport/Console/StyledXterm';
 
 export default function Xterm({ tty }: { tty: Tty }) {
-  const refContainer = useRef<HTMLDivElement>();
+  const refContainer = useRef<HTMLElement>();
   const theme = useTheme();
   const terminalPlayer = useRef<TerminalPlayer>();
-  const [showSearch, setShowSearch] = useState(false);
-
-  const onSearchClose = useCallback(() => {
-    setShowSearch(false);
-  }, []);
-
-  const onSearchOpen = useCallback(() => {
-    setShowSearch(true);
-  }, []);
-
-  const isSearchKeyboardEvent = useCallback((e: KeyboardEvent) => {
-    return (e.metaKey || e.ctrlKey) && e.key === 'f';
-  }, []);
 
   useEffect(() => {
     const term = new TerminalPlayer(tty, {
@@ -84,22 +70,7 @@ export default function Xterm({ tty }: { tty: Tty }) {
     terminalPlayer.current?.updateTheme(theme.colors.terminal);
   }, [theme]);
 
-  return (
-    <>
-      <StyledXterm ref={refContainer} />
-      {terminalPlayer.current && (
-        <TerminalAddonsContainer>
-          <TerminalSearch
-            show={showSearch}
-            isSearchKeyboardEvent={isSearchKeyboardEvent}
-            onClose={onSearchClose}
-            onOpen={onSearchOpen}
-            terminalSearcher={terminalPlayer.current}
-          />
-        </TerminalAddonsContainer>
-      )}
-    </>
-  );
+  return <StyledXterm ref={refContainer} />;
 }
 
 class TerminalPlayer extends Terminal {
@@ -119,15 +90,3 @@ class TerminalPlayer extends Terminal {
   // prevent user resize requests
   _requestResize() {}
 }
-
-const TerminalAddonsContainer = styled.div`
-  position: absolute;
-  right: ${p => p.theme.space[2]}px;
-  top: ${p => p.theme.space[2]}px;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: ${p => p.theme.space[2]}px;
-  min-width: 500px;
-`;

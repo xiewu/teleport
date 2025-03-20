@@ -27,6 +27,10 @@ import (
 	"github.com/gravitational/teleport/api/types/discoveryconfig"
 )
 
+func stringPointer(s string) *string {
+	return &s
+}
+
 func TestTruncateErrorMessage(t *testing.T) {
 	for _, tt := range []struct {
 		name     string

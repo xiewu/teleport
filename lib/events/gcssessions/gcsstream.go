@@ -22,7 +22,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -53,10 +52,10 @@ func (h *Handler) CreateUpload(ctx context.Context, sessionID session.ID) (*even
 
 	uploadPath := h.uploadPath(upload)
 
-	h.logger.DebugContext(ctx, "Creating upload", "path", uploadPath)
+	h.Logger.Debugf("Creating upload at %s", uploadPath)
 	// Make sure we don't overwrite an existing upload
 	_, err := h.gcsClient.Bucket(h.Config.Bucket).Object(uploadPath).Attrs(ctx)
-	if !errors.Is(err, storage.ErrObjectNotExist) {
+	if err != storage.ErrObjectNotExist {
 		if err != nil {
 			return nil, convertGCSError(err)
 		}
@@ -111,7 +110,7 @@ func (h *Handler) CompleteUpload(ctx context.Context, upload events.StreamUpload
 	// If the session has been already created, move to cleanup
 	sessionPath := h.path(upload.SessionID)
 	_, err := h.gcsClient.Bucket(h.Config.Bucket).Object(sessionPath).Attrs(ctx)
-	if !errors.Is(err, storage.ErrObjectNotExist) {
+	if err != storage.ErrObjectNotExist {
 		if err != nil {
 			return convertGCSError(err)
 		}
@@ -134,7 +133,8 @@ func (h *Handler) CompleteUpload(ctx context.Context, upload events.StreamUpload
 
 	objects := h.partsToObjects(upload, parts)
 	for len(objects) > maxParts {
-		h.logger.DebugContext(ctx, "Merging multiple objects for upload", "objects", len(objects), "upload", upload)
+		h.Logger.Debugf("Got %v objects for upload %v, performing temp merge.",
+			len(objects), upload)
 		objectsToMerge := objects[:maxParts]
 		mergeID := hashOfNames(objectsToMerge)
 		mergePath := h.mergePath(upload, mergeID)
@@ -151,7 +151,8 @@ func (h *Handler) CompleteUpload(ctx context.Context, upload events.StreamUpload
 	if err != nil {
 		return convertGCSError(err)
 	}
-	h.logger.DebugContext(ctx, "Completed upload after merging multiple objects", "objects", len(objects), "upload", upload)
+	h.Logger.Debugf("Got %v objects for upload %v, performed merge.",
+		len(objects), upload)
 	return h.cleanupUpload(ctx, upload)
 }
 
@@ -170,7 +171,7 @@ func (h *Handler) cleanupUpload(ctx context.Context, upload events.StreamUpload)
 		i := bucket.Objects(ctx, &storage.Query{Prefix: prefix, Versions: false})
 		for {
 			attrs, err := i.Next()
-			if errors.Is(err, iterator.Done) {
+			if err == iterator.Done {
 				break
 			}
 			if err != nil {
@@ -233,7 +234,7 @@ func (h *Handler) ListParts(ctx context.Context, upload events.StreamUpload) ([]
 	var parts []events.StreamPart
 	for {
 		attrs, err := i.Next()
-		if errors.Is(err, iterator.Done) {
+		if err == iterator.Done {
 			break
 		}
 		if err != nil {
@@ -262,7 +263,7 @@ func (h *Handler) ListUploads(ctx context.Context) ([]events.StreamUpload, error
 	var uploads []events.StreamUpload
 	for {
 		attrs, err := i.Next()
-		if errors.Is(err, iterator.Done) {
+		if err == iterator.Done {
 			break
 		}
 		if err != nil {

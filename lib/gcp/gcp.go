@@ -19,7 +19,8 @@
 package gcp
 
 import (
-	workloadidentityv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/workloadidentity/v1"
+	"github.com/gravitational/trace"
+	"github.com/mitchellh/mapstructure"
 )
 
 // defaultIssuerHost is the issuer for GCP ID tokens.
@@ -51,21 +52,20 @@ type IDTokenClaims struct {
 	Google Google `json:"google"`
 }
 
-// JoinAttrs returns the protobuf representation of the attested identity.
-// This is used for auditing and for evaluation of WorkloadIdentity rules and
-// templating.
-func (c *IDTokenClaims) JoinAttrs() *workloadidentityv1pb.JoinAttrsGCP {
-	attrs := &workloadidentityv1pb.JoinAttrsGCP{
-		ServiceAccount: c.Email,
-	}
-	if c.Google.ComputeEngine.InstanceName != "" {
-		attrs.Gce = &workloadidentityv1pb.JoinAttrsGCPGCE{
-			Project: c.Google.ComputeEngine.ProjectID,
-			Zone:    c.Google.ComputeEngine.Zone,
-			Id:      c.Google.ComputeEngine.InstanceID,
-			Name:    c.Google.ComputeEngine.InstanceName,
-		}
+// JoinAuditAttributes returns a series of attributes that can be inserted into
+// audit events related to a specific join.
+func (c *IDTokenClaims) JoinAuditAttributes() (map[string]interface{}, error) {
+	res := map[string]interface{}{}
+	d, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		TagName: "json",
+		Result:  &res,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err)
 	}
 
-	return attrs
+	if err := d.Decode(c); err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return res, nil
 }

@@ -16,21 +16,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import styled from 'styled-components';
-
 import { Flex } from 'design';
 import InputSearch from 'design/DataTable/InputSearch';
 import { PageIndicatorText } from 'design/DataTable/Pager/PageIndicatorText';
-import { AdvancedSearchToggle } from 'shared/components/AdvancedSearchToggle';
-
 import { ResourceFilter } from 'teleport/services/agents';
+
+import { AdvancedSearchToggle } from 'shared/components/AdvancedSearchToggle';
 
 export function SearchPanel({
   updateQuery,
   updateSearch,
   pageIndicators,
   filter,
+  showSearchBar,
   disableSearch,
   hideAdvancedSearch,
   extraChildren,
@@ -39,6 +39,7 @@ export function SearchPanel({
   updateSearch(s: string): void;
   pageIndicators?: { from: number; to: number; total: number };
   filter: ResourceFilter;
+  showSearchBar: boolean;
   disableSearch: boolean;
   hideAdvancedSearch?: boolean;
   extraChildren?: JSX.Element;
@@ -55,15 +56,15 @@ export function SearchPanel({
     setIsAdvancedSearch(!isAdvancedSearch);
   }
 
-  function updateQueryForRefetching(newQuery: string) {
-    setQuery(newQuery);
+  function handleOnSubmit(e) {
+    e.preventDefault(); // prevent form default
 
     if (isAdvancedSearch) {
-      updateQuery(newQuery);
+      updateQuery(query);
       return;
     }
 
-    updateSearch(newQuery);
+    updateSearch(query);
   }
 
   return (
@@ -71,27 +72,27 @@ export function SearchPanel({
       justifyContent="space-between"
       alignItems="center"
       width="100%"
+      onSubmit={handleOnSubmit}
       mb={3}
     >
-      <Flex style={{ width: '100%' }} alignItems="center">
+      <Flex as="form" style={{ width: '100%' }} alignItems="center">
         <StyledFlex
           mr={3}
           alignItems="center"
           width="100%"
           className={disableSearch ? 'disabled' : ''}
         >
-          <InputSearch
-            searchValue={query}
-            setSearchValue={updateQueryForRefetching}
-          >
-            {!hideAdvancedSearch && (
-              <AdvancedSearchToggle
-                isToggled={isAdvancedSearch}
-                onToggle={onToggle}
-                px={3}
-              />
-            )}
-          </InputSearch>
+          {showSearchBar && (
+            <InputSearch searchValue={query} setSearchValue={setQuery}>
+              {!hideAdvancedSearch && (
+                <AdvancedSearchToggle
+                  isToggled={isAdvancedSearch}
+                  onToggle={onToggle}
+                  px={3}
+                />
+              )}
+            </InputSearch>
+          )}
         </StyledFlex>
       </Flex>
       <Flex alignItems="center">

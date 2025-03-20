@@ -25,16 +25,15 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"path"
-	"time"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
 	"github.com/julienschmidt/httprouter"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/types"
@@ -99,11 +98,11 @@ type Handler struct {
 
 	router *httprouter.Router
 
-	cache *utils.FnCache
+	cache *sessionCache
 
 	clusterName string
 
-	logger *slog.Logger
+	log *logrus.Entry
 }
 
 // NewHandler returns a new application handler.
@@ -116,24 +115,20 @@ func NewHandler(ctx context.Context, c *HandlerConfig) (*Handler, error) {
 	h := &Handler{
 		c:            c,
 		closeContext: ctx,
-		logger:       slog.With(teleport.ComponentKey, teleport.ComponentAppProxy),
+		log: logrus.WithFields(logrus.Fields{
+			teleport.ComponentKey: teleport.ComponentAppProxy,
+		}),
 	}
 
 	// Create a new session cache, this holds sessions that can be used to
 	// forward requests.
-	h.cache, err = utils.NewFnCache(utils.FnCacheConfig{
-		TTL:             time.Second, // Doesn't matter, TTL is always set on an item by item basis.
-		Clock:           h.c.Clock,
-		Context:         ctx,
-		CleanupInterval: time.Second,
-		ReloadOnErr:     true,
-	})
+	h.cache, err = newSessionCache(ctx, h.log)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
 	// Get the name of this cluster.
-	cn, err := h.c.AccessPoint.GetClusterName(ctx)
+	cn, err := h.c.AccessPoint.GetClusterName()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -143,7 +138,13 @@ func NewHandler(ctx context.Context, c *HandlerConfig) (*Handler, error) {
 	h.router = httprouter.New()
 	h.router.UseRawPath = true
 	h.router.GET("/x-teleport-auth", makeRouterHandler(h.startAppAuthExchange))
-	h.router.POST("/x-teleport-auth", makeRouterHandler(h.completeAppAuthExchange))
+	// DELETE IN 17.0
+	// Kept for legacy app access.
+	h.router.OPTIONS("/x-teleport-auth", makeRouterHandler(h.withCustomCORS(nil)))
+	// DELETE IN 17.0
+	// when deleting, replace with the commented handler below:
+	//   h.router.POST("/x-teleport-auth", makeRouterHandler(h.completeAppAuthExchange))
+	h.router.POST("/x-teleport-auth", makeRouterHandler(h.withCustomCORS(h.handleAuth)))
 	h.router.GET("/teleport-logout", h.withRouterAuth(h.handleLogout))
 	h.router.NotFound = h.withAuth(h.handleHttp)
 
@@ -334,7 +335,7 @@ func (h *Handler) handleForwardError(w http.ResponseWriter, req *http.Request, e
 func (h *Handler) authenticate(ctx context.Context, r *http.Request) (*session, error) {
 	ws, err := h.getAppSession(r)
 	if err != nil {
-		h.logger.WarnContext(ctx, "Failed to fetch application session", "error", err)
+		h.log.Warnf("Failed to fetch application session: %v.", err)
 		return nil, trace.AccessDenied("invalid session")
 	}
 
@@ -342,7 +343,7 @@ func (h *Handler) authenticate(ctx context.Context, r *http.Request) (*session, 
 	// process has seen.
 	session, err := h.getSession(ctx, ws)
 	if err != nil {
-		h.logger.WarnContext(ctx, "Failed to get session", "error", err)
+		h.log.Warnf("Failed to get session: %v.", err)
 		return nil, trace.AccessDenied("invalid session")
 	}
 
@@ -355,18 +356,18 @@ func (h *Handler) authenticate(ctx context.Context, r *http.Request) (*session, 
 func (h *Handler) renewSession(r *http.Request) (*session, error) {
 	ws, err := h.getAppSession(r)
 	if err != nil {
-		h.logger.DebugContext(r.Context(), "Failed to fetch application session: not found")
+		h.log.Debugf("Failed to fetch application session: not found.")
 		return nil, trace.AccessDenied("invalid session")
 	}
 
 	// Remove the session from the cache, this will force a new session to be
 	// generated and cached.
-	h.cache.Remove(ws.GetName())
+	h.cache.remove(ws.GetName())
 
 	// Fetches a new session using the same flow as `authenticate`.
 	session, err := h.getSession(r.Context(), ws)
 	if err != nil {
-		h.logger.WarnContext(r.Context(), "Failed to get session", "error", err)
+		h.log.Warnf("Failed to get session: %v.", err)
 		return nil, trace.AccessDenied("invalid session")
 	}
 
@@ -385,7 +386,7 @@ func (h *Handler) getAppSession(r *http.Request) (ws types.WebSession, err error
 		ws, err = h.getAppSessionFromCookie(r)
 	}
 	if err != nil {
-		h.logger.WarnContext(r.Context(), "Failed to get session", "error", err)
+		h.log.Warnf("Failed to get session: %v.", err)
 		return nil, trace.AccessDenied("invalid session")
 	}
 	return ws, nil
@@ -482,13 +483,25 @@ func (h *Handler) getAppSessionFromCookie(r *http.Request) (types.WebSession, er
 // application service. Always checks if the session is valid first and if so,
 // will return a cached session, otherwise will create one.
 func (h *Handler) getSession(ctx context.Context, ws types.WebSession) (*session, error) {
+	// If a cached session exists, return it right away.
+	session, err := h.cache.get(ws.GetName())
+	if err == nil {
+		return session, nil
+	}
+
+	// Create a new session with a forwarder in it.
+	session, err = h.newSession(ctx, ws)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
 	// Put the session in the cache so the next request can use it.
-	ttl := ws.Expiry().Sub(h.c.Clock.Now())
-	sess, err := utils.FnCacheGetWithTTL(ctx, h.cache, ws.GetName(), ttl, func(ctx context.Context) (*session, error) {
-		sess, err := h.newSession(ctx, ws)
-		return sess, trace.Wrap(err)
-	})
-	return sess, trace.Wrap(err)
+	err = h.cache.set(ws.GetName(), session, ws.Expiry().Sub(h.c.Clock.Now()))
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return session, nil
 }
 
 // extractCookie extracts the cookie from the *http.Request.
@@ -615,27 +628,21 @@ const (
 //
 // The URL's are formed this way to help isolate the path params reserved for the app
 // launchers route, where order and existence of previous params matter for this route.
-func makeAppRedirectURL(r *http.Request, proxyPublicAddr, addr string, req launcherURLParams) string {
-	if req.requiresAppRedirect {
-		addr = req.publicAddr
-	}
+func makeAppRedirectURL(r *http.Request, proxyPublicAddr, hostname string, req launcherURLParams) string {
 	u := url.URL{
 		Scheme: "https",
 		Host:   proxyPublicAddr,
-		Path:   fmt.Sprintf("/web/launch/%s", addr),
+		Path:   fmt.Sprintf("/web/launch/%s", hostname),
 	}
 
 	// Presence of a stateToken means we are beginning an app auth exchange.
-	if req.stateToken != "" || req.requiresAppRedirect {
+	if req.stateToken != "" {
 		v := url.Values{}
-		if req.stateToken != "" {
-			v.Add("state", req.stateToken)
-		}
+		v.Add("state", req.stateToken)
 		v.Add("path", req.path)
-		v.Add("required-apps", req.requiredAppFQDNs)
 		u.RawQuery = v.Encode()
 
-		urlPath := []string{"web", "launch", addr}
+		urlPath := []string{"web", "launch", hostname}
 
 		// The order and existence of previous params matter.
 		//
@@ -665,9 +672,6 @@ func makeAppRedirectURL(r *http.Request, proxyPublicAddr, addr string, req launc
 		// So Encode() will just encode it once (note that spaces will be convereted to `+`)
 		v := url.Values{}
 		v.Add("path", r.URL.Path)
-		if req.requiredAppFQDNs != "" {
-			v.Add("required-apps", req.requiredAppFQDNs)
-		}
 
 		if len(r.URL.RawQuery) > 0 {
 			v.Add("query", r.URL.RawQuery)

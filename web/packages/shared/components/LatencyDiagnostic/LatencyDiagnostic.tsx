@@ -1,6 +1,6 @@
 /**
  * Teleport
- * Copyright (C) 2024  Gravitational, Inc.
+ * Copyright (C) 2024 Gravitational, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -16,15 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
 import styled from 'styled-components';
+import React from 'react';
 
-import { Flex, H2, Text } from 'design';
 import * as Icons from 'design/Icon';
+import { Flex, Text } from 'design';
 import { TeleportGearIcon } from 'design/SVGIcon';
-import { MenuIcon } from 'shared/components/MenuAction';
 
 import { DocumentSsh } from 'teleport/Console/stores';
+
+import { MenuIcon } from 'shared/components/MenuAction';
 
 export const WARN_THRESHOLD = 150;
 export const ERROR_THRESHOLD = 400;
@@ -99,7 +100,9 @@ export function LatencyDiagnostic({
     <MenuIcon Icon={Icons.Wifi} buttonIconProps={{ color: colors.total }}>
       <Container>
         <Flex gap={5} flexDirection="column">
-          <H2>Network Connection</H2>
+          <Text textAlign="left" typography="h3">
+            Network Connection
+          </Text>
 
           <Flex alignItems="center">
             <IconContainer

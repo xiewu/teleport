@@ -16,9 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
 
-import { alignSelf, color, space } from 'design/system';
+import { space, color, alignSelf } from 'design/system';
 
 const sizeMap = {
   0: {

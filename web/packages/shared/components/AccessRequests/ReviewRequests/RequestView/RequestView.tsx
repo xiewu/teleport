@@ -16,56 +16,59 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Fragment } from 'react';
+import React from 'react';
 import styled from 'styled-components';
-
+import { format } from 'date-fns';
 import {
   Alert,
   Box,
   ButtonBorder,
   ButtonPrimary,
   Flex,
-  H3,
   Indicator,
-  Label,
   LabelState,
   Text,
+  Label,
 } from 'design';
-import Table from 'design/DataTable';
-import { displayDateWithPrefixedTime } from 'design/datetime';
 import {
-  ArrowFatLinesUp,
   ChevronCircleDown,
   CircleCheck,
   CircleCross,
+  ArrowFatLinesUp,
 } from 'design/Icon';
-import { LabelKind } from 'design/LabelState/LabelState';
 import { TeleportGearIcon } from 'design/SVGIcon';
-import { HoverTooltip } from 'design/Tooltip';
-import { Attempt, hasFinished } from 'shared/hooks/useAsync';
+import Table from 'design/DataTable';
+
+import { HoverTooltip } from 'shared/components/ToolTip';
+import { hasFinished, Attempt } from 'shared/hooks/useAsync';
+import cfg from 'shared/config';
+
 import {
-  AccessRequest,
+  canAssumeNow,
   AccessRequestReview,
   AccessRequestReviewer,
-  canAssumeNow,
   RequestState,
   Resource,
+  AccessRequest,
 } from 'shared/services/accessRequests';
+
+import {
+  PromotedMessage,
+  getAssumeStartTimeTooltipText,
+} from '../../Shared/Shared';
+import { getFormattedDurationTxt } from '../../Shared/utils';
+
+import { formattedName } from '../formattedName';
+
+import RequestReview from './RequestReview';
+import RolesRequested from './RolesRequested';
+import { SuggestedAccessList } from './types';
+import { RequestDelete } from './RequestDelete';
 
 import type {
   RequestFlags,
   SubmitReview,
 } from '../../ReviewRequests/RequestView/types';
-import {
-  getAssumeStartTimeTooltipText,
-  PromotedMessage,
-} from '../../Shared/Shared';
-import { getFormattedDurationTxt } from '../../Shared/utils';
-import { formattedName } from '../formattedName';
-import { RequestDelete } from './RequestDelete';
-import RequestReview from './RequestReview';
-import RolesRequested from './RolesRequested';
-import { SuggestedAccessList } from './types';
 
 export interface RequestViewProps {
   user: string;
@@ -156,9 +159,9 @@ export function RequestView({
     start: request.created,
     end: request.expires,
   });
-  let startingTime = displayDateWithPrefixedTime(request.created);
+  let startingTime = format(request.created, cfg.dateWithPrefixedTime);
   if (request.assumeStartTime) {
-    startingTime = displayDateWithPrefixedTime(request.assumeStartTime);
+    startingTime = format(request.assumeStartTime, cfg.dateWithPrefixedTime);
     requestedAccessTime = getFormattedDurationTxt({
       start: request.assumeStartTime,
       end: request.expires,
@@ -213,44 +216,47 @@ export function RequestView({
                   py={1}
                   style={{ fontWeight: 'bold' }}
                 />
-                <H3>
-                  <Flex flexWrap="wrap" alignItems="baseline">
-                    <Text
-                      mr={1}
-                      title={request.user}
-                      bold
-                      style={{
-                        maxWidth: '120px',
-                      }}
-                    >
-                      {request.user}
-                    </Text>
-                    <Text
-                      mr={2}
-                      typography="body3"
-                      style={{
-                        flexShrink: 0,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      is requesting roles:
-                    </Text>
-                    <RolesRequested roles={request.roles} />
-                    <Text typography="body3">
-                      for {requestedAccessTime}, starting {startingTime}
-                    </Text>
-                  </Flex>
-                </H3>
+                <Flex flexWrap="wrap" alignItems="center">
+                  <Text
+                    mr={1}
+                    typography="body2"
+                    title={request.user}
+                    bold
+                    style={{
+                      maxWidth: '120px',
+                    }}
+                  >
+                    {request.user}
+                  </Text>
+                  <Text
+                    mr={2}
+                    typography="body2"
+                    style={{
+                      flexShrink: 0,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    is requesting roles:
+                  </Text>
+                  <RolesRequested roles={request.roles} />
+                  <Text typography="body2">
+                    for {requestedAccessTime}, starting {startingTime}
+                  </Text>
+                </Flex>
               </Flex>
               <Flex
-                alignItems="baseline"
+                alignItems="center"
                 justifyContent="flex-end"
                 flexWrap="wrap-reverse"
                 flex="1"
                 gap={2}
               >
                 {request.requestTTLDuration && request.state === 'PENDING' && (
-                  <RequestTtlLabel typography="body4" ml={1}>
+                  <RequestTtlLabel
+                    fontSize={0}
+                    css={{ lineHeight: 'normal' }}
+                    ml={1}
+                  >
                     Request expires in {request.requestTTLDuration}
                   </RequestTtlLabel>
                 )}
@@ -266,6 +272,11 @@ export function RequestView({
             </Flex>
             {/* Second half of this box contains timestamp & comments*/}
             <TimelineCommentAndReviewsContainer
+              bg="levels.surface"
+              p={4}
+              pt={0}
+              borderBottomLeftRadius={2}
+              borderBottomRightRadius={2}
               style={{ position: 'relative' }}
             >
               <Timeline />
@@ -313,7 +324,7 @@ export function RequestView({
         <Box flex="0 1 260px" minWidth="120px">
           <Reviewers reviewers={request.reviewers} />
           <Box mt={3} ml={1}>
-            <Text typography="body3" color="text.slightlyMuted">
+            <Text typography="body2" color="text.slightlyMuted">
               Thresholds: {request.thresholdNames.join(', ')}
             </Text>
           </Box>
@@ -407,7 +418,7 @@ export function Timestamp({
       >
         {$icon}
       </Box>
-      <Text typography="body2">
+      <Box alignItems="baseline">
         <b>{author}</b>{' '}
         {!isPromoted ? (
           assumeStartTime ? (
@@ -425,7 +436,7 @@ export function Timestamp({
             <b>{promotedAccessListTitle}</b> {createdDuration}
           </span>
         )}
-      </Text>
+      </Box>
     </Flex>
   );
 }
@@ -449,8 +460,10 @@ function Comment({
       style={{ position: 'relative' }}
     >
       <Flex bg="levels.sunken" py={1} px={3} alignItems="baseline">
-        <H3 mr={2}>{author}</H3>
-        <Text typography="body3">{createdDuration}</Text>
+        <Text typography="body2" bold mr={2}>
+          {author}
+        </Text>
+        <Text typography="paragraph2">{createdDuration}</Text>
       </Flex>
       {comment && (
         <Box p={3} bg="levels.elevated">
@@ -498,7 +511,7 @@ function Comment({
 
 function Reviewers({ reviewers }: { reviewers: AccessRequestReviewer[] }) {
   const $reviewers = reviewers.map((reviewer, index) => {
-    let kind: LabelKind = 'warning';
+    let kind = 'warning';
     if (reviewer.state === 'APPROVED' || reviewer.state === 'PROMOTED') {
       kind = 'success';
     } else if (reviewer.state === 'DENIED') {
@@ -521,7 +534,7 @@ function Reviewers({ reviewers }: { reviewers: AccessRequestReviewer[] }) {
         `}
       >
         <Text
-          typography="body3"
+          typography="body2"
           bold
           mr={3}
           style={{
@@ -556,7 +569,9 @@ function Reviewers({ reviewers }: { reviewers: AccessRequestReviewer[] }) {
             border-color: ${props => props.theme.colors.spotBackground[1]};
           `}
         >
-          <H3 mr={2}>No Reviewers Yet</H3>
+          <Text typography="h6" mr={2}>
+            No Reviewers Yet
+          </Text>
         </Flex>
         {$reviewers}
       </>
@@ -573,7 +588,9 @@ function Reviewers({ reviewers }: { reviewers: AccessRequestReviewer[] }) {
           border-color: ${props => props.theme.colors.spotBackground[1]};
         `}
       >
-        <H3 mr={2}>Reviewers</H3>
+        <Text typography="h6" mr={2}>
+          Reviewers
+        </Text>
       </Flex>
       {$reviewers}
     </>
@@ -611,7 +628,7 @@ function Reviews({ reviews }: { reviews: AccessRequestReview[] }) {
       review;
 
     return (
-      <Fragment key={index}>
+      <React.Fragment key={index}>
         <Timestamp
           author={author}
           state={state}
@@ -626,7 +643,7 @@ function Reviews({ reviews }: { reviews: AccessRequestReview[] }) {
             createdDuration={createdDuration}
           />
         )}
-      </Fragment>
+      </React.Fragment>
     );
   });
 

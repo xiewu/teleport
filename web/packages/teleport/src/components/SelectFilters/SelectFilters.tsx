@@ -16,22 +16,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { components } from 'react-select';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
-
-import { Box, ButtonBorder, ButtonIcon, Flex, Text } from 'design';
-import { Add, Cross } from 'design/Icon';
+import { components } from 'react-select';
+import { Flex, Text, ButtonBorder, ButtonIcon, Box } from 'design';
+import { Cross, Add } from 'design/Icon';
 import Select, {
-  ActionMeta,
   Option as BaseOption,
+  ActionMeta,
 } from 'shared/components/Select';
 
 import { makeLabelTag } from 'teleport/components/formatters';
 import { Filter } from 'teleport/types';
 
-import Pager from './Pager';
 import usePages from './usePages';
+import Pager from './Pager';
 
 export default function SelectFilters({
   applyFilters,
@@ -83,7 +82,7 @@ export default function SelectFilters({
     applyFilters(selectedOptions.map(o => o.filter));
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       setShowSelector(false);
     }

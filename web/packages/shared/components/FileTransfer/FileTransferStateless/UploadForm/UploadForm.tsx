@@ -18,18 +18,17 @@
 
 import React, { useRef, useState } from 'react';
 import styled from 'styled-components';
-
 import { Text } from 'design';
 import { NoteAdded } from 'design/Icon';
 
-import { Form, PathInput } from '../CommonElements';
+import { PathInput, Form } from '../CommonElements';
 
 interface UploadFormProps {
   onAddUpload(destinationPath: string, file: File): void;
 }
 
 export function UploadForm(props: UploadFormProps) {
-  const dropzoneRef = useRef<HTMLButtonElement>();
+  const dropzoneRef = useRef<HTMLDivElement>();
   const fileSelectorRef = useRef<HTMLInputElement>();
   const [destinationPath, setDestinationPath] = useState('~/');
 
@@ -49,7 +48,7 @@ export function UploadForm(props: UploadFormProps) {
     fileSelectorRef.current.click();
   }
 
-  function handleDrop(e: React.DragEvent<HTMLButtonElement>): void {
+  function handleDrop(e: React.DragEvent<HTMLDivElement>): void {
     removeDropzoneStyle(e);
 
     const { files } = e.dataTransfer;
@@ -66,11 +65,11 @@ export function UploadForm(props: UploadFormProps) {
     }
   }
 
-  function addDropzoneStyle(e: React.DragEvent<HTMLButtonElement>): void {
+  function addDropzoneStyle(e: React.DragEvent<HTMLDivElement>): void {
     e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
   }
 
-  function removeDropzoneStyle(e: React.DragEvent<HTMLButtonElement>): void {
+  function removeDropzoneStyle(e: React.DragEvent<HTMLDivElement>): void {
     e.currentTarget.style.removeProperty('background-color');
   }
 
@@ -111,11 +110,9 @@ export function UploadForm(props: UploadFormProps) {
           openFilePicker();
         }}
       >
-        <NoteAdded size="extra-large" mb={2} />
-        <Text typography="body2" bold>
-          Drag your files here
-        </Text>
-        <Text typography="body3">
+        <NoteAdded size="extraLarge" mb={2} />
+        <Text typography="h6">Drag your files here</Text>
+        <Text typography="body2">
           or Browse your computer to start uploading
         </Text>
       </Dropzone>
@@ -141,7 +138,7 @@ const Dropzone = styled.button`
   border-radius: ${props => props.theme.radii[2]}px;
   font-family: inherit;
 
-  &:focus {
+  :focus {
     border-color: ${props => props.theme.colors.spotBackground[1]};
   }
 `;

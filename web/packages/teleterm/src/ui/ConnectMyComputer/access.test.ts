@@ -18,7 +18,7 @@
 
 import { makeRuntimeSettings } from 'teleterm/mainProcess/fixtures/mocks';
 import { Platform } from 'teleterm/mainProcess/types';
-import { makeAcl, makeLoggedInUser } from 'teleterm/services/tshd/testHelpers';
+import { makeLoggedInUser } from 'teleterm/services/tshd/testHelpers';
 
 import {
   ConnectMyComputerAccess,
@@ -63,7 +63,7 @@ const testCases: {
 
 test.each(testCases)('$name', testCase => {
   const loggedInUser = makeLoggedInUser({
-    acl: makeAcl({
+    acl: {
       tokens: {
         create: testCase.canCreateToken,
         edit: false,
@@ -72,7 +72,7 @@ test.each(testCases)('$name', testCase => {
         read: false,
         delete: false,
       },
-    }),
+    },
   });
   const runtimeSettings = makeRuntimeSettings({ platform: testCase.platform });
 

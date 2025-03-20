@@ -1065,62 +1065,6 @@ func TestDatabaseSpanner(t *testing.T) {
 	}
 }
 
-func TestDatabaseGCPCloudSQL(t *testing.T) {
-	t.Parallel()
-
-	for _, test := range []struct {
-		inputName   string
-		inputSpec   DatabaseSpecV3
-		expectError bool
-	}{
-		{
-			inputName: "gcp-valid-configuration",
-			inputSpec: DatabaseSpecV3{
-				Protocol: DatabaseProtocolPostgreSQL,
-				URI:      "localhost:5432",
-				GCP: GCPCloudSQL{
-					ProjectID:  "project-1",
-					InstanceID: "instance-1",
-				},
-			},
-			expectError: false,
-		},
-		{
-			inputName: "gcp-project-id-specified-without-instance-id",
-			inputSpec: DatabaseSpecV3{
-				Protocol: DatabaseProtocolPostgreSQL,
-				URI:      "localhost:5432",
-				GCP: GCPCloudSQL{
-					ProjectID: "project-1",
-				},
-			},
-			expectError: true,
-		},
-		{
-			inputName: "gcp-instance-id-specified-without-project-id",
-			inputSpec: DatabaseSpecV3{
-				Protocol: DatabaseProtocolPostgreSQL,
-				URI:      "localhost:5432",
-				GCP: GCPCloudSQL{
-					InstanceID: "instance-1",
-				},
-			},
-			expectError: true,
-		},
-	} {
-		t.Run(test.inputName, func(t *testing.T) {
-			_, err := NewDatabaseV3(Metadata{
-				Name: test.inputName,
-			}, test.inputSpec)
-			if test.expectError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestGetAdminUser(t *testing.T) {
 	t.Parallel()
 
@@ -1173,19 +1117,4 @@ func TestGetAdminUser(t *testing.T) {
 			require.Equal(t, test.want, d.GetAdminUser())
 		})
 	}
-}
-
-func TestDatabaseOracleRDS(t *testing.T) {
-	database, err := NewDatabaseV3(Metadata{
-		Name: "my-oracle",
-	}, DatabaseSpecV3{
-		Protocol: "oracle",
-		URI:      "my-oracle-db.abcdefghijklmnop.eu-central-1.rds.amazonaws.com:2484",
-	})
-	require.NoError(t, err)
-	require.Equal(t, AWS{
-		Region: "eu-central-1",
-		RDS:    RDS{InstanceID: "my-oracle-db"},
-	}, database.GetAWS())
-	require.Equal(t, DatabaseTypeRDSOracle, database.GetType())
 }

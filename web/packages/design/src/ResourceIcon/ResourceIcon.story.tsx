@@ -19,8 +19,8 @@
 import React, { PropsWithChildren } from 'react';
 import { useTheme } from 'styled-components';
 
-import { Flex, Text } from 'design';
 import { ResourceIcon } from 'design/ResourceIcon';
+import { Flex, Text } from 'design';
 
 import { iconNames } from './resourceIconSpecs';
 
@@ -62,7 +62,7 @@ const IconBox: React.FC<PropsWithChildren<{ text: string }>> = ({
       <Flex justifyContent="center" p={2} gap={2}>
         {children}
       </Flex>
-      <Text typography="body2" mt={2}>
+      <Text typography="paragraph2" mt={2}>
         {text}
       </Text>
     </Flex>

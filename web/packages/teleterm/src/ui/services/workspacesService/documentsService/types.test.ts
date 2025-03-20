@@ -17,10 +17,10 @@
  */
 
 import {
-  DocumentTshNodeWithLoginHost,
-  DocumentTshNodeWithServerId,
-  isDocumentTshNodeWithLoginHost,
   isDocumentTshNodeWithServerId,
+  isDocumentTshNodeWithLoginHost,
+  DocumentTshNodeWithServerId,
+  DocumentTshNodeWithLoginHost,
 } from './types';
 
 const docWithServerId: DocumentTshNodeWithServerId = {

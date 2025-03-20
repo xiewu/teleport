@@ -32,7 +32,6 @@ import (
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/utils"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 )
 
@@ -58,7 +57,6 @@ func TestFeaturesWatcher(t *testing.T) {
 
 	mockClient := &mockedFeatureGetter{features: proto.Features{
 		Kubernetes:     true,
-		Entitlements:   map[string]*proto.EntitlementInfo{},
 		AccessRequests: &proto.AccessRequestsFeature{},
 	}}
 
@@ -70,7 +68,8 @@ func TestFeaturesWatcher(t *testing.T) {
 			Context:              ctx,
 		},
 		clock:           clock,
-		clusterFeatures: proto.Features{},
+		ClusterFeatures: proto.Features{},
+		log:             newPackageLogger(),
 		logger:          slog.Default().With(teleport.ComponentKey, teleport.ComponentWeb),
 	}
 
@@ -84,51 +83,39 @@ func TestFeaturesWatcher(t *testing.T) {
 	// values matching the client's response
 	features := proto.Features{
 		Kubernetes:     true,
-		Entitlements:   map[string]*proto.EntitlementInfo{},
 		AccessRequests: &proto.AccessRequestsFeature{},
 	}
-	entitlements.BackfillFeatures(&features)
 	expected := utils.CloneProtoMsg(&features)
 	requireFeatures(t, clock, *expected, handler.GetClusterFeatures)
 
 	// update values once again and check if the features are properly updated
 	features = proto.Features{
 		Kubernetes:     false,
-		Entitlements:   map[string]*proto.EntitlementInfo{},
 		AccessRequests: &proto.AccessRequestsFeature{},
 	}
-	entitlements.BackfillFeatures(&features)
 	mockClient.setFeatures(features)
 	expected = utils.CloneProtoMsg(&features)
 	requireFeatures(t, clock, *expected, handler.GetClusterFeatures)
 
-	// test updating entitlements
+	// test updating features
 	features = proto.Features{
-		Kubernetes: true,
-		Entitlements: map[string]*proto.EntitlementInfo{
-			string(entitlements.ExternalAuditStorage):   {Enabled: true},
-			string(entitlements.AccessLists):            {Enabled: true},
-			string(entitlements.AccessMonitoring):       {Enabled: true},
-			string(entitlements.App):                    {Enabled: true},
-			string(entitlements.CloudAuditLogRetention): {Enabled: true},
-		},
-		AccessRequests: &proto.AccessRequestsFeature{},
+		Kubernetes:           true,
+		ExternalAuditStorage: true,
+		AccessList:           &proto.AccessListFeature{CreateLimit: 10},
+		AccessMonitoring:     &proto.AccessMonitoringFeature{},
+		App:                  true,
+		AccessRequests:       &proto.AccessRequestsFeature{},
 	}
-	entitlements.BackfillFeatures(&features)
 	mockClient.setFeatures(features)
 
 	expected = &proto.Features{
-		Kubernetes: true,
-		Entitlements: map[string]*proto.EntitlementInfo{
-			string(entitlements.ExternalAuditStorage):   {Enabled: true},
-			string(entitlements.AccessLists):            {Enabled: true},
-			string(entitlements.AccessMonitoring):       {Enabled: true},
-			string(entitlements.App):                    {Enabled: true},
-			string(entitlements.CloudAuditLogRetention): {Enabled: true},
-		},
-		AccessRequests: &proto.AccessRequestsFeature{},
+		Kubernetes:           true,
+		ExternalAuditStorage: true,
+		AccessList:           &proto.AccessListFeature{CreateLimit: 10},
+		AccessMonitoring:     &proto.AccessMonitoringFeature{},
+		App:                  true,
+		AccessRequests:       &proto.AccessRequestsFeature{},
 	}
-	entitlements.BackfillFeatures(expected)
 	requireFeatures(t, clock, *expected, handler.GetClusterFeatures)
 
 	// stop watcher and ensure it stops updating features
@@ -137,10 +124,8 @@ func TestFeaturesWatcher(t *testing.T) {
 		Kubernetes:     !features.Kubernetes,
 		App:            !features.App,
 		DB:             true,
-		Entitlements:   map[string]*proto.EntitlementInfo{},
 		AccessRequests: &proto.AccessRequestsFeature{},
 	}
-	entitlements.BackfillFeatures(&features)
 	mockClient.setFeatures(features)
 	notExpected := utils.CloneProtoMsg(&features)
 	// assert the handler never get these last features as the watcher is stopped
@@ -150,7 +135,7 @@ func TestFeaturesWatcher(t *testing.T) {
 // requireFeatures is a helper function that advances the clock, then
 // calls `getFeatures` every 100ms for up to 1 second, until it
 // returns the expected result (`want`).
-func requireFeatures(t *testing.T, fakeClock *clockwork.FakeClock, want proto.Features, getFeatures func() proto.Features) {
+func requireFeatures(t *testing.T, fakeClock clockwork.FakeClock, want proto.Features, getFeatures func() proto.Features) {
 	t.Helper()
 
 	// Advance the clock so the service fetch and stores features
@@ -165,7 +150,7 @@ func requireFeatures(t *testing.T, fakeClock *clockwork.FakeClock, want proto.Fe
 // neverFeatures is a helper function that advances the clock, then
 // calls `getFeatures` every 100ms for up to 1 second. If at some point `getFeatures`
 // returns `doNotWant`, the test fails.
-func neverFeatures(t *testing.T, fakeClock *clockwork.FakeClock, doNotWant proto.Features, getFeatures func() proto.Features) {
+func neverFeatures(t *testing.T, fakeClock clockwork.FakeClock, doNotWant proto.Features, getFeatures func() proto.Features) {
 	t.Helper()
 
 	fakeClock.Advance(1 * time.Second)

@@ -16,71 +16,61 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
-
 import {
-  Alert,
-  Box,
-  ButtonBorder,
-  ButtonPrimary,
   ButtonSecondary,
-  Link,
+  ButtonPrimary,
+  ButtonBorder,
+  Alert,
   Text,
+  Box,
+  Link,
 } from 'design';
-import { OutlineInfo, OutlineWarn } from 'design/Alert/Alert';
 import Dialog, {
-  DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogContent,
+  DialogFooter,
 } from 'design/DialogConfirmation';
-import { FieldCheckbox } from 'shared/components/FieldCheckbox';
+import { OutlineInfo, OutlineWarn } from 'design/Alert/Alert';
+import useAttempt from 'shared/hooks/useAttemptNext';
 import FieldInput from 'shared/components/FieldInput';
-import { TextSelectCopyMulti } from 'shared/components/TextSelectCopy';
 import Validation, { Validator } from 'shared/components/Validation';
 import { requiredRoleArn } from 'shared/components/Validation/rules';
-import { useAsync } from 'shared/hooks/useAsync';
+import { CheckboxInput } from 'design/Checkbox';
+import { TextSelectCopyMulti } from 'shared/components/TextSelectCopy';
 
+import { Integration } from 'teleport/services/integrations';
 import cfg from 'teleport/config';
-import {
-  AwsOidcPolicyPreset,
-  IntegrationAwsOidc,
-  IntegrationKind,
-} from 'teleport/services/integrations';
 import { splitAwsIamArn } from 'teleport/services/integrations/aws';
 
-import { S3BucketConfiguration } from './Enroll/AwsOidc/S3BucketConfiguration';
 import { EditableIntegrationFields } from './Operations/useIntegrationOperation';
+import { S3BucketConfiguration } from './Enroll/AwsOidc/S3BucketConfiguration';
 
 type Props = {
   close(): void;
   edit(req: EditableIntegrationFields): Promise<void>;
-  integration: IntegrationAwsOidc;
+  integration: Integration;
 };
 
 export function EditAwsOidcIntegrationDialog(props: Props) {
   const { close, edit, integration } = props;
-  const [updateAttempt, runUpdate] = useAsync(async () => {
-    await edit({ kind: IntegrationKind.AwsOidc, roleArn });
-  });
+  const { attempt, run } = useAttempt();
 
   const [roleArn, setRoleArn] = useState(integration.spec.roleArn);
   const [scriptUrl, setScriptUrl] = useState('');
   const [confirmed, setConfirmed] = useState(false);
 
-  async function handleEdit(validator: Validator) {
+  function handleEdit(validator: Validator) {
     if (!validator.validate()) {
       return;
     }
 
-    await runUpdate();
+    run(() => edit({ roleArn }));
   }
 
-  function generateAwsOidcConfigIdpScript(
-    validator: Validator,
-    policyPreset: AwsOidcPolicyPreset
-  ) {
+  function generateAwsOidcConfigIdpScript(validator: Validator) {
     if (!validator.validate()) {
       return;
     }
@@ -93,7 +83,6 @@ export function EditAwsOidcIntegrationDialog(props: Props) {
     const newScriptUrl = cfg.getAwsOidcConfigureIdpScriptUrl({
       integrationName: integration.name,
       roleName: arnResourceName,
-      policyPreset,
     });
 
     setScriptUrl(newScriptUrl);
@@ -103,7 +92,7 @@ export function EditAwsOidcIntegrationDialog(props: Props) {
   const s3Prefix = integration.spec.issuerS3Prefix;
   const showReadonlyS3Fields = s3Bucket || s3Prefix;
 
-  const isProcessing = updateAttempt.status === 'processing';
+  const isProcessing = attempt.status === 'processing';
   const showGenerateCommand =
     integration.spec.roleArn !== roleArn || showReadonlyS3Fields;
 
@@ -125,8 +114,8 @@ export function EditAwsOidcIntegrationDialog(props: Props) {
             <DialogTitle>Edit Integration</DialogTitle>
           </DialogHeader>
           <DialogContent width="650px">
-            {updateAttempt.status === 'error' && (
-              <Alert children={updateAttempt.statusText} />
+            {attempt.status === 'failed' && (
+              <Alert children={attempt.statusText} />
             )}
             <FieldInput
               label="Integration Name"
@@ -147,7 +136,7 @@ export function EditAwsOidcIntegrationDialog(props: Props) {
                     {`arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>`}
                   </Text>
                 }
-                disabled={!!scriptUrl}
+                disabled={scriptUrl}
               />
               {showReadonlyS3Fields && !scriptUrl && (
                 <>
@@ -219,12 +208,7 @@ export function EditAwsOidcIntegrationDialog(props: Props) {
               {!scriptUrl && showGenerateCommand && (
                 <ButtonBorder
                   mb={3}
-                  onClick={() =>
-                    generateAwsOidcConfigIdpScript(
-                      validator,
-                      AwsOidcPolicyPreset.Unspecified
-                    )
-                  }
+                  onClick={() => generateAwsOidcConfigIdpScript(validator)}
                   disabled={!roleArn}
                 >
                   Reconfigure
@@ -234,15 +218,19 @@ export function EditAwsOidcIntegrationDialog(props: Props) {
           </DialogContent>
           <DialogFooter>
             {showGenerateCommand && scriptUrl && (
-              <FieldCheckbox
-                label="I ran the command"
-                name="checkbox"
-                checked={confirmed}
-                onChange={e => {
-                  setConfirmed(e.target.checked);
-                }}
-                disabled={isProcessing}
-              />
+              <Box mb={1}>
+                <CheckboxInput
+                  role="checkbox"
+                  type="checkbox"
+                  name="checkbox"
+                  data-testid="checkbox"
+                  checked={confirmed}
+                  onChange={e => {
+                    setConfirmed(e.target.checked);
+                  }}
+                />
+                I ran the command
+              </Box>
             )}
             <ButtonPrimary
               mr="3"

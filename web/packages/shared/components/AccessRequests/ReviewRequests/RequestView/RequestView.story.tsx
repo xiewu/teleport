@@ -16,22 +16,25 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+
 import {
-  makeEmptyAttempt,
-  makeErrorAttempt,
-  makeProcessingAttempt,
   makeSuccessAttempt,
+  makeEmptyAttempt,
+  makeProcessingAttempt,
+  makeErrorAttempt,
 } from 'shared/hooks/useAsync';
 
 import {
   requestRoleApproved,
-  requestRoleApprovedWithStartTime,
   requestRoleDenied,
-  requestRoleEmpty,
   requestRolePending,
-  requestRolePromoted,
   requestSearchPending,
+  requestRoleEmpty,
+  requestRolePromoted,
+  requestRoleApprovedWithStartTime,
 } from '../../fixtures';
+
 import { RequestView, RequestViewProps } from './RequestView';
 import { RequestFlags, SuggestedAccessList } from './types';
 

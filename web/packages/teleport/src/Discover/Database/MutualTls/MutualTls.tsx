@@ -16,24 +16,25 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-
-import { Box, Flex, Link, Mark, Text } from 'design';
+import React, { useState } from 'react';
+import { Text, Box, Flex, Link, Mark } from 'design';
 import { Danger } from 'design/Alert';
 import { Info } from 'design/Icon';
-import { FieldTextArea } from 'shared/components/FieldTextArea';
 import TextEditor from 'shared/components/TextEditor';
+import { FieldTextArea } from 'shared/components/FieldTextArea';
 import Validation from 'shared/components/Validation';
 
-import { Tabs } from 'teleport/components/Tabs';
-import { TextSelectCopyMulti } from 'teleport/components/TextSelectCopy';
 import useTeleport from 'teleport/useTeleport';
+import { TextSelectCopyMulti } from 'teleport/components/TextSelectCopy';
+import { Tabs } from 'teleport/components/Tabs';
 
-import { DatabaseEngine } from '../../SelectResource';
-import { ActionButtons, Header, HeaderSubtitle, StyledBox } from '../../Shared';
-import type { AgentStepProps } from '../../types';
+import { HeaderSubtitle, ActionButtons, Header, StyledBox } from '../../Shared';
 import { dbCU } from '../../yamlTemplates';
-import { State, useMutualTls } from './useMutualTls';
+import { DatabaseEngine } from '../../SelectResource';
+
+import { useMutualTls, State } from './useMutualTls';
+
+import type { AgentStepProps } from '../../types';
 
 export function MutualTls(props: AgentStepProps) {
   const ctx = useTeleport();
@@ -52,7 +53,7 @@ export function MutualTlsView({
   const [caCert, setCaCert] = useState('');
 
   return (
-    <>
+    <Box maxWidth="800px">
       <Header>Configure Mutual TLS</Header>
       <HeaderSubtitle>
         Self-hosted databases must be configured with Teleport's certificate
@@ -111,7 +112,9 @@ export function MutualTlsView({
                 resizable={true}
                 autoFocus
                 textAreaCss={`
+                font-size: 14px;
                 height: 100px;
+                width: 800px;
                 `}
               />
             </Validation>
@@ -122,7 +125,7 @@ export function MutualTlsView({
         onProceed={() => onNextStep(caCert)}
         disableProceed={attempt.status === 'processing'}
       />
-    </>
+    </Box>
   );
 }
 

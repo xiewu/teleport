@@ -23,8 +23,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/coreos/go-semver/semver"
@@ -34,11 +32,9 @@ import (
 	"github.com/gravitational/teleport/api/client/webclient"
 	autoupdatev1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/autoupdate/v1"
 	"github.com/gravitational/teleport/api/types/autoupdate"
-	"github.com/gravitational/teleport/lib/asciitable"
+	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 	"github.com/gravitational/teleport/lib/utils"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // maxRetries is the default number of RPC call retries to prevent parallel create/update errors.
@@ -48,55 +44,40 @@ const maxRetries = 3
 // autoupdate process for tools and agents.
 type AutoUpdateCommand struct {
 	app *kingpin.Application
-	ccf *tctlcfg.GlobalCLIFlags
 
-	toolsTargetCmd       *kingpin.CmdClause
-	toolsEnableCmd       *kingpin.CmdClause
-	toolsDisableCmd      *kingpin.CmdClause
-	toolsStatusCmd       *kingpin.CmdClause
-	agentsStatusCmd      *kingpin.CmdClause
-	agentsStartUpdateCmd *kingpin.CmdClause
-	agentsMarkDoneCmd    *kingpin.CmdClause
-	agentsRollbackCmd    *kingpin.CmdClause
+	targetCmd  *kingpin.CmdClause
+	enableCmd  *kingpin.CmdClause
+	disableCmd *kingpin.CmdClause
+	statusCmd  *kingpin.CmdClause
 
 	toolsTargetVersion string
 	proxy              string
 	format             string
-	groups             []string
 
 	clear bool
 
 	// stdout allows to switch standard output source for resource command. Used in tests.
-	stdout io.Writer
+	stdout   io.Writer
+	insecure bool
 }
 
 // Initialize allows AutoUpdateCommand to plug itself into the CLI parser.
-func (c *AutoUpdateCommand) Initialize(app *kingpin.Application, ccf *tctlcfg.GlobalCLIFlags, _ *servicecfg.Config) {
+func (c *AutoUpdateCommand) Initialize(app *kingpin.Application, _ *servicecfg.Config) {
 	c.app = app
-	c.ccf = ccf
 	autoUpdateCmd := app.Command("autoupdate", "Manage auto update configuration.")
 
 	clientToolsCmd := autoUpdateCmd.Command("client-tools", "Manage client tools auto update configuration.")
 
-	c.toolsStatusCmd = clientToolsCmd.Command("status", "Prints if the client tools updates are enabled/disabled, and the target version in specified format.")
-	c.toolsStatusCmd.Flag("proxy", "Address of the Teleport proxy. When defined this address will be used to retrieve client tools auto update configuration.").StringVar(&c.proxy)
-	c.toolsStatusCmd.Flag("format", "Output format: 'yaml' or 'json'").Default(teleport.YAML).StringVar(&c.format)
+	c.statusCmd = clientToolsCmd.Command("status", "Prints if the client tools updates are enabled/disabled, and the target version in specified format.")
+	c.statusCmd.Flag("proxy", "Address of the Teleport proxy. When defined this address will be used to retrieve client tools auto update configuration.").StringVar(&c.proxy)
+	c.statusCmd.Flag("format", "Output format: 'yaml' or 'json'").Default(teleport.YAML).StringVar(&c.format)
 
-	c.toolsEnableCmd = clientToolsCmd.Command("enable", "Enables client tools auto updates. Clients will be told to update to the target version.")
-	c.toolsDisableCmd = clientToolsCmd.Command("disable", "Disables client tools auto updates. Clients will not be told to update to the target version.")
+	c.enableCmd = clientToolsCmd.Command("enable", "Enables client tools auto updates. Clients will be told to update to the target version.")
+	c.disableCmd = clientToolsCmd.Command("disable", "Disables client tools auto updates. Clients will not be told to update to the target version.")
 
-	c.toolsTargetCmd = clientToolsCmd.Command("target", "Sets the client tools target version. This command is not supported on Teleport Cloud.")
-	c.toolsTargetCmd.Arg("version", "Client tools target version. Clients will be told to update to this version.").StringVar(&c.toolsTargetVersion)
-	c.toolsTargetCmd.Flag("clear", "Removes the target version, Teleport will default to its current proxy version.").BoolVar(&c.clear)
-
-	agentsCmd := autoUpdateCmd.Command("agents", "Manage agents auto update configuration.")
-	c.agentsStatusCmd = agentsCmd.Command("status", "Prints agents auto update status.")
-	c.agentsStartUpdateCmd = agentsCmd.Command("start-update", "Starts updating one or many groups.")
-	c.agentsStartUpdateCmd.Arg("groups", "Groups to start updating.").StringsVar(&c.groups)
-	c.agentsMarkDoneCmd = agentsCmd.Command("mark-done", "Marks one or many groups as done updating.")
-	c.agentsMarkDoneCmd.Arg("groups", "Groups to mark as done updating.").StringsVar(&c.groups)
-	c.agentsRollbackCmd = agentsCmd.Command("rollback", "Rolls back one or many groups.")
-	c.agentsRollbackCmd.Arg("groups", "Groups to rollback. When empty, every group already started is rolled back.").StringsVar(&c.groups)
+	c.targetCmd = clientToolsCmd.Command("target", "Sets the client tools target version. This command is not supported on Teleport Cloud.")
+	c.targetCmd.Arg("version", "Client tools target version. Clients will be told to update to this version.").StringVar(&c.toolsTargetVersion)
+	c.targetCmd.Flag("clear", "Removes the target version, Teleport will default to its current proxy version.").BoolVar(&c.clear)
 
 	if c.stdout == nil {
 		c.stdout = os.Stdout
@@ -104,54 +85,38 @@ func (c *AutoUpdateCommand) Initialize(app *kingpin.Application, ccf *tctlcfg.Gl
 }
 
 // TryRun takes the CLI command as an argument and executes it.
-func (c *AutoUpdateCommand) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (match bool, err error) {
-	var commandFunc func(ctx context.Context, client autoupdateClient) error
+func (c *AutoUpdateCommand) TryRun(ctx context.Context, cmd string, client *authclient.Client) (match bool, err error) {
 	switch {
-	case cmd == c.toolsTargetCmd.FullCommand():
-		commandFunc = c.TargetVersion
-	case cmd == c.toolsEnableCmd.FullCommand():
-		commandFunc = c.SetModeCommand(true)
-	case cmd == c.toolsDisableCmd.FullCommand():
-		commandFunc = c.SetModeCommand(false)
-	case c.proxy == "" && cmd == c.toolsStatusCmd.FullCommand():
-		commandFunc = c.ToolsStatus
-	case c.proxy != "" && cmd == c.toolsStatusCmd.FullCommand():
-		err = c.ToolsStatusByProxy(ctx)
+	case cmd == c.targetCmd.FullCommand():
+		err = c.TargetVersion(ctx, client)
+	case cmd == c.enableCmd.FullCommand():
+		err = c.SetModeCommand(true)(ctx, client)
+	case cmd == c.disableCmd.FullCommand():
+		err = c.SetModeCommand(false)(ctx, client)
+	case c.proxy == "" && cmd == c.statusCmd.FullCommand():
+		err = c.Status(ctx, client)
+	case c.proxy != "" && cmd == c.statusCmd.FullCommand():
+		err = c.StatusByProxy(ctx)
 		return true, trace.Wrap(err)
-	case cmd == c.agentsStatusCmd.FullCommand():
-		commandFunc = c.agentsStatusCommand
-	case cmd == c.agentsStartUpdateCmd.FullCommand():
-		commandFunc = c.agentsStartUpdateCommand
-	case cmd == c.agentsMarkDoneCmd.FullCommand():
-		commandFunc = c.agentsMarkDoneCommand
-	case cmd == c.agentsRollbackCmd.FullCommand():
-		commandFunc = c.agentsRollbackCommand
 	default:
 		return false, nil
 	}
-
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	err = commandFunc(ctx, client)
-	closeFn(ctx)
 
 	return true, trace.Wrap(err)
 }
 
 // TargetVersion creates or updates AutoUpdateVersion resource with client tools target version.
-func (c *AutoUpdateCommand) TargetVersion(ctx context.Context, client autoupdateClient) error {
+func (c *AutoUpdateCommand) TargetVersion(ctx context.Context, client *authclient.Client) error {
 	var err error
 	switch {
 	case c.clear:
-		err = c.clearToolsTargetVersion(ctx, client)
+		err = c.clearTargetVersion(ctx, client)
 	case c.toolsTargetVersion != "":
 		// For parallel requests where we attempt to create a resource simultaneously, retries should be implemented.
 		// The same approach applies to updates if the resource has been deleted during the process.
 		// Second create request must return `AlreadyExists` error, update for deleted resource `NotFound` error.
 		for i := 0; i < maxRetries; i++ {
-			err = c.setToolsTargetVersion(ctx, client)
+			err = c.setTargetVersion(ctx, client)
 			if err == nil {
 				break
 			}
@@ -164,13 +129,13 @@ func (c *AutoUpdateCommand) TargetVersion(ctx context.Context, client autoupdate
 }
 
 // SetModeCommand returns a command to enable or disable client tools auto-updates in the cluster.
-func (c *AutoUpdateCommand) SetModeCommand(enabled bool) func(ctx context.Context, client autoupdateClient) error {
-	return func(ctx context.Context, client autoupdateClient) error {
+func (c *AutoUpdateCommand) SetModeCommand(enabled bool) func(ctx context.Context, client *authclient.Client) error {
+	return func(ctx context.Context, client *authclient.Client) error {
 		// For parallel requests where we attempt to create a resource simultaneously, retries should be implemented.
 		// The same approach applies to updates if the resource has been deleted during the process.
 		// Second create request must return `AlreadyExists` error, update for deleted resource `NotFound` error.
 		for i := 0; i < maxRetries; i++ {
-			err := c.setToolsMode(ctx, client, enabled)
+			err := c.setMode(ctx, client, enabled)
 			if err == nil {
 				break
 			}
@@ -188,176 +153,8 @@ type getResponse struct {
 	TargetVersion string `json:"target_version"`
 }
 
-// autoupdateClient is a subset of the Teleport client, with functions used to interact with automatic update resources.
-// Not every AU function is part of the interface, we'll add them as we need.
-type autoupdateClient interface {
-	GetAutoUpdateAgentRollout(context.Context) (*autoupdatev1pb.AutoUpdateAgentRollout, error)
-	GetAutoUpdateVersion(context.Context) (*autoupdatev1pb.AutoUpdateVersion, error)
-	GetAutoUpdateConfig(context.Context) (*autoupdatev1pb.AutoUpdateConfig, error)
-	CreateAutoUpdateConfig(context.Context, *autoupdatev1pb.AutoUpdateConfig) (*autoupdatev1pb.AutoUpdateConfig, error)
-	CreateAutoUpdateVersion(context.Context, *autoupdatev1pb.AutoUpdateVersion) (*autoupdatev1pb.AutoUpdateVersion, error)
-	UpdateAutoUpdateConfig(context.Context, *autoupdatev1pb.AutoUpdateConfig) (*autoupdatev1pb.AutoUpdateConfig, error)
-	UpdateAutoUpdateVersion(context.Context, *autoupdatev1pb.AutoUpdateVersion) (*autoupdatev1pb.AutoUpdateVersion, error)
-	TriggerAutoUpdateAgentGroup(ctx context.Context, groups []string, state autoupdatev1pb.AutoUpdateAgentGroupState) (*autoupdatev1pb.AutoUpdateAgentRollout, error)
-	ForceAutoUpdateAgentGroup(ctx context.Context, groups []string) (*autoupdatev1pb.AutoUpdateAgentRollout, error)
-	RollbackAutoUpdateAgentGroup(ctx context.Context, groups []string, allStartedGroups bool) (*autoupdatev1pb.AutoUpdateAgentRollout, error)
-}
-
-func (c *AutoUpdateCommand) agentsStatusCommand(ctx context.Context, client autoupdateClient) error {
-	rollout, err := client.GetAutoUpdateAgentRollout(ctx)
-	if err != nil && !trace.IsNotFound(err) {
-		return trace.Wrap(err)
-	}
-
-	sb := strings.Builder{}
-	if rollout.GetSpec() == nil {
-		sb.WriteString("No active agent rollout (autoupdate_agent_rollout).\n")
-	}
-	if mode := rollout.GetSpec().GetAutoupdateMode(); mode != "" {
-		sb.WriteString("Agent autoupdate mode: " + mode + "\n")
-	}
-	if st := formatTimeIfNotEmpty(rollout.GetStatus().GetStartTime().AsTime(), time.DateTime); st != "" {
-		sb.WriteString("Rollout creation date: " + st + "\n")
-	}
-	if start := rollout.GetSpec().GetStartVersion(); start != "" {
-		sb.WriteString("Start version: " + start + "\n")
-	}
-	if target := rollout.GetSpec().GetTargetVersion(); target != "" {
-		sb.WriteString("Target version: " + target + "\n")
-	}
-	if state := rollout.GetStatus().GetState(); state != autoupdatev1pb.AutoUpdateAgentRolloutState_AUTO_UPDATE_AGENT_ROLLOUT_STATE_UNSPECIFIED {
-		sb.WriteString("Rollout state: " + userFriendlyState(state) + "\n")
-	}
-	if schedule := rollout.GetSpec().GetSchedule(); schedule == autoupdate.AgentsScheduleImmediate {
-		sb.WriteString("Schedule is immediate. Every group immediately updates to the target version.\n")
-	}
-	if strategy := rollout.GetSpec().GetStrategy(); strategy != "" {
-		sb.WriteString("Strategy: " + strategy + "\n")
-	}
-
-	sb.WriteRune('\n')
-	rolloutGroupTable(rollout, &sb)
-
-	fmt.Fprint(c.stdout, sb.String())
-	return nil
-}
-
-func rolloutGroupTable(rollout *autoupdatev1pb.AutoUpdateAgentRollout, writer io.Writer) {
-	if groups := rollout.GetStatus().GetGroups(); len(groups) > 0 {
-		headers := []string{"Group Name", "State", "Start Time", "State Reason"}
-		table := asciitable.MakeTable(headers)
-		for _, group := range groups {
-			table.AddRow([]string{
-				group.GetName(),
-				userFriendlyState(group.GetState()),
-				formatTimeIfNotEmpty(group.GetStartTime().AsTime(), time.DateTime),
-				group.GetLastUpdateReason()})
-		}
-		writer.Write(table.AsBuffer().Bytes())
-	}
-}
-
-func (c *AutoUpdateCommand) agentsStartUpdateCommand(ctx context.Context, client autoupdateClient) error {
-	groups := make([]string, 0, len(c.groups))
-	for _, group := range c.groups {
-		if grp := strings.TrimSpace(group); grp != "" {
-			groups = append(groups, grp)
-		}
-	}
-
-	if len(c.groups) == 0 {
-		return trace.BadParameter("no groups specified")
-	}
-
-	rollout, err := client.TriggerAutoUpdateAgentGroup(ctx, groups, autoupdatev1pb.AutoUpdateAgentGroupState_AUTO_UPDATE_AGENT_GROUP_STATE_UNSPECIFIED)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	fmt.Fprintf(c.stdout, "Successfully started updating agents groups: %v.\n", groups)
-
-	fmt.Fprint(c.stdout, "New agent rollout status:\n\n")
-	rolloutGroupTable(rollout, c.stdout)
-	return nil
-}
-
-func (c *AutoUpdateCommand) agentsMarkDoneCommand(ctx context.Context, client autoupdateClient) error {
-	groups := make([]string, 0, len(c.groups))
-	for _, group := range c.groups {
-		if grp := strings.TrimSpace(group); grp != "" {
-			groups = append(groups, grp)
-		}
-	}
-
-	rollout, err := client.ForceAutoUpdateAgentGroup(ctx, groups)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	if len(c.groups) == 0 {
-		fmt.Fprintln(c.stdout, "Successfully rolledback every started agent group.")
-	} else {
-		fmt.Fprintf(c.stdout, "Successfully rolledback agents groups: %v.\n", groups)
-	}
-
-	fmt.Fprint(c.stdout, "New agent rollout status:\n\n")
-	rolloutGroupTable(rollout, c.stdout)
-	return nil
-}
-
-func (c *AutoUpdateCommand) agentsRollbackCommand(ctx context.Context, client autoupdateClient) error {
-	groups := make([]string, 0, len(c.groups))
-	for _, group := range c.groups {
-		if grp := strings.TrimSpace(group); grp != "" {
-			groups = append(groups, grp)
-		}
-	}
-
-	rollbackAllSartedGroups := len(c.groups) == 0
-
-	rollout, err := client.RollbackAutoUpdateAgentGroup(ctx, groups, rollbackAllSartedGroups)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	if rollbackAllSartedGroups {
-		fmt.Fprintln(c.stdout, "Successfully rolled back already started groups.")
-	} else {
-		fmt.Fprintf(c.stdout, "Successfully rolled back the following agent groups: %v.\n", groups)
-	}
-
-	fmt.Fprint(c.stdout, "New agent rollout status:\n\n")
-	rolloutGroupTable(rollout, c.stdout)
-	return nil
-}
-
-func formatTimeIfNotEmpty(t time.Time, format string) string {
-	if t.IsZero() || t.Unix() == 0 {
-		return ""
-	}
-	return t.Format(format)
-}
-
-func userFriendlyState[T autoupdatev1pb.AutoUpdateAgentGroupState | autoupdatev1pb.AutoUpdateAgentRolloutState](state T) string {
-	switch state {
-	case 0:
-		return "Unknown"
-	case 1:
-		return "Unstarted"
-	case 2:
-		return "Active"
-	case 3:
-		return "Done"
-	case 4:
-		return "Rolledback"
-	default:
-		// If we don't know anything about this state, we display its integer
-		return fmt.Sprintf("Unknown state (%d)", state)
-	}
-}
-
-// ToolsStatus makes request to auth service to fetch client tools auto update version and mode.
-func (c *AutoUpdateCommand) ToolsStatus(ctx context.Context, client autoupdateClient) error {
+// Status makes request to auth service to fetch client tools auto update version and mode.
+func (c *AutoUpdateCommand) Status(ctx context.Context, client *authclient.Client) error {
 	var response getResponse
 	config, err := client.GetAutoUpdateConfig(ctx)
 	if err != nil && !trace.IsNotFound(err) {
@@ -375,16 +172,16 @@ func (c *AutoUpdateCommand) ToolsStatus(ctx context.Context, client autoupdateCl
 		response.TargetVersion = version.Spec.Tools.TargetVersion
 	}
 
-	return c.printToolsResponse(response)
+	return c.printResponse(response)
 }
 
-// ToolsStatusByProxy makes request to `webapi/find` endpoint to fetch tools auto update version and mode
+// StatusByProxy makes request to `webapi/find` endpoint to fetch tools auto update version and mode
 // without authentication.
-func (c *AutoUpdateCommand) ToolsStatusByProxy(ctx context.Context) error {
+func (c *AutoUpdateCommand) StatusByProxy(ctx context.Context) error {
 	find, err := webclient.Find(&webclient.Config{
 		Context:   ctx,
 		ProxyAddr: c.proxy,
-		Insecure:  c.ccf.Insecure,
+		Insecure:  c.insecure,
 	})
 	if err != nil {
 		return trace.Wrap(err)
@@ -393,13 +190,13 @@ func (c *AutoUpdateCommand) ToolsStatusByProxy(ctx context.Context) error {
 	if find.AutoUpdate.ToolsAutoUpdate {
 		mode = autoupdate.ToolsUpdateModeEnabled
 	}
-	return c.printToolsResponse(getResponse{
+	return c.printResponse(getResponse{
 		TargetVersion: find.AutoUpdate.ToolsVersion,
 		Mode:          mode,
 	})
 }
 
-func (c *AutoUpdateCommand) setToolsMode(ctx context.Context, client autoupdateClient, enabled bool) error {
+func (c *AutoUpdateCommand) setMode(ctx context.Context, client *authclient.Client, enabled bool) error {
 	setMode := client.UpdateAutoUpdateConfig
 	config, err := client.GetAutoUpdateConfig(ctx)
 	if trace.IsNotFound(err) {
@@ -427,7 +224,7 @@ func (c *AutoUpdateCommand) setToolsMode(ctx context.Context, client autoupdateC
 	return nil
 }
 
-func (c *AutoUpdateCommand) setToolsTargetVersion(ctx context.Context, client autoupdateClient) error {
+func (c *AutoUpdateCommand) setTargetVersion(ctx context.Context, client *authclient.Client) error {
 	if _, err := semver.NewVersion(c.toolsTargetVersion); err != nil {
 		return trace.WrapWithMessage(err, "not semantic version")
 	}
@@ -454,7 +251,7 @@ func (c *AutoUpdateCommand) setToolsTargetVersion(ctx context.Context, client au
 	return nil
 }
 
-func (c *AutoUpdateCommand) clearToolsTargetVersion(ctx context.Context, client autoupdateClient) error {
+func (c *AutoUpdateCommand) clearTargetVersion(ctx context.Context, client *authclient.Client) error {
 	version, err := client.GetAutoUpdateVersion(ctx)
 	if trace.IsNotFound(err) {
 		return nil
@@ -471,7 +268,7 @@ func (c *AutoUpdateCommand) clearToolsTargetVersion(ctx context.Context, client 
 	return nil
 }
 
-func (c *AutoUpdateCommand) printToolsResponse(response getResponse) error {
+func (c *AutoUpdateCommand) printResponse(response getResponse) error {
 	switch c.format {
 	case teleport.JSON:
 		if err := utils.WriteJSON(c.stdout, response); err != nil {

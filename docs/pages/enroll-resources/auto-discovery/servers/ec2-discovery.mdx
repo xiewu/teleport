@@ -118,15 +118,13 @@ run the Discovery Service.
 In order to enable EC2 instance discovery the `discovery_service.aws` section
 of `teleport.yaml` must include at least one entry:
 
-(!docs/pages/includes/discovery/discovery-group.mdx!)
-
 ```yaml
 version: v3
 teleport:
   join_params:
     token_name: "/tmp/token"
     method: token
-  proxy_server: "<Var name="teleport.example.com:443" />"
+  proxy_server: "<Var name="teleport.example.com" />:443"
 auth_service:
   enabled: off
 proxy_service:
@@ -135,7 +133,6 @@ ssh_service:
   enabled: off
 discovery_service:
   enabled: "yes"
-  discovery_group: "aws-prod"
   aws:
    - types: ["ec2"]
      regions: ["us-east-1","us-west-1"]
@@ -222,7 +219,7 @@ mainSteps:
     sourceType: "HTTP"
     destinationPath: "/tmp/installTeleport.sh"
     sourceInfo:
-      url: "https://<Var name="teleport.example.com:443" />/webapi/scripts/installer/{{ scriptName }}"
+      url: "https://teleport.example.com:443/webapi/scripts/installer/{{ scriptName }}"
 - action: aws:runShellScript
   name: runShellScript
   inputs:
@@ -355,3 +352,5 @@ Manager can be found for in the [AWS Cloud Operations & Migrations Blog
 ](https://aws.amazon.com/blogs/mt/applying-managed-instance-policy-best-practices/).
 - Full documentation on EC2 discovery configuration can be found through the [
 config file reference documentation](../../../reference/config.mdx).
+- The complete default installer can be found [with the Teleport source
+](https://github.com/gravitational/teleport/blob/branch/v(=teleport.major_version=)/api/types/installers/installer.sh.tmpl).

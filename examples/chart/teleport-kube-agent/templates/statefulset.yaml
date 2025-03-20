@@ -49,9 +49,6 @@ spec:
       {{- if .Values.podSecurityContext }}
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8}}
       {{- end }}
-      {{- if .Values.terminationGracePeriodSeconds }}
-      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-      {{- end }}
       {{- if or .Values.affinity (gt (int $replicaCount) 1) }}
       affinity:
         {{- if .Values.affinity }}
@@ -112,11 +109,6 @@ spec:
           {{- if .Values.tls.existingCASecretName }}
         - mountPath: /etc/teleport-tls-ca
           name: "teleport-tls-ca"
-          readOnly: true
-          {{- end }}
-          {{- if contains "jamf" (.Values.roles | toString) }}
-        - mountPath: /etc/teleport-jamf-api-credentials
-          name: "jamf-api-credentials"
           readOnly: true
           {{- end }}
   {{- if .Values.extraVolumeMounts }}
@@ -223,11 +215,6 @@ spec:
           name: "teleport-tls-ca"
           readOnly: true
 {{- end }}
-{{- if contains "jamf" (.Values.roles | toString) }}
-        - mountPath: /etc/teleport-jamf-api-credentials
-          name: "jamf-api-credentials"
-          readOnly: true
-{{- end }}
 {{- if .Values.extraVolumeMounts }}
   {{- toYaml .Values.extraVolumeMounts | nindent 8 }}
 {{- end }}
@@ -249,11 +236,6 @@ spec:
       - name: "teleport-tls-ca"
         secret:
           secretName: {{ .Values.tls.existingCASecretName }}
-{{- end }}
-{{- if contains "jamf" (.Values.roles | toString) }}
-      - name: "jamf-api-credentials"
-        secret:
-          secretName: {{ .Values.jamfCredentialsSecret.name }}
 {{- end }}
 {{- if .Values.extraVolumes }}
   {{- toYaml .Values.extraVolumes | nindent 6 }}

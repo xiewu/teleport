@@ -49,7 +49,7 @@ const (
 var (
 	// cmpOpts are general cmpOpts for all comparisons across the service tests.
 	cmpOpts = []cmp.Option{
-		cmpopts.IgnoreFields(header.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(header.Metadata{}, "ID", "Revision"),
 		cmpopts.SortSlices(func(a, b *userloginstate.UserLoginState) bool {
 			return a.GetName() < b.GetName()
 		}),
@@ -214,8 +214,7 @@ func initSvc(t *testing.T) (userContext context.Context, noAccessContext context
 	require.NoError(t, err)
 	trustSvc := local.NewCAService(backend)
 	roleSvc := local.NewAccessService(backend)
-	userSvc, err := local.NewTestIdentityService(backend)
-	require.NoError(t, err)
+	userSvc := local.NewTestIdentityService(backend)
 
 	_, err = clusterConfigSvc.UpsertAuthPreference(ctx, types.DefaultAuthPreference())
 	require.NoError(t, err)

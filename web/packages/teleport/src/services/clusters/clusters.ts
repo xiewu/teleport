@@ -16,11 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import cfg from 'teleport/config';
 import api from 'teleport/services/api';
+import cfg from 'teleport/config';
+
+import { makeClusterList } from './makeCluster';
 
 import { Cluster } from '.';
-import { makeClusterInfo, makeClusterList } from './makeCluster';
 
 export default class ClustersService {
   clusters: Cluster[] = [];
@@ -37,9 +38,5 @@ export default class ClustersService {
       });
     }
     return Promise.resolve(this.clusters);
-  }
-
-  fetchClusterDetails(clusterId) {
-    return api.get(cfg.getClusterInfoPath(clusterId)).then(makeClusterInfo);
   }
 }

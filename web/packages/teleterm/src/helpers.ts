@@ -16,21 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { App } from 'gen-proto-ts/teleport/lib/teleterm/v1/app_pb';
-import { Database } from 'gen-proto-ts/teleport/lib/teleterm/v1/database_pb';
-import { Kube } from 'gen-proto-ts/teleport/lib/teleterm/v1/kube_pb';
-import { Server } from 'gen-proto-ts/teleport/lib/teleterm/v1/server_pb';
+// ExcludesFalse is a method that can be used instead of [].filter(Boolean)
+// this removes the false values from the array type
 import { PaginatedResource } from 'gen-proto-ts/teleport/lib/teleterm/v1/service_pb';
-import * as api from 'gen-proto-ts/teleport/lib/teleterm/v1/tshd_events_service_pb';
-import {
-  CheckReport,
-  RouteConflictReport,
-} from 'gen-proto-ts/teleport/lib/vnet/diag/v1/diag_pb';
+import { Server } from 'gen-proto-ts/teleport/lib/teleterm/v1/server_pb';
+import { Database } from 'gen-proto-ts/teleport/lib/teleterm/v1/database_pb';
+import { App } from 'gen-proto-ts/teleport/lib/teleterm/v1/app_pb';
+import { Kube } from 'gen-proto-ts/teleport/lib/teleterm/v1/kube_pb';
 
-import {
-  ReloginRequest,
-  SendNotificationRequest,
-} from 'teleterm/services/tshdEvents';
 import {
   PtyClientEvent,
   PtyEventData,
@@ -40,6 +33,12 @@ import {
   PtyEventStartError,
   PtyServerEvent,
 } from 'teleterm/sharedProcess/api/protogen/ptyHostService_pb';
+import {
+  ReloginRequest,
+  SendNotificationRequest,
+  CannotProxyGatewayConnection,
+  GatewayCertExpired,
+} from 'teleterm/services/tshdEvents';
 
 export function resourceOneOfIsServer(
   resource: PaginatedResource['resource']
@@ -126,61 +125,16 @@ export function notificationRequestOneOfIsCannotProxyGatewayConnection(
   subject: SendNotificationRequest['subject']
 ): subject is {
   oneofKind: 'cannotProxyGatewayConnection';
-  cannotProxyGatewayConnection: api.CannotProxyGatewayConnection;
+  cannotProxyGatewayConnection: CannotProxyGatewayConnection;
 } {
   return subject.oneofKind === 'cannotProxyGatewayConnection';
-}
-
-export function notificationRequestOneOfIsCannotProxyVnetConnection(
-  subject: SendNotificationRequest['subject']
-): subject is {
-  oneofKind: 'cannotProxyVnetConnection';
-  cannotProxyVnetConnection: api.CannotProxyVnetConnection;
-} {
-  return subject.oneofKind === 'cannotProxyVnetConnection';
-}
-
-export function cannotProxyVnetConnectionReasonIsCertReissueError(
-  reason: api.CannotProxyVnetConnection['reason']
-): reason is {
-  oneofKind: 'certReissueError';
-  certReissueError: api.CertReissueError;
-} {
-  return reason.oneofKind === 'certReissueError';
-}
-
-export function cannotProxyVnetConnectionReasonIsInvalidLocalPort(
-  reason: api.CannotProxyVnetConnection['reason']
-): reason is {
-  oneofKind: 'invalidLocalPort';
-  invalidLocalPort: api.InvalidLocalPort;
-} {
-  return reason.oneofKind === 'invalidLocalPort';
 }
 
 export function reloginReasonOneOfIsGatewayCertExpired(
   reason: ReloginRequest['reason']
 ): reason is {
   oneofKind: 'gatewayCertExpired';
-  gatewayCertExpired: api.GatewayCertExpired;
+  gatewayCertExpired: GatewayCertExpired;
 } {
   return reason.oneofKind === 'gatewayCertExpired';
-}
-
-export function reloginReasonOneOfIsVnetCertExpired(
-  reason: ReloginRequest['reason']
-): reason is {
-  oneofKind: 'vnetCertExpired';
-  vnetCertExpired: api.VnetCertExpired;
-} {
-  return reason.oneofKind === 'vnetCertExpired';
-}
-
-export function reportOneOfIsRouteConflictReport(
-  report: CheckReport['report']
-): report is {
-  oneofKind: 'routeConflictReport';
-  routeConflictReport: RouteConflictReport;
-} {
-  return report.oneofKind === 'routeConflictReport';
 }

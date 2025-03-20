@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 import Dialog from 'design/Dialog';
 
@@ -26,12 +26,8 @@ import { RootClusterUri } from 'teleterm/ui/uri';
 
 import { ClusterAdd } from './ClusterAdd';
 import { ClusterLogin } from './ClusterLogin';
-import { dialogCss } from './spacing';
 
-export function ClusterConnect(props: {
-  dialog: DialogClusterConnect;
-  hidden?: boolean;
-}) {
+export function ClusterConnect(props: { dialog: DialogClusterConnect }) {
   const [createdClusterUri, setCreatedClusterUri] = useState<
     RootClusterUri | undefined
   >();
@@ -49,11 +45,14 @@ export function ClusterConnect(props: {
 
   return (
     <Dialog
-      dialogCss={dialogCss}
+      dialogCss={() => ({
+        maxWidth: '480px',
+        width: '100%',
+        padding: '0',
+      })}
       disableEscapeKeyDown={false}
       onClose={props.dialog.onCancel}
-      open={!props.hidden}
-      keepInDOMAfterClose
+      open={true}
     >
       {!clusterUri ? (
         <ClusterAdd

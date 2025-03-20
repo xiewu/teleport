@@ -124,8 +124,6 @@ export const eventCodes = {
   DEVICE_ENROLL: 'TV005I',
   DEVICE_AUTHENTICATE: 'TV006I',
   DEVICE_UPDATE: 'TV007I',
-  DEVICE_WEB_TOKEN_CREATE: 'TV008I',
-  DEVICE_AUTHENTICATE_CONFIRM: 'TV009I',
   EXEC_FAILURE: 'T3002E',
   EXEC: 'T3002I',
   GITHUB_CONNECTOR_CREATED: 'T8000I',
@@ -164,8 +162,20 @@ export const eventCodes = {
   SCP_DISALLOWED: 'T3010E',
   SFTP_OPEN_FAILURE: 'TS001E',
   SFTP_OPEN: 'TS001I',
+  SFTP_CLOSE_FAILURE: 'TS002E',
+  SFTP_CLOSE: 'TS002I',
+  SFTP_READ_FAILURE: 'TS003E',
+  SFTP_READ: 'TS003I',
+  SFTP_WRITE_FAILURE: 'TS004E',
+  SFTP_WRITE: 'TS004I',
+  SFTP_LSTAT_FAILURE: 'TS005E',
+  SFTP_LSTAT: 'TS005I',
+  SFTP_FSTAT_FAILURE: 'TS006E',
+  SFTP_FSTAT: 'TS006I',
   SFTP_SETSTAT_FAILURE: 'TS007E',
   SFTP_SETSTAT: 'TS007I',
+  SFTP_FSETSTAT_FAILURE: 'TS008E',
+  SFTP_FSETSTAT: 'TS008I',
   SFTP_OPENDIR_FAILURE: 'TS009E',
   SFTP_OPENDIR: 'TS009I',
   SFTP_READDIR_FAILURE: 'TS010E',
@@ -176,14 +186,19 @@ export const eventCodes = {
   SFTP_MKDIR: 'TS012I',
   SFTP_RMDIR_FAILURE: 'TS013E',
   SFTP_RMDIR: 'TS013I',
+  SFTP_REALPATH_FAILURE: 'TS014E',
+  SFTP_REALPATH: 'TS014I',
+  SFTP_STAT_FAILURE: 'TS015E',
+  SFTP_STAT: 'TS015I',
   SFTP_RENAME_FAILURE: 'TS016E',
   SFTP_RENAME: 'TS016I',
+  SFTP_READLINK_FAILURE: 'TS017E',
+  SFTP_READLINK: 'TS017I',
   SFTP_SYMLINK_FAILURE: 'TS018E',
   SFTP_SYMLINK: 'TS018I',
   SFTP_LINK: 'TS019I',
   SFTP_LINK_FAILURE: 'TS019E',
   SFTP_DISALLOWED: 'TS020E',
-  SFTP_SUMMARY: 'TS021I',
   SESSION_COMMAND: 'T4000I',
   SESSION_DATA: 'T2006I',
   SESSION_DISK: 'T4001I',
@@ -235,9 +250,6 @@ export const eventCodes = {
   BOT_CREATED: 'TB001I',
   BOT_UPDATED: 'TB002I',
   BOT_DELETED: 'TB003I',
-  WORKLOAD_IDENTITY_CREATE: `WID001I`,
-  WORKLOAD_IDENTITY_UPDATE: `WID002I`,
-  WORKLOAD_IDENTITY_DELETE: `WID003I`,
   LOGIN_RULE_CREATE: 'TLR00I',
   LOGIN_RULE_DELETE: 'TLR01I',
   SAML_IDP_AUTH_ATTEMPT: 'TSI000I',
@@ -258,8 +270,6 @@ export const eventCodes = {
   OKTA_ASSIGNMENT_CLEANUP_FAILURE: 'TOK005E',
   OKTA_ACCESS_LIST_SYNC: 'TOK006I',
   OKTA_ACCESS_LIST_SYNC_FAILURE: 'TOK006E',
-  OKTA_USER_SYNC: 'TOK007I',
-  OKTA_USER_SYNC_FAILURE: 'TOK007E',
   ACCESS_LIST_CREATE: 'TAL001I',
   ACCESS_LIST_CREATE_FAILURE: 'TAL001E',
   ACCESS_LIST_UPDATE: 'TAL002I',
@@ -276,7 +286,6 @@ export const eventCodes = {
   ACCESS_LIST_MEMBER_DELETE_FAILURE: 'TAL007E',
   ACCESS_LIST_MEMBER_DELETE_ALL_FOR_ACCESS_LIST: 'TAL008I',
   ACCESS_LIST_MEMBER_DELETE_ALL_FOR_ACCESS_LIST_FAILURE: 'TAL008E',
-  USER_LOGIN_INVALID_ACCESS_LIST: 'TAL009W',
   SECURITY_REPORT_AUDIT_QUERY_RUN: 'SRE001I',
   SECURITY_REPORT_RUN: 'SRE002I',
   EXTERNAL_AUDIT_STORAGE_ENABLE: 'TEA001I',
@@ -296,31 +305,12 @@ export const eventCodes = {
   INTEGRATION_CREATE: 'IG001I',
   INTEGRATION_UPDATE: 'IG002I',
   INTEGRATION_DELETE: 'IG003I',
-  STATIC_HOST_USER_CREATE: 'SHU001I',
-  STATIC_HOST_USER_UPDATE: 'SHU002I',
-  STATIC_HOST_USER_DELETE: 'SHU003I',
   CROWN_JEWEL_CREATE: 'CJ001I',
   CROWN_JEWEL_UPDATE: 'CJ002I',
   CROWN_JEWEL_DELETE: 'CJ003I',
-  USER_TASK_CREATE: 'UT001I',
-  USER_TASK_UPDATE: 'UT002I',
-  USER_TASK_DELETE: 'UT003I',
   PLUGIN_CREATE: 'PG001I',
   PLUGIN_UPDATE: 'PG002I',
   PLUGIN_DELETE: 'PG003I',
-  CONTACT_CREATE: 'TCTC001I',
-  CONTACT_DELETE: 'TCTC002I',
-  GIT_COMMAND: 'TGIT001I',
-  GIT_COMMAND_FAILURE: 'TGIT001E',
-  STABLE_UNIX_USER_CREATE: 'TSUU001I',
-  AWS_IC_RESOURCE_SYNC_SUCCESS: 'TAIC001I',
-  AWS_IC_RESOURCE_SYNC_FAILURE: 'TAIC001E',
-  AUTOUPDATE_CONFIG_CREATE: 'AUC001I',
-  AUTOUPDATE_CONFIG_UPDATE: 'AUC002I',
-  AUTOUPDATE_CONFIG_DELETE: 'AUC003I',
-  AUTOUPDATE_VERSION_CREATE: 'AUV001I',
-  AUTOUPDATE_VERSION_UPDATE: 'AUV002I',
-  AUTOUPDATE_VERSION_DELETE: 'AUV003I',
 } as const;
 
 /**
@@ -462,9 +452,33 @@ export type RawEvents = {
   [eventCodes.SFTP_OPEN_FAILURE]: RawEventSFTP<
     typeof eventCodes.SFTP_OPEN_FAILURE
   >;
+  [eventCodes.SFTP_CLOSE]: RawEventSFTP<typeof eventCodes.SFTP_CLOSE>;
+  [eventCodes.SFTP_CLOSE_FAILURE]: RawEventSFTP<
+    typeof eventCodes.SFTP_CLOSE_FAILURE
+  >;
+  [eventCodes.SFTP_READ]: RawEventSFTP<typeof eventCodes.SFTP_READ>;
+  [eventCodes.SFTP_READ_FAILURE]: RawEventSFTP<
+    typeof eventCodes.SFTP_READ_FAILURE
+  >;
+  [eventCodes.SFTP_WRITE]: RawEventSFTP<typeof eventCodes.SFTP_WRITE>;
+  [eventCodes.SFTP_WRITE_FAILURE]: RawEventSFTP<
+    typeof eventCodes.SFTP_WRITE_FAILURE
+  >;
+  [eventCodes.SFTP_LSTAT]: RawEventSFTP<typeof eventCodes.SFTP_LSTAT>;
+  [eventCodes.SFTP_LSTAT_FAILURE]: RawEventSFTP<
+    typeof eventCodes.SFTP_LSTAT_FAILURE
+  >;
+  [eventCodes.SFTP_FSTAT]: RawEventSFTP<typeof eventCodes.SFTP_FSTAT>;
+  [eventCodes.SFTP_FSTAT_FAILURE]: RawEventSFTP<
+    typeof eventCodes.SFTP_FSTAT_FAILURE
+  >;
   [eventCodes.SFTP_SETSTAT]: RawEventSFTP<typeof eventCodes.SFTP_SETSTAT>;
   [eventCodes.SFTP_SETSTAT_FAILURE]: RawEventSFTP<
     typeof eventCodes.SFTP_SETSTAT_FAILURE
+  >;
+  [eventCodes.SFTP_FSETSTAT]: RawEventSFTP<typeof eventCodes.SFTP_FSETSTAT>;
+  [eventCodes.SFTP_FSETSTAT_FAILURE]: RawEventSFTP<
+    typeof eventCodes.SFTP_FSETSTAT_FAILURE
   >;
   [eventCodes.SFTP_OPENDIR]: RawEventSFTP<typeof eventCodes.SFTP_OPENDIR>;
   [eventCodes.SFTP_OPENDIR_FAILURE]: RawEventSFTP<
@@ -486,9 +500,21 @@ export type RawEvents = {
   [eventCodes.SFTP_RMDIR_FAILURE]: RawEventSFTP<
     typeof eventCodes.SFTP_RMDIR_FAILURE
   >;
+  [eventCodes.SFTP_REALPATH]: RawEventSFTP<typeof eventCodes.SFTP_REALPATH>;
+  [eventCodes.SFTP_REALPATH_FAILURE]: RawEventSFTP<
+    typeof eventCodes.SFTP_REALPATH_FAILURE
+  >;
+  [eventCodes.SFTP_STAT]: RawEventSFTP<typeof eventCodes.SFTP_STAT>;
+  [eventCodes.SFTP_STAT_FAILURE]: RawEventSFTP<
+    typeof eventCodes.SFTP_STAT_FAILURE
+  >;
   [eventCodes.SFTP_RENAME]: RawEventSFTP<typeof eventCodes.SFTP_RENAME>;
   [eventCodes.SFTP_RENAME_FAILURE]: RawEventSFTP<
     typeof eventCodes.SFTP_RENAME_FAILURE
+  >;
+  [eventCodes.SFTP_READLINK]: RawEventSFTP<typeof eventCodes.SFTP_READLINK>;
+  [eventCodes.SFTP_READLINK_FAILURE]: RawEventSFTP<
+    typeof eventCodes.SFTP_READLINK_FAILURE
   >;
   [eventCodes.SFTP_SYMLINK]: RawEventSFTP<typeof eventCodes.SFTP_SYMLINK>;
   [eventCodes.SFTP_SYMLINK_FAILURE]: RawEventSFTP<
@@ -1243,12 +1269,6 @@ export type RawEvents = {
     typeof eventCodes.DEVICE_AUTHENTICATE
   >;
   [eventCodes.DEVICE_UPDATE]: RawDeviceEvent<typeof eventCodes.DEVICE_UPDATE>;
-  [eventCodes.DEVICE_WEB_TOKEN_CREATE]: RawDeviceEvent<
-    typeof eventCodes.DEVICE_WEB_TOKEN_CREATE
-  >;
-  [eventCodes.DEVICE_AUTHENTICATE_CONFIRM]: RawDeviceEvent<
-    typeof eventCodes.DEVICE_AUTHENTICATE_CONFIRM
-  >;
   [eventCodes.UNKNOWN]: RawEvent<
     typeof eventCodes.UNKNOWN,
     {
@@ -1340,18 +1360,6 @@ export type RawEvents = {
   [eventCodes.BOT_CREATED]: RawEvent<typeof eventCodes.BOT_CREATED, HasName>;
   [eventCodes.BOT_UPDATED]: RawEvent<typeof eventCodes.BOT_UPDATED, HasName>;
   [eventCodes.BOT_DELETED]: RawEvent<typeof eventCodes.BOT_DELETED, HasName>;
-  [eventCodes.WORKLOAD_IDENTITY_CREATE]: RawEvent<
-    typeof eventCodes.WORKLOAD_IDENTITY_CREATE,
-    HasName
-  >;
-  [eventCodes.WORKLOAD_IDENTITY_UPDATE]: RawEvent<
-    typeof eventCodes.WORKLOAD_IDENTITY_UPDATE,
-    HasName
-  >;
-  [eventCodes.WORKLOAD_IDENTITY_DELETE]: RawEvent<
-    typeof eventCodes.WORKLOAD_IDENTITY_DELETE,
-    HasName
-  >;
   [eventCodes.LOGIN_RULE_CREATE]: RawEvent<
     typeof eventCodes.LOGIN_RULE_CREATE,
     HasName
@@ -1475,17 +1483,6 @@ export type RawEvents = {
       source: string;
     }
   >;
-  [eventCodes.OKTA_USER_SYNC]: RawEvent<
-    typeof eventCodes.OKTA_USER_SYNC,
-    {
-      num_users_created: number;
-      num_users_modified: number;
-      num_users_deleted: number;
-    }
-  >;
-  [eventCodes.OKTA_USER_SYNC_FAILURE]: RawEvent<
-    typeof eventCodes.OKTA_USER_SYNC_FAILURE
-  >;
   [eventCodes.OKTA_ACCESS_LIST_SYNC]: RawEvent<
     typeof eventCodes.OKTA_ACCESS_LIST_SYNC
   >;
@@ -1578,14 +1575,6 @@ export type RawEvents = {
     {
       access_list_name: string;
       updated_by: string;
-    }
-  >;
-  [eventCodes.USER_LOGIN_INVALID_ACCESS_LIST]: RawEvent<
-    typeof eventCodes.USER_LOGIN_INVALID_ACCESS_LIST,
-    {
-      access_list_name: string;
-      user: string;
-      missing_roles: string[];
     }
   >;
   [eventCodes.SECURITY_REPORT_AUDIT_QUERY_RUN]: RawEvent<
@@ -1704,18 +1693,6 @@ export type RawEvents = {
     typeof eventCodes.INTEGRATION_DELETE,
     HasName
   >;
-  [eventCodes.STATIC_HOST_USER_CREATE]: RawEvent<
-    typeof eventCodes.STATIC_HOST_USER_CREATE,
-    HasName
-  >;
-  [eventCodes.STATIC_HOST_USER_UPDATE]: RawEvent<
-    typeof eventCodes.STATIC_HOST_USER_UPDATE,
-    HasName
-  >;
-  [eventCodes.STATIC_HOST_USER_DELETE]: RawEvent<
-    typeof eventCodes.STATIC_HOST_USER_DELETE,
-    HasName
-  >;
   [eventCodes.CROWN_JEWEL_CREATE]: RawEvent<
     typeof eventCodes.CROWN_JEWEL_CREATE,
     HasName
@@ -1726,18 +1703,6 @@ export type RawEvents = {
   >;
   [eventCodes.CROWN_JEWEL_DELETE]: RawEvent<
     typeof eventCodes.CROWN_JEWEL_DELETE,
-    HasName
-  >;
-  [eventCodes.USER_TASK_CREATE]: RawEvent<
-    typeof eventCodes.USER_TASK_CREATE,
-    HasName
-  >;
-  [eventCodes.USER_TASK_UPDATE]: RawEvent<
-    typeof eventCodes.USER_TASK_UPDATE,
-    HasName
-  >;
-  [eventCodes.USER_TASK_DELETE]: RawEvent<
-    typeof eventCodes.USER_TASK_DELETE,
     HasName
   >;
   [eventCodes.PLUGIN_CREATE]: RawEvent<
@@ -1751,99 +1716,6 @@ export type RawEvents = {
   [eventCodes.PLUGIN_DELETE]: RawEvent<
     typeof eventCodes.PLUGIN_DELETE,
     Merge<HasName, { user: string }>
-  >;
-  [eventCodes.SFTP_SUMMARY]: RawEvent<
-    typeof eventCodes.SFTP_SUMMARY,
-    {
-      user: string;
-      server_hostname: string;
-    }
-  >;
-  [eventCodes.CONTACT_CREATE]: RawEvent<
-    typeof eventCodes.CONTACT_CREATE,
-    {
-      email: string;
-      contact_type: number;
-    }
-  >;
-  [eventCodes.CONTACT_DELETE]: RawEvent<
-    typeof eventCodes.CONTACT_DELETE,
-    {
-      email: string;
-      contact_type: number;
-    }
-  >;
-  [eventCodes.GIT_COMMAND]: RawEvent<
-    typeof eventCodes.GIT_COMMAND,
-    {
-      service: string;
-      path: string;
-      actions?: {
-        action: string;
-        reference: string;
-        new?: string;
-        old?: string;
-      }[];
-    }
-  >;
-  [eventCodes.GIT_COMMAND_FAILURE]: RawEvent<
-    typeof eventCodes.GIT_COMMAND_FAILURE,
-    {
-      service: string;
-      path: string;
-      exitError: string;
-    }
-  >;
-  [eventCodes.STABLE_UNIX_USER_CREATE]: RawEvent<
-    typeof eventCodes.STABLE_UNIX_USER_CREATE,
-    {
-      stable_unix_user: {
-        username: string;
-        uid: number;
-      };
-    }
-  >;
-  [eventCodes.AWS_IC_RESOURCE_SYNC_SUCCESS]: RawEventAwsIcResourceSync<
-    typeof eventCodes.AWS_IC_RESOURCE_SYNC_SUCCESS
-  >;
-  [eventCodes.AWS_IC_RESOURCE_SYNC_FAILURE]: RawEventAwsIcResourceSync<
-    typeof eventCodes.AWS_IC_RESOURCE_SYNC_FAILURE
-  >;
-  [eventCodes.AUTOUPDATE_CONFIG_CREATE]: RawEvent<
-    typeof eventCodes.AUTOUPDATE_CONFIG_CREATE,
-    {
-      user: string;
-    }
-  >;
-  [eventCodes.AUTOUPDATE_CONFIG_UPDATE]: RawEvent<
-    typeof eventCodes.AUTOUPDATE_CONFIG_UPDATE,
-    {
-      user: string;
-    }
-  >;
-  [eventCodes.AUTOUPDATE_CONFIG_DELETE]: RawEvent<
-    typeof eventCodes.AUTOUPDATE_CONFIG_DELETE,
-    {
-      user: string;
-    }
-  >;
-  [eventCodes.AUTOUPDATE_VERSION_CREATE]: RawEvent<
-    typeof eventCodes.AUTOUPDATE_VERSION_CREATE,
-    {
-      user: string;
-    }
-  >;
-  [eventCodes.AUTOUPDATE_VERSION_UPDATE]: RawEvent<
-    typeof eventCodes.AUTOUPDATE_VERSION_UPDATE,
-    {
-      user: string;
-    }
-  >;
-  [eventCodes.AUTOUPDATE_VERSION_DELETE]: RawEvent<
-    typeof eventCodes.AUTOUPDATE_VERSION_DELETE,
-    {
-      user: string;
-    }
   >;
 };
 
@@ -2042,23 +1914,6 @@ type RawSpannerRPCEvent<T extends EventCode> = RawEvent<
     db_service: string;
     db_name: string;
     args: { sql?: string };
-  }
->;
-
-/**
- * RawEventAwsIcResourceSync extends RawEvent with custom fields
- * present in the AWS Identity Center resource sync event.
- */
-type RawEventAwsIcResourceSync<T extends EventCode> = RawEvent<
-  T,
-  {
-    total_accounts: number;
-    total_account_assignments: number;
-    total_user_groups: number;
-    total_permission_sets: number;
-    status: boolean;
-    /* message contains user message for both success and failed status */
-    message: string;
   }
 >;
 

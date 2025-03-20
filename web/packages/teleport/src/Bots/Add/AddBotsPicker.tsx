@@ -16,26 +16,35 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 
-import { Box, Link as ExternalLink, Flex, ResourceIcon, Text } from 'design';
-import { Server } from 'design/Icon';
-import { P } from 'design/Text/Text';
+import {
+  AnsibleIcon,
+  AWSIcon,
+  AzureIcon,
+  CircleCIIcon,
+  GCPIcon,
+  GitHubIcon,
+  GitLabIcon,
+  JenkinsIcon,
+  KubernetesIcon,
+  ServersIcon,
+  SpaceliftIcon,
+} from 'design/SVGIcon';
+import { Box, Flex, Link as ExternalLink, Text } from 'design';
 
-import { FeatureHeader, FeatureHeaderTitle } from 'teleport/components/Layout';
-import { InfoGuideWrapper } from 'teleport/components/SlidingSidePanel/InfoGuideSidePanel';
-import { ToolTipNoPermBadge } from 'teleport/components/ToolTipNoPermBadge';
 import cfg from 'teleport/config';
-import { IntegrationTile } from 'teleport/Integrations';
+
 import {
   IntegrationEnrollEvent,
   IntegrationEnrollKind,
   userEventService,
 } from 'teleport/services/userEvent';
-import useTeleport from 'teleport/useTeleport';
+import { IntegrationTile } from 'teleport/Integrations';
+import { FeatureHeader, FeatureHeaderTitle } from 'teleport/components/Layout';
 
-import { InfoGuide } from '../InfoGuide';
 import { BotFlowType } from '../types';
 
 type BotIntegration = {
@@ -46,126 +55,110 @@ type BotIntegration = {
   kind: IntegrationEnrollKind;
 };
 
-const StyledResourceIcon = styled(ResourceIcon)`
-  margin: 0 auto;
-  height: 100%;
-  min-width: 0;
-  max-width: 80px;
-`;
-
 const integrations: BotIntegration[] = [
   {
     title: 'GitHub Actions + SSH',
     link: cfg.getBotsNewRoute(BotFlowType.GitHubActions),
-    icon: <StyledResourceIcon name="github" />,
+    icon: <GitHubIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDGitHubActions,
     guided: true,
   },
   {
     title: 'CircleCI',
     link: 'https://goteleport.com/docs/enroll-resources/machine-id/deployment/circleci/',
-    icon: <StyledResourceIcon name="circleci" />,
+    icon: <CircleCIIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDCircleCI,
     guided: false,
   },
   {
     title: 'GitLab CI/CD',
     link: 'https://goteleport.com/docs/enroll-resources/machine-id/deployment/gitlab/',
-    icon: <StyledResourceIcon name="gitlab" />,
+    icon: <GitLabIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDGitLab,
     guided: false,
   },
   {
     title: 'Jenkins',
     link: 'https://goteleport.com/docs/enroll-resources/machine-id/deployment/jenkins/',
-    icon: <StyledResourceIcon name="jenkins" />,
+    icon: <JenkinsIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDJenkins,
     guided: false,
   },
   {
     title: 'Ansible',
     link: 'https://goteleport.com/docs/enroll-resources/machine-id/access-guides/ansible/',
-    icon: <StyledResourceIcon name="ansible" />,
+    icon: <AnsibleIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDAnsible,
     guided: false,
   },
   {
     title: 'Spacelift',
     link: 'https://goteleport.com/docs/admin-guides/infrastructure-as-code/terraform-provider/spacelift/',
-    icon: <StyledResourceIcon name="spacelift" />,
+    icon: <SpaceliftIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDSpacelift,
     guided: false,
   },
   {
     title: 'AWS',
     link: 'https://goteleport.com/docs/enroll-resources/machine-id/deployment/aws/',
-    icon: <StyledResourceIcon name="aws" />,
+    icon: <AWSIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDAWS,
     guided: false,
   },
   {
     title: 'GCP',
     link: 'https://goteleport.com/docs/enroll-resources/machine-id/deployment/gcp/',
-    icon: <StyledResourceIcon name="googlecloud" />,
+    icon: <GCPIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDGCP,
     guided: false,
   },
   {
     title: 'Azure',
     link: 'https://goteleport.com/docs/enroll-resources/machine-id/deployment/azure/',
-    icon: <StyledResourceIcon name="azure" />,
+    icon: <AzureIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDAzure,
     guided: false,
   },
   {
     title: 'Kubernetes',
     link: 'https://goteleport.com/docs/enroll-resources/machine-id/deployment/kubernetes/',
-    icon: <StyledResourceIcon name="kube" />,
+    icon: <KubernetesIcon size={80} />,
     kind: IntegrationEnrollKind.MachineIDKubernetes,
     guided: false,
   },
   {
     title: 'Generic',
     link: 'https://goteleport.com/docs/enroll-resources/machine-id/getting-started/',
-    icon: <Server size={80} />,
+    icon: <ServersIcon size={80} />,
     kind: IntegrationEnrollKind.MachineID,
     guided: false,
   },
 ];
 
 export function AddBotsPicker() {
-  const ctx = useTeleport();
   return (
     <>
-      <FeatureHeader justifyContent="space-between">
+      <FeatureHeader>
         <FeatureHeaderTitle>Select Bot Type</FeatureHeaderTitle>
-        <InfoGuideWrapper guide={<InfoGuide />} />
       </FeatureHeader>
 
-      <P mb="5">
+      <Text typography="body1">
         Set up Teleport Machine ID to allow CI/CD workflows and other machines
         to access resources protected by Teleport.
-      </P>
+      </Text>
 
-      <BotTiles hasCreateBotPermission={ctx.getFeatureFlags().addBots} />
+      <BotTiles />
     </>
   );
 }
 
-export function BotTiles({
-  hasCreateBotPermission,
-}: {
-  hasCreateBotPermission: boolean;
-}) {
+export function BotTiles() {
   return (
-    <Flex gap={3} flexWrap="wrap">
+    <Flex mt={5} gap={3} flexWrap="wrap">
       {integrations.map(i => (
         <Box key={i.title}>
           {i.guided ? (
-            <GuidedTile
-              integration={i}
-              hasCreateBotPermission={hasCreateBotPermission}
-            />
+            <GuidedTile integration={i} />
           ) : (
             <ExternalLinkTile integration={i} />
           )}
@@ -196,24 +189,15 @@ function ExternalLinkTile({ integration }: { integration: BotIntegration }) {
   );
 }
 
-function GuidedTile({
-  integration,
-  hasCreateBotPermission,
-}: {
-  integration: BotIntegration;
-  hasCreateBotPermission: boolean;
-}) {
+function GuidedTile({ integration }: { integration: BotIntegration }) {
   return (
     <IntegrationTile
       as={Link}
       to={{
-        pathname: hasCreateBotPermission ? integration.link : null,
+        pathname: integration.link,
         state: { previousPathname: location.pathname },
       }}
       onClick={() => {
-        if (!hasCreateBotPermission) {
-          return;
-        }
         userEventService.captureIntegrationEnrollEvent({
           event: IntegrationEnrollEvent.Started,
           eventData: {
@@ -223,16 +207,7 @@ function GuidedTile({
         });
       }}
     >
-      {hasCreateBotPermission ? (
-        <BadgeGuided>Guided</BadgeGuided>
-      ) : (
-        <ToolTipNoPermBadge>
-          <div>
-            You don’t have sufficient permissions to create bots. Reach out to
-            your Teleport administrator to request additional permissions.
-          </div>
-        </ToolTipNoPermBadge>
-      )}
+      <BadgeGuided>Guided</BadgeGuided>
       <TileContent icon={integration.icon} title={integration.title} />
     </IntegrationTile>
   );
@@ -255,7 +230,9 @@ export function DisplayTile({
 function TileContent({ icon, title }) {
   return (
     <>
-      <Flex flexBasis={100}>{icon}</Flex>
+      <Box mt={3} mb={2}>
+        {icon}
+      </Box>
       <Text>{title}</Text>
     </>
   );

@@ -38,6 +38,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/srv/db/common"
 	"github.com/gravitational/teleport/lib/srv/db/common/role"
@@ -113,7 +114,7 @@ func (e *Engine) SendError(err error) {
 		Message: err.Error(),
 	})
 	if err != nil {
-		e.Log.ErrorContext(e.Context, "failed to marshal error response", "error", err)
+		e.Log.WithError(err).Errorf("failed to marshal error response")
 		return
 	}
 
@@ -129,7 +130,7 @@ func (e *Engine) SendError(err error) {
 	}
 
 	if err := response.Write(e.clientConn); err != nil {
-		e.Log.ErrorContext(e.Context, "snowflake error", "error", err)
+		e.Log.Errorf("snowflake error: %+v", trace.Unwrap(err))
 		return
 	}
 }
@@ -451,7 +452,7 @@ func (e *Engine) processLoginResponse(bodyBytes []byte, createSessionFn func(tok
 	}
 
 	if !loginResp.Success {
-		e.Log.ErrorContext(e.Context, "Snowflake authentication failed.", "error_message", loginResp.Message)
+		e.Log.Errorf("Snowflake authentication failed: %s", loginResp.Message)
 		// Return not modified response, so client can handle it. Otherwise, the client my keep retrying where
 		// most likely each response will return the same error (invalid JWT when user doesn't exist for ex.)
 		return bodyBytes, nil
@@ -562,6 +563,11 @@ func (e *Engine) getSnowflakeToken(ctx context.Context, sessionToken string) (st
 	snowflakeToken := e.tokens.getToken(sessionToken)
 	if snowflakeToken != "" {
 		return snowflakeToken, nil
+	}
+
+	// Fetch the token from the auth server if not found in the local cache.
+	if err := authclient.WaitForSnowflakeSession(ctx, sessionToken, e.sessionCtx.Identity.Username, e.AuthClient); err != nil {
+		return "", trace.Wrap(err)
 	}
 
 	snowflakeSession, err := e.AuthClient.GetSnowflakeSession(ctx, types.GetSnowflakeSessionRequest{SessionID: sessionToken})

@@ -16,10 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ConfigService } from 'teleterm/services/config';
+import { UsageService } from 'teleterm/ui/services/usage';
 import { ModalsService } from 'teleterm/ui/services/modals';
 import { StatePersistenceService } from 'teleterm/ui/services/statePersistence';
-import { UsageService } from 'teleterm/ui/services/usage';
+import { ConfigService } from 'teleterm/services/config';
 
 export async function askAboutUserJobRoleIfNeeded(
   statePersistenceService: StatePersistenceService,

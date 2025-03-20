@@ -16,9 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import styled from 'styled-components';
 
-import { ButtonSecondary, H2, Text } from 'design';
+import { Text, ButtonSecondary } from 'design';
 import Table, { Cell } from 'design/DataTable';
 import Dialog, { DialogContent, DialogFooter } from 'design/DialogConfirmation';
 
@@ -31,7 +32,8 @@ export function SecurityGroupRulesDialog({
   viewRulesSelection: ViewRulesSelection;
   onClose: () => void;
 }) {
-  const { name, rules, ruleType } = viewRulesSelection;
+  const { ruleType, sg } = viewRulesSelection;
+  const data = ruleType === 'inbound' ? sg.inboundRules : sg.outboundRules;
 
   return (
     <Dialog disableEscapeKeyDown={false} open={true}>
@@ -41,11 +43,12 @@ export function SecurityGroupRulesDialog({
         mb={0}
         textAlign="center"
       >
-        <H2 mb={4}>
-          {ruleType === 'inbound' ? 'Inbound' : 'Outbound'} Rules for [{name}]
-        </H2>
+        <Text mb={4} typography="h4">
+          {ruleType === 'inbound' ? 'Inbound' : 'Outbound'} Rules for [{sg.name}
+          ]
+        </Text>
         <StyledTable
-          data={rules}
+          data={data}
           columns={[
             {
               key: 'ipProtocol',
@@ -54,22 +57,22 @@ export function SecurityGroupRulesDialog({
             {
               altKey: 'portRange',
               headerText: 'Port Range',
-              render: ({ ipProtocol, fromPort, toPort }) => {
-                return (
-                  <Cell>{getPortRange(ipProtocol, fromPort, toPort)}</Cell>
-                );
+              render: ({ fromPort, toPort }) => {
+                // If they are the same, only show one number.
+                const portRange =
+                  fromPort === toPort ? fromPort : `${fromPort} - ${toPort}`;
+                return <Cell>{portRange}</Cell>;
               },
             },
             {
               altKey: 'source',
               headerText: 'Source',
-              render: ({ source }) => {
-                if (source) {
-                  return (
-                    <Cell>
-                      <Text title={source}>{source}</Text>
-                    </Cell>
-                  );
+              render: ({ cidrs }) => {
+                // The AWS API returns an array, however it appears it's not actually possible to have multiple CIDR's for a single rule.
+                // As a fallback we just display the first one.
+                const cidr = cidrs[0];
+                if (cidr) {
+                  return <Cell>{cidr.cidr}</Cell>;
                 }
                 return null;
               },
@@ -77,13 +80,10 @@ export function SecurityGroupRulesDialog({
             {
               altKey: 'description',
               headerText: 'Description',
-              render: ({ description }) => {
-                if (description) {
-                  return (
-                    <Cell>
-                      <Text title={description}>{description}</Text>
-                    </Cell>
-                  );
+              render: ({ cidrs }) => {
+                const cidr = cidrs[0];
+                if (cidr) {
+                  return <Cell>{cidr.description}</Cell>;
                 }
                 return null;
               },
@@ -110,8 +110,6 @@ const StyledTable = styled(Table)`
   & > tbody > tr > td {
     vertical-align: middle;
     text-align: left;
-    max-width: 200px;
-    text-wrap: nowrap;
   }
 
   & > thead > tr > th {
@@ -122,17 +120,3 @@ const StyledTable = styled(Table)`
   box-shadow: ${props => props.theme.boxShadow[0]};
   overflow: hidden;
 ` as typeof Table;
-
-function getPortRange(
-  ipProtocol: string,
-  fromPort: string,
-  toPort: string
-): string {
-  if (ipProtocol === 'all') {
-    // fromPort and toPort are irrelevant and AWS currently returns 0 for both
-    // in this case.
-    return 'all';
-  }
-  // If they are the same, only show one number.
-  return fromPort === toPort ? fromPort : `${fromPort} - ${toPort}`;
-}

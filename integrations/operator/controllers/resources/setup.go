@@ -26,9 +26,7 @@ import (
 
 	"github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/client/proto"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/integrations/operator/controllers"
-	"github.com/gravitational/teleport/lib/modules"
 )
 
 type reconcilerFactory struct {
@@ -45,39 +43,35 @@ func SetupAllControllers(log logr.Logger, mgr manager.Manager, teleportClient *c
 		{"TeleportUser", NewUserReconciler},
 		{"TeleportGithubConnector", NewGithubConnectorReconciler},
 		{"TeleportProvisionToken", NewProvisionTokenReconciler},
+		{"TeleportOktaImportRule", NewOktaImportRuleReconciler},
 		{"TeleportOpenSSHServerV2", NewOpenSSHServerV2Reconciler},
 		{"TeleportOpenSSHEICEServerV2", NewOpenSSHEICEServerV2Reconciler},
-		{"TeleportTrustedClusterV2", NewTrustedClusterV2Reconciler},
 	}
 
-	oidc := modules.GetProtoEntitlement(features, entitlements.OIDC)
-	saml := modules.GetProtoEntitlement(features, entitlements.SAML)
-
-	if oidc.Enabled {
+	if features.GetOIDC() {
 		reconcilers = append(reconcilers, reconcilerFactory{"TeleportOIDCConnector", NewOIDCConnectorReconciler})
 	} else {
 		log.Info("OIDC connectors are only available in Teleport Enterprise edition. TeleportOIDCConnector resources won't be reconciled")
 	}
 
-	if saml.Enabled {
+	if features.GetSAML() {
 		reconcilers = append(reconcilers, reconcilerFactory{"TeleportSAMLConnector", NewSAMLConnectorReconciler})
 	} else {
 		log.Info("SAML connectors are only available in Teleport Enterprise edition. TeleportSAMLConnector resources won't be reconciled")
 	}
 
 	// Login Rules are enterprise-only but there is no specific feature flag for them.
-	if oidc.Enabled || saml.Enabled {
+	if features.GetOIDC() || features.GetSAML() {
 		reconcilers = append(reconcilers, reconcilerFactory{"TeleportLoginRule", NewLoginRuleReconciler})
 	} else {
 		log.Info("Login Rules are only available in Teleport Enterprise edition. TeleportLoginRule resources won't be reconciled")
 	}
 
-	// AccessLists, OktaImports are enterprise-only but there is no specific feature-flag for them.
+	// AccessLists are enterprise-only but there is no specific feature-flag for them.
 	if features.GetAdvancedAccessWorkflows() {
 		reconcilers = append(reconcilers, reconcilerFactory{"TeleportAccessList", NewAccessListReconciler})
-		reconcilers = append(reconcilers, reconcilerFactory{"TeleportOktaImportRule", NewOktaImportRuleReconciler})
 	} else {
-		log.Info("The cluster license does not contain advanced workflows. TeleportAccessList, TeleportOktaImportRule resources won't be reconciled")
+		log.Info("The cluster license does not contain advanced workflows. TeleportAccessList resources won't be reconciled")
 	}
 
 	kubeClient := mgr.GetClient()

@@ -17,5 +17,4 @@
  */
 
 import DownloadLinks from './DownloadLinks';
-
 export default DownloadLinks;

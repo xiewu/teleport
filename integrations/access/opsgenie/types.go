@@ -102,8 +102,3 @@ type GetAlertRequestResult struct {
 		AlertID string `json:"alertId"`
 	} `json:"data"`
 }
-
-// errorResult represents the error response returned from Opsgenie.
-type errorResult struct {
-	Message string `json:"message"`
-}

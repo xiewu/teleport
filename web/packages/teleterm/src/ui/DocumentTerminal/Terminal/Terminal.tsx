@@ -18,23 +18,24 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import styled, { useTheme } from 'styled-components';
-
 import { Box, Flex } from 'design';
+import { debounce } from 'shared/utils/highbar';
 import {
   Attempt,
   makeEmptyAttempt,
   makeErrorAttemptWithStatusText,
   makeSuccessAttempt,
 } from 'shared/hooks/useAsync';
-import { debounce } from 'shared/utils/highbar';
 
-import { ConfigService } from 'teleterm/services/config';
 import { WindowsPty } from 'teleterm/services/pty';
 import { IPtyProcess } from 'teleterm/sharedProcess/ptyHost';
-import { KeyboardShortcutsService } from 'teleterm/ui/services/keyboardShortcuts';
 import { DocumentTerminal } from 'teleterm/ui/services/workspacesService';
+import { KeyboardShortcutsService } from 'teleterm/ui/services/keyboardShortcuts';
+
+import { ConfigService } from 'teleterm/services/config';
 
 import { Reconnect } from '../Reconnect';
+
 import XTermCtrl from './ctrl';
 
 type TerminalProps = {
@@ -55,12 +56,10 @@ type TerminalProps = {
   openContextMenu(): void;
   configService: ConfigService;
   keyboardShortcutsService: KeyboardShortcutsService;
-  // terminalAddons is used to pass the tty to the parent component to enable any optional components like search or filetransfers.
-  terminalAddons?: (terminalRef: XTermCtrl) => React.JSX.Element;
 };
 
 export function Terminal(props: TerminalProps) {
-  const refElement = useRef<HTMLDivElement>();
+  const refElement = useRef<HTMLElement>();
   const refCtrl = useRef<XTermCtrl>();
   const [startPtyProcessAttempt, setStartPtyProcessAttempt] =
     useState<Attempt<void>>(makeEmptyAttempt());
@@ -142,9 +141,6 @@ export function Terminal(props: TerminalProps) {
           reconnect={props.reconnect}
         />
       )}
-      <TerminalAddonsContainer>
-        {refCtrl.current && props.terminalAddons?.(refCtrl.current)}
-      </TerminalAddonsContainer>
       <StyledXterm
         ref={refElement}
         style={{
@@ -156,18 +152,6 @@ export function Terminal(props: TerminalProps) {
     </Flex>
   );
 }
-
-const TerminalAddonsContainer = styled.div`
-  position: absolute;
-  right: 8px;
-  top: 8px;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  min-width: 500px;
-`;
 
 const StyledXterm = styled(Box)`
   height: 100%;

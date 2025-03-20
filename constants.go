@@ -21,9 +21,10 @@ package teleport
 import (
 	"strings"
 	"time"
-
-	"github.com/gravitational/trace"
 )
+
+// WebAPIVersion is a current webapi version
+const WebAPIVersion = "v1"
 
 const (
 	// SSHAuthSock is the environment variable pointing to the
@@ -283,22 +284,13 @@ const (
 	// ComponentAthena represents athena clients.
 	ComponentAthena = "athena"
 
-	// ComponentProxySecureGRPC represents a secure gRPC server running on Proxy (used for Kube).
+	// ComponentProxySecureGRPC represents secure gRPC server running on Proxy (used for Kube).
 	ComponentProxySecureGRPC = "proxy:secure-grpc"
 
-	// ComponentUpdater represents the teleport-update binary.
-	ComponentUpdater = "updater"
+	// ComponentAssist represents Teleport Assist
+	ComponentAssist = "assist"
 
-	// ComponentRolloutController represents the autoupdate_agent_rollout controller.
-	ComponentRolloutController = "rollout-controller"
-
-	// ComponentGit represents git proxy related services.
-	ComponentGit = "git"
-
-	// ComponentForwardingGit represents the SSH proxy that forwards Git commands.
-	ComponentForwardingGit = "git:forward"
-
-	// VerboseLogsEnvVar forces all logs to be verbose (down to DEBUG level)
+	// VerboseLogEnvVar forces all logs to be verbose (down to DEBUG level)
 	VerboseLogsEnvVar = "TELEPORT_DEBUG"
 
 	// IterationsEnvVar sets tests iterations to run
@@ -321,7 +313,7 @@ const (
 	DataDirParameterName = "data_dir"
 
 	// KeepAliveReqType is a SSH request type to keep the connection alive. A client and
-	// a server keep pinging each other with it.
+	// a server keep pining each other with it.
 	KeepAliveReqType = "keepalive@openssh.com"
 
 	// ClusterDetailsReqType is the name of a global request which returns cluster details like
@@ -391,9 +383,6 @@ const (
 	// SSEKMSKey is an optional switch to use an KMS CMK key for S3 SSE.
 	SSEKMSKey = "sse_kms_key"
 
-	// S3UseVirtualStyleAddressing is an optional switch to use use a virtual-hosted–style URI.
-	S3UseVirtualStyleAddressing = "use_s3_virtual_style_addressing"
-
 	// SchemeFile configures local disk-based file storage for audit events
 	SchemeFile = "file"
 
@@ -420,15 +409,17 @@ const (
 	// Syslog is a mode for syslog logging
 	Syslog = "syslog"
 
+	// HumanDateFormat is a human readable date formatting
+	HumanDateFormat = "Jan _2 15:04 UTC"
+
+	// HumanDateFormatMilli is a human readable date formatting with milliseconds
+	HumanDateFormatMilli = "Jan _2 15:04:05.000 UTC"
+
 	// DebugLevel is a debug logging level name
 	DebugLevel = "debug"
 
 	// MinimumEtcdVersion is the minimum version of etcd supported by Teleport
 	MinimumEtcdVersion = "3.3.0"
-
-	// EnvVarAllowNoSecondFactor is used to allow disabling second factor auth
-	// todo(tross): DELETE WHEN ABLE TO
-	EnvVarAllowNoSecondFactor = "TELEPORT_ALLOW_NO_SECOND_FACTOR"
 )
 
 const (
@@ -518,21 +509,11 @@ const (
 	// CertExtensionBotName indicates the name of the Machine ID bot this
 	// certificate was issued to, if any.
 	CertExtensionBotName = "bot-name@goteleport.com"
-	// CertExtensionBotInstanceID indicates the unique identifier of this
-	// Machine ID bot instance, if any. This identifier is persisted through
-	// certificate renewals.
-	CertExtensionBotInstanceID = "bot-instance-id@goteleport.com"
 
 	// CertCriticalOptionSourceAddress is a critical option that defines IP addresses (in CIDR notation)
 	// from which this certificate is accepted for authentication.
 	// See: https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL.certkeys?annotate=HEAD.
 	CertCriticalOptionSourceAddress = "source-address"
-	// CertExtensionGitHubUserID indicates the GitHub user ID identified by the
-	// GitHub connector.
-	CertExtensionGitHubUserID = "github-id@goteleport.com"
-	// CertExtensionGitHubUsername indicates the GitHub username identified by
-	// the GitHub connector.
-	CertExtensionGitHubUsername = "github-login@goteleport.com"
 )
 
 // Note: when adding new providers to this list, consider updating the help message for --provider flag
@@ -652,10 +633,6 @@ const (
 	// TraitInternalJWTVariable is the variable used to store JWT token for
 	// app sessions.
 	TraitInternalJWTVariable = "{{internal.jwt}}"
-
-	// TraitInternalGitHubOrgs is the variable used to store allowed GitHub
-	// organizations for GitHub integrations.
-	TraitInternalGitHubOrgs = "{{internal.github_orgs}}"
 )
 
 // SCP is Secure Copy.
@@ -704,10 +681,6 @@ const (
 	// resources.
 	PresetRequireTrustedDeviceRoleName = "require-trusted-device"
 
-	// PresetTerraformProviderRoleName is a name of a default role that allows the Terraform provider
-	// to configure all its supported Teleport resources.
-	PresetTerraformProviderRoleName = "terraform-provider"
-
 	// SystemAutomaticAccessApprovalRoleName names a preset role that may
 	// automatically approve any Role Access Request
 	SystemAutomaticAccessApprovalRoleName = "@teleport-access-approver"
@@ -726,17 +699,6 @@ const (
 	// access to Okta resources. This will be used by the Okta requester role to
 	// search for Okta resources.
 	SystemOktaAccessRoleName = "okta-access"
-
-	// SystemIdentityCenterAccessRoleName specifies the name of a system role
-	// that grants a user access to AWS Identity Center resources via
-	// Access Requests.
-	SystemIdentityCenterAccessRoleName = "aws-ic-access"
-
-	// PresetWildcardWorkloadIdentityIssuerRoleName is a name of a preset role
-	// that includes the permissions necessary to issue workload identity
-	// credentials using any workload_identity resource. This exists to simplify
-	// Day 0 UX experience with workload identity.
-	PresetWildcardWorkloadIdentityIssuerRoleName = "wildcard-workload-identity-issuer"
 )
 
 var PresetRoles = []string{PresetEditorRoleName, PresetAccessRoleName, PresetAuditorRoleName}
@@ -805,7 +767,7 @@ const (
 	EnvSSHSessionReason = "TELEPORT_SESSION_REASON"
 
 	// EnvSSHSessionInvited is an environment variable listing people invited to a session.
-	EnvSSHSessionInvited = "TELEPORT_SESSION_INVITED_USERS"
+	EnvSSHSessionInvited = "TELEPORT_SESSION_JOIN_MODE"
 
 	// EnvSSHSessionDisplayParticipantRequirements is set to true or false to indicate if participant
 	// requirement information should be printed.
@@ -851,15 +813,9 @@ const (
 	UsageWindowsDesktopOnly = "usage:windows_desktop"
 )
 
-// ErrNodeIsAmbiguous serves as an identifying error string indicating that
-// the proxy subsystem found multiple nodes matching the specified hostname.
-var ErrNodeIsAmbiguous = &trace.NotFoundError{Message: "ambiguous host could match multiple nodes"}
-
 const (
 	// NodeIsAmbiguous serves as an identifying error string indicating that
 	// the proxy subsystem found multiple nodes matching the specified hostname.
-	// TODO(tross) DELETE IN v20.0.0
-	// Deprecated: Prefer using ErrNodeIsAmbiguous
 	NodeIsAmbiguous = "err-node-is-ambiguous"
 
 	// MaxLeases serves as an identifying error string indicating that the
@@ -888,10 +844,13 @@ const (
 	// command execution (exec and shells).
 	ExecSubCommand = "exec"
 
-	// NetworkingSubCommand is the sub-command Teleport uses to re-exec itself
-	// for networking operations. e.g. local/remote port forwarding, agent forwarding,
-	// or x11 forwarding.
-	NetworkingSubCommand = "networking"
+	// LocalForwardSubCommand is the sub-command Teleport uses to re-exec itself
+	// for local port forwarding.
+	LocalForwardSubCommand = "forwardv2"
+
+	// RemoteForwardSubCommand is the sub-command Teleport uses to re-exec itself
+	// for remote port forwarding.
+	RemoteForwardSubCommand = "remoteforward"
 
 	// CheckHomeDirSubCommand is the sub-command Teleport uses to re-exec itself
 	// to check if the user's home directory exists.
@@ -910,10 +869,6 @@ const (
 	// until a domain name stops resolving. Its main use is to ensure no
 	// auth instances are still running the previous major version.
 	WaitSubCommand = "wait"
-
-	// VnetAdminSetupSubCommand is the sub-command tsh vnet uses to perform
-	// a setup as a privileged user.
-	VnetAdminSetupSubCommand = "vnet-admin-setup"
 )
 
 const (

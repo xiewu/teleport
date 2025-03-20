@@ -18,18 +18,17 @@
 
 import React, {
   ReactElement,
-  useCallback,
   useEffect,
   useRef,
   useState,
+  useCallback,
 } from 'react';
-import styled, { css } from 'styled-components';
-
 import { Flex } from 'design';
 import { IconProps } from 'design/Icon/Icon';
+import styled, { css } from 'styled-components';
 import { Attempt } from 'shared/hooks/useAsync';
 
-import { LinearProgress } from 'teleterm/ui/components/LinearProgress';
+import LinearProgress from 'teleterm/ui/components/LinearProgress';
 
 import { AddWindowEventListener } from '../SearchContext';
 
@@ -166,7 +165,7 @@ export const NonInteractiveItem = styled.div`
     background-color: rgba(0, 158, 255, 0.4); // Accent/Link at 40%
   }
 
-  &:not(:last-of-type) {
+  :not(:last-of-type) {
     border-bottom: 1px solid ${props => props.theme.colors.spotBackground[0]};
   }
 
@@ -174,7 +173,7 @@ export const NonInteractiveItem = styled.div`
   color: ${props => props.theme.colors.text.main};
 `;
 
-const InteractiveItem = styled(NonInteractiveItem)<{ active?: boolean }>`
+const InteractiveItem = styled(NonInteractiveItem)`
   cursor: pointer;
 
   &:hover,
@@ -198,20 +197,13 @@ export function IconAndContent(
   props: React.PropsWithChildren<{
     Icon: React.ComponentType<IconProps>;
     iconColor: string;
-    iconOpacity?: number;
   }>
 ) {
   return (
     <Flex alignItems="flex-start" gap={2}>
       {/* lineHeight of the icon needs to match the line height of the first row of props.children */}
       <Flex height="24px">
-        <props.Icon
-          color={props.iconColor}
-          size="medium"
-          style={{
-            opacity: props.iconOpacity,
-          }}
-        />
+        <props.Icon color={props.iconColor} size="medium" />
       </Flex>
       <Flex flexDirection="column" gap={1} minWidth={0} flex="1">
         {props.children}

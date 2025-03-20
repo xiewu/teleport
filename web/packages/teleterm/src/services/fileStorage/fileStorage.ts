@@ -17,9 +17,8 @@
  */
 
 // Both versions are imported because some operations need to be sync.
-import fs from 'node:fs';
 import fsAsync from 'node:fs/promises';
-import path from 'node:path';
+import fs from 'node:fs';
 
 import { debounce } from 'shared/utils/highbar';
 
@@ -44,12 +43,6 @@ export interface FileStorage {
 
   /** Returns the file path used to create the storage. */
   getFilePath(): string;
-
-  /** Returns the file name used to create the storage.
-   *
-   * Added so that ConfigService itself doesn't need to import node:path and can remain universal.
-   */
-  getFileName(): string;
 
   /** Returns the error that could occur while reading and parsing the file. */
   getFileLoadingError(): Error | undefined;
@@ -123,10 +116,6 @@ export function createFileStorage(opts: {
     return opts.filePath;
   }
 
-  function getFileName(): string {
-    return path.basename(opts.filePath);
-  }
-
   function getFileLoadingError(): Error | undefined {
     return error;
   }
@@ -145,7 +134,6 @@ export function createFileStorage(opts: {
     get,
     replace,
     getFilePath,
-    getFileName,
     getFileLoadingError,
   };
 }

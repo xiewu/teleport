@@ -21,15 +21,11 @@ import (
 
 	"github.com/gravitational/trace"
 
-	discoveryconfigv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/discoveryconfig/v1"
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/api/types/compare"
 	"github.com/gravitational/teleport/api/types/header"
 	"github.com/gravitational/teleport/api/types/header/convert/legacy"
 	"github.com/gravitational/teleport/api/utils"
 )
-
-var _ compare.IsEqual[*DiscoveryConfig] = (*DiscoveryConfig)(nil)
 
 // DiscoveryConfig describes extra discovery matchers that are added to DiscoveryServices that share the same Discovery Group.
 type DiscoveryConfig struct {
@@ -62,13 +58,7 @@ type Spec struct {
 }
 
 // Equal checks if the discovery config is equal to another.
-// Deprecated: use IsEqual.
 func (m *DiscoveryConfig) Equal(n *DiscoveryConfig) bool {
-	return m.IsEqual(n)
-}
-
-// IsEqual checks if the discovery config is equal to another.
-func (m *DiscoveryConfig) IsEqual(n *DiscoveryConfig) bool {
 	return deriveTeleportEqualDiscoveryConfig(m, n)
 }
 
@@ -83,8 +73,6 @@ type Status struct {
 	DiscoveredResources uint64 `json:"discovered_resources" yaml:"discovered_resources"`
 	// LastSyncTime is the timestamp when the Discovery Config was last sync.
 	LastSyncTime time.Time `json:"last_sync_time,omitempty" yaml:"last_sync_time,omitempty"`
-	// IntegrationDiscoveredResources maps an integration to a summary of resources that were found using that integration.
-	IntegrationDiscoveredResources map[string]*discoveryconfigv1.IntegrationDiscoveredSummary `json:"integration_discovered_resources,omitempty" yaml:"integration_discovered_resources,omitempty"`
 }
 
 // NewDiscoveryConfig will create a new discovery config.

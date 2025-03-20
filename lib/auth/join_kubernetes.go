@@ -24,18 +24,19 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport/api/types"
-	kubetoken "github.com/gravitational/teleport/lib/kube/token"
+	"github.com/gravitational/teleport/lib/kubernetestoken"
 )
 
 type k8sTokenReviewValidator interface {
-	Validate(ctx context.Context, token, clusterName string) (*kubetoken.ValidationResult, error)
+	Validate(ctx context.Context, token, clusterName string) (*kubernetestoken.ValidationResult, error)
 }
 
-type k8sJWKSValidator func(now time.Time, jwksData []byte, clusterName string, token string) (*kubetoken.ValidationResult, error)
+type k8sJWKSValidator func(now time.Time, jwksData []byte, clusterName string, token string) (*kubernetestoken.ValidationResult, error)
 
-func (a *Server) checkKubernetesJoinRequest(ctx context.Context, req *types.RegisterUsingTokenRequest) (*kubetoken.ValidationResult, error) {
+func (a *Server) checkKubernetesJoinRequest(ctx context.Context, req *types.RegisterUsingTokenRequest) (*kubernetestoken.ValidationResult, error) {
 	if req.IDToken == "" {
 		return nil, trace.BadParameter("IDToken not provided for Kubernetes join request")
 	}
@@ -57,7 +58,7 @@ func (a *Server) checkKubernetesJoinRequest(ctx context.Context, req *types.Regi
 	}
 
 	// Switch to join method subtype token validation.
-	var result *kubetoken.ValidationResult
+	var result *kubernetestoken.ValidationResult
 	switch token.Spec.Kubernetes.Type {
 	case types.KubernetesJoinTypeStaticJWKS:
 		result, err = a.k8sJWKSValidator(
@@ -81,18 +82,18 @@ func (a *Server) checkKubernetesJoinRequest(ctx context.Context, req *types.Regi
 		)
 	}
 
-	a.logger.InfoContext(ctx, "Kubernetes workload trying to join cluster",
-		"validated_identity", result,
-		"token", token.GetName(),
-	)
+	log.WithFields(logrus.Fields{
+		"validated_identity": result,
+		"token":              token.GetName(),
+	}).Info("Kubernetes workload trying to join cluster")
 
 	return result, trace.Wrap(checkKubernetesAllowRules(token, result))
 }
 
-func checkKubernetesAllowRules(pt *types.ProvisionTokenV2, got *kubetoken.ValidationResult) error {
+func checkKubernetesAllowRules(pt *types.ProvisionTokenV2, got *kubernetestoken.ValidationResult) error {
 	// If a single rule passes, accept the token
 	for _, rule := range pt.Spec.Kubernetes.Allow {
-		wantUsername := fmt.Sprintf("%s:%s", kubetoken.ServiceAccountNamePrefix, rule.ServiceAccount)
+		wantUsername := fmt.Sprintf("%s:%s", kubernetestoken.ServiceAccountNamePrefix, rule.ServiceAccount)
 		if wantUsername != got.Username {
 			continue
 		}

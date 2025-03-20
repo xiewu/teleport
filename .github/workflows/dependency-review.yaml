@@ -11,12 +11,11 @@ jobs:
       contents: read
       pull-requests: write
     with:
-      base-ref: ${{ github.event.pull_request.base.sha || 'master' }}
+      base-ref: ${{ github.event.pull_request.base.sha || 'branch/v15' }}
       # 'GHSA-6xf3-5hp7-xqqg' is a false positive. That's an old Teleport Vuln,
       # but because of the replace, the dependency cannot find the correct
       # Teleport version.
-      allow-ghsas: 'GHSA-6xf3-5hp7-xqqg'
-      # IronRDP uses MIT/Apache-2.0 but slashes are not recognized by dependency review action
+      allow-ghsas: 'GHSA-xwh9-gc39-5298,GHSA-6xf3-5hp7-xqqg'
       allow-dependencies-licenses: >-
         pkg:cargo/ironrdp-cliprdr,
         pkg:cargo/ironrdp-core,
@@ -49,10 +48,12 @@ jobs:
         pkg:cargo/icu_provider,
         pkg:cargo/icu_provider_macros,
         pkg:cargo/litemap,
+        pkg:cargo/openssl-probe,
         pkg:cargo/ring,
         pkg:cargo/sspi,
         pkg:cargo/tokio-boring,
         pkg:cargo/tokio-rustls,
+        pkg:cargo/unicode-ident,
         pkg:cargo/writeable,
         pkg:cargo/yoke,
         pkg:cargo/yoke-derive,

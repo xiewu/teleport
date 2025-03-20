@@ -139,6 +139,10 @@ type ProxyConfig struct {
 	// UI provides config options for the web UI
 	UI webclient.UIConfig
 
+	// AssistAPIKey is the OpenAI API key.
+	// TODO: This key will be moved to a plugin once support for plugins is implemented.
+	AssistAPIKey string
+
 	// TrustXForwardedFor enables the service to take client source IPs from
 	// the "X-Forwarded-For" headers for web APIs recevied from layer 7 load
 	// balancers or reverse proxies.
@@ -158,11 +162,6 @@ type ProxyConfig struct {
 	// proxy built-in version server to retrieve target versions. This is part
 	// of the automatic upgrades.
 	AutomaticUpgradesChannels automaticupgrades.Channels
-
-	// QUICProxyPeering will make it so that proxy peering will support inbound
-	// QUIC connections and will use QUIC to connect to peer proxies that
-	// advertise support for it.
-	QUICProxyPeering bool
 }
 
 // WebPublicAddr returns the address for the web endpoint on this proxy that

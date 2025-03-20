@@ -17,5 +17,4 @@
  */
 
 import StyledXterm from './StyledXterm';
-
 export default StyledXterm;

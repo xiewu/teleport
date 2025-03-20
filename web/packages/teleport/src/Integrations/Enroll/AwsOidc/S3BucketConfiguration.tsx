@@ -16,9 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Flex, Text } from 'design';
-import { IconTooltip } from 'design/Tooltip';
+import React from 'react';
+import { Text, Flex } from 'design';
 import FieldInput from 'shared/components/FieldInput';
+import { ToolTipInfo } from 'shared/components/ToolTip';
 
 export function S3BucketConfiguration({
   s3Bucket,
@@ -31,11 +32,11 @@ export function S3BucketConfiguration({
     <>
       <Flex alignItems="center" gap={1}>
         <Text>Amazon S3 Location</Text>
-        <IconTooltip kind="warning">
+        <ToolTipInfo kind="warning">
           Deprecated. Amazon is now validating the IdP certificate against a
           list of root CAs. Storing the OpenID Configuration in S3 is no longer
           required, and should be removed to improve security.
-        </IconTooltip>
+        </ToolTipInfo>
       </Flex>
       <Flex gap={3}>
         <FieldInput

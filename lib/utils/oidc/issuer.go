@@ -35,9 +35,7 @@ type ProxiesGetter interface {
 }
 
 // IssuerForCluster returns the issuer URL using the Cluster state.
-// Path is an optional element to append to the issuer to distinguish a
-// separate CA within the same cluster.
-func IssuerForCluster(ctx context.Context, clt ProxiesGetter, path string) (string, error) {
+func IssuerForCluster(ctx context.Context, clt ProxiesGetter) (string, error) {
 	proxies, err := clt.GetProxies()
 	if err != nil {
 		return "", trace.Wrap(err)
@@ -46,22 +44,18 @@ func IssuerForCluster(ctx context.Context, clt ProxiesGetter, path string) (stri
 	for _, p := range proxies {
 		proxyPublicAddress := p.GetPublicAddr()
 		if proxyPublicAddress != "" {
-			return IssuerFromPublicAddress(proxyPublicAddress, path)
+			return IssuerFromPublicAddress(proxyPublicAddress)
 		}
 	}
 
 	return "", trace.BadParameter("failed to get Proxy Public Address")
 }
 
-// IssuerFromPublicAddress is the address for an OIDC Provider.
-//
+// IssuerFromPublicAddress is the address for the AWS OIDC Provider.
 // It must match exactly what was introduced in AWS IAM console when adding the Identity Provider.
 // PublicProxyAddr from `teleport.yaml/proxy` does not come with the desired format: it misses the protocol and has a port
 // This method adds the `https` protocol and removes the port if it is the default one for https (443)
-//
-// Path is an optional element to append to the issuer to distinguish a
-// separate CA within the same cluster.
-func IssuerFromPublicAddress(addr string, path string) (string, error) {
+func IssuerFromPublicAddress(addr string) (string, error) {
 	// Add protocol if not present.
 	if !strings.HasPrefix(addr, "https://") && !strings.HasPrefix(addr, "http://") {
 		addr = "https://" + addr
@@ -75,10 +69,6 @@ func IssuerFromPublicAddress(addr string, path string) (string, error) {
 	if result.Port() == "443" {
 		// Cut off redundant :443
 		result.Host = result.Hostname()
-	}
-
-	if path != "" {
-		result.Path = path
 	}
 	return result.String(), nil
 }

@@ -20,16 +20,104 @@ package accessrequest
 
 import (
 	"context"
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/api/types/wrappers"
+	"github.com/gravitational/teleport/integrations/access/common"
 	"github.com/gravitational/teleport/integrations/access/common/teleport"
 )
+
+func TestOpsGenieGetMessageRecipients(t *testing.T) {
+	a := App{pluginType: types.PluginTypeOpsgenie, bot: testBot{}}
+	ctx := context.Background()
+	tests := []struct {
+		name               string
+		annotations        map[string][]string
+		expectedRecipients []common.Recipient
+	}{
+		{
+			name:               "no annotation",
+			annotations:        map[string][]string{},
+			expectedRecipients: []common.Recipient{},
+		},
+		{
+			name: "just notify-schedules",
+			annotations: map[string][]string{
+				types.TeleportNamespace + types.ReqAnnotationNotifySchedulesLabel: {"foo", "bar"},
+			},
+			expectedRecipients: []common.Recipient{
+				{
+					Name: "foo",
+					ID:   "foo",
+				},
+				{
+					Name: "bar",
+					ID:   "bar",
+				},
+			},
+		},
+		{
+			name: "just approval-schedules",
+			annotations: map[string][]string{
+				types.TeleportNamespace + types.ReqAnnotationApproveSchedulesLabel: {"foo", "bar"},
+			},
+			expectedRecipients: []common.Recipient{
+				{
+					Name: "foo",
+					ID:   "foo",
+				},
+				{
+					Name: "bar",
+					ID:   "bar",
+				},
+			},
+		},
+		{
+			name: "both notify and approval schedules",
+			annotations: map[string][]string{
+				types.TeleportNamespace + types.ReqAnnotationNotifySchedulesLabel:  {"foo", "bar"},
+				types.TeleportNamespace + types.ReqAnnotationApproveSchedulesLabel: {"baz", "hello"},
+			},
+			expectedRecipients: []common.Recipient{
+				{
+					Name: "foo",
+					ID:   "foo",
+				},
+				{
+					Name: "bar",
+					ID:   "bar",
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &types.AccessRequestV3{
+				Spec: types.AccessRequestSpecV3{
+					SystemAnnotations: wrappers.Traits(tt.annotations),
+				},
+			}
+			recipients := a.getMessageRecipients(ctx, req)
+			require.ElementsMatch(t, tt.expectedRecipients, recipients)
+		})
+	}
+
+}
+
+type testBot struct {
+	MessagingBot
+}
+
+func (testBot) FetchRecipient(ctx context.Context, recipient string) (*common.Recipient, error) {
+	return &common.Recipient{
+		Name: recipient,
+		ID:   recipient,
+	}, nil
+}
 
 type mockTeleportClient struct {
 	mock.Mock
@@ -39,22 +127,6 @@ type mockTeleportClient struct {
 func (m *mockTeleportClient) GetRole(ctx context.Context, name string) (types.Role, error) {
 	args := m.Called(ctx, name)
 	return args.Get(0).(types.Role), args.Error(1)
-}
-
-func (m *mockTeleportClient) SubmitAccessReview(ctx context.Context, review types.AccessReviewSubmission) (types.AccessRequest, error) {
-	review.Review.Created = time.Time{}
-	args := m.Called(ctx, review)
-	return (types.AccessRequest)(nil), args.Error(1)
-}
-
-type mockMessagingBot struct {
-	mock.Mock
-	MessagingBot
-}
-
-func (m *mockMessagingBot) FetchOncallUsers(ctx context.Context, req types.AccessRequest) ([]string, error) {
-	args := m.Called(ctx, req)
-	return args.Get(0).([]string), args.Error(1)
 }
 
 func TestGetLoginsByRole(t *testing.T) {
@@ -99,73 +171,4 @@ func TestGetLoginsByRole(t *testing.T) {
 	}
 	require.Equal(t, expected, loginsByRole)
 	teleportClient.AssertNumberOfCalls(t, "GetRole", 3)
-}
-
-func TestTryApproveRequest(t *testing.T) {
-	teleportClient := &mockTeleportClient{}
-	bot := &mockMessagingBot{}
-	app := App{
-		apiClient:    teleportClient,
-		bot:          bot,
-		teleportUser: "test-access-plugin",
-		pluginName:   "test",
-	}
-	user := "user@example.com"
-	requestID := "request-0"
-
-	// Example with user on-call
-	bot.On("FetchOncallUsers", mock.Anything, &types.AccessRequestV3{
-		Spec: types.AccessRequestSpecV3{
-			User: user,
-			SystemAnnotations: map[string][]string{
-				"example-auto-approvals": {"team-includes-requester"},
-			},
-		},
-	}).Return([]string{user}, (error)(nil))
-
-	// Example with user not on-call
-	bot.On("FetchOncallUsers", mock.Anything, &types.AccessRequestV3{
-		Spec: types.AccessRequestSpecV3{
-			User: user,
-			SystemAnnotations: map[string][]string{
-				"example-auto-approvals": {"team-not-includes-requester"},
-			},
-		},
-	}).Return([]string{"admin@example.com"}, (error)(nil))
-
-	// Successful review
-	teleportClient.On("SubmitAccessReview", mock.Anything, types.AccessReviewSubmission{
-		RequestID: requestID,
-		Review: types.AccessReview{
-			Author:        app.teleportUser,
-			ProposedState: types.RequestState_APPROVED,
-			Reason:        fmt.Sprintf("Access request has been automatically approved by %q plugin because user %q is on-call.", app.pluginName, user),
-		},
-	}).Return((types.AccessRequest)(nil), (error)(nil))
-
-	ctx := context.Background()
-
-	// Test user is on-call
-	require.NoError(t, app.tryApproveRequest(ctx, requestID, &types.AccessRequestV3{
-		Spec: types.AccessRequestSpecV3{
-			User: user,
-			SystemAnnotations: map[string][]string{
-				"example-auto-approvals": {"team-includes-requester"},
-			},
-		},
-	}))
-	bot.AssertNumberOfCalls(t, "FetchOncallUsers", 1)
-	teleportClient.AssertNumberOfCalls(t, "SubmitAccessReview", 1)
-
-	// Test user is not on-call
-	require.NoError(t, app.tryApproveRequest(ctx, requestID, &types.AccessRequestV3{
-		Spec: types.AccessRequestSpecV3{
-			User: user,
-			SystemAnnotations: map[string][]string{
-				"example-auto-approvals": {"team-not-includes-requester"},
-			},
-		},
-	}))
-	bot.AssertNumberOfCalls(t, "FetchOncallUsers", 2)
-	teleportClient.AssertNumberOfCalls(t, "SubmitAccessReview", 1)
 }

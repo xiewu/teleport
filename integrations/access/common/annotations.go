@@ -26,17 +26,17 @@ import (
 	"github.com/gravitational/teleport/api/types"
 )
 
-// GetNamesFromAnnotations reads system annotations from an access request and
-// returns the services/teams to notify/use for approval.
+// GetServiceNamesFromAnnotations reads systems annotations from an access
+// requests and returns the services to notify/use for approval.
 // The list is sorted and duplicates are removed.
-func GetNamesFromAnnotations(req types.AccessRequest, annotationKey string) ([]string, error) {
-	names, ok := req.GetSystemAnnotations()[annotationKey]
+func GetServiceNamesFromAnnotations(req types.AccessRequest, annotationKey string) ([]string, error) {
+	serviceNames, ok := req.GetSystemAnnotations()[annotationKey]
 	if !ok {
 		return nil, trace.NotFound("request annotation %s is missing", annotationKey)
 	}
-	if len(names) == 0 {
+	if len(serviceNames) == 0 {
 		return nil, trace.BadParameter("request annotation %s is present but empty", annotationKey)
 	}
-	slices.Sort(names)
-	return slices.Compact(names), nil
+	slices.Sort(serviceNames)
+	return slices.Compact(serviceNames), nil
 }

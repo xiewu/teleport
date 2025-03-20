@@ -16,11 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 
-import { Box, Flex, Link, Pill, Popover, Text } from 'design';
+import { Box, Flex, Pill, Popover, Link, Text } from 'design';
 import { Info, Warning } from 'design/Icon';
+
 import { useClickOutside } from 'shared/hooks/useClickOutside';
 import { useEscape } from 'shared/hooks/useEscape';
 
@@ -86,6 +87,7 @@ function LabelSelector({ onChange }: LabelSelectorProps) {
               />
             </div>
             <Popover
+              id="simple-popper"
               open={showTooltip}
               anchorOrigin={{
                 vertical: 'bottom',
@@ -207,12 +209,14 @@ const LabelContainer = styled.div`
 `;
 
 const AddLabelContainer = styled.div`
+  background: ${props => props.theme.colors.sunken};
   border-radius: 4px;
   height: 100px;
   padding: 1rem;
 `;
 
 const AddLabelInput = styled.input`
+  background: ${props => props.theme.colors.sunken};
   border-radius: 52px;
   border: 1.5px solid ${({ theme }) => theme.colors.brand};
   color: ${({ theme }) => theme.colors.text.main};

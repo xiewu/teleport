@@ -16,13 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-
-import type { TraitsOption } from 'shared/components/TraitsEditor';
+import React, { useState } from 'react';
 
 import { AllUserTraits } from 'teleport/services/user';
 
 import { UserAddEdit } from './UserAddEdit';
+
+import type { TraitsOption } from './TraitsEditor';
 
 export default {
   title: 'Teleport/Users/UserAddEdit',
@@ -51,6 +51,7 @@ export const Edit = () => {
       setConfiguredTraits={setConfiguredTraits}
     />
   );
+  return <UserAddEdit {...props} attempt={{ status: '' }} />;
 };
 
 export const Processing = () => {

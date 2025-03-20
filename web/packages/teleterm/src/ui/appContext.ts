@@ -18,32 +18,32 @@
 
 import { debounce } from 'shared/utils/highbar';
 
-import { parseDeepLink } from 'teleterm/deepLinks';
-import Logger from 'teleterm/logger';
-import { ConfigService } from 'teleterm/services/config';
-import { TshdClient, VnetClient } from 'teleterm/services/tshd/createClient';
 import {
-  ElectronGlobals,
   MainProcessClient,
+  ElectronGlobals,
   TshdEventContextBridgeService,
 } from 'teleterm/types';
+import Logger from 'teleterm/logger';
 import { ClustersService } from 'teleterm/ui/services/clusters';
-import { ConnectionTrackerService } from 'teleterm/ui/services/connectionTracker';
-import { ConnectMyComputerService } from 'teleterm/ui/services/connectMyComputer';
-import { DeepLinksService } from 'teleterm/ui/services/deepLinks';
-import { FileTransferService } from 'teleterm/ui/services/fileTransferClient';
-import { HeadlessAuthenticationService } from 'teleterm/ui/services/headlessAuthn/headlessAuthnService';
-import { KeyboardShortcutsService } from 'teleterm/ui/services/keyboardShortcuts';
 import { ModalsService } from 'teleterm/ui/services/modals';
-import { NotificationsService } from 'teleterm/ui/services/notifications';
-import { ReloginService } from 'teleterm/ui/services/relogin/reloginService';
-import { ResourcesService } from 'teleterm/ui/services/resources';
-import { StatePersistenceService } from 'teleterm/ui/services/statePersistence';
 import { TerminalsService } from 'teleterm/ui/services/terminals';
-import { TshdNotificationsService } from 'teleterm/ui/services/tshdNotifications/tshdNotificationService';
-import { UsageService } from 'teleterm/ui/services/usage';
+import { ConnectionTrackerService } from 'teleterm/ui/services/connectionTracker';
+import { StatePersistenceService } from 'teleterm/ui/services/statePersistence';
+import { KeyboardShortcutsService } from 'teleterm/ui/services/keyboardShortcuts';
 import { WorkspacesService } from 'teleterm/ui/services/workspacesService/workspacesService';
-import { IAppContext, UnexpectedVnetShutdownListener } from 'teleterm/ui/types';
+import { NotificationsService } from 'teleterm/ui/services/notifications';
+import { FileTransferService } from 'teleterm/ui/services/fileTransferClient';
+import { ReloginService } from 'teleterm/ui/services/relogin/reloginService';
+import { TshdNotificationsService } from 'teleterm/ui/services/tshdNotifications/tshdNotificationService';
+import { HeadlessAuthenticationService } from 'teleterm/ui/services/headlessAuthn/headlessAuthnService';
+import { UsageService } from 'teleterm/ui/services/usage';
+import { ResourcesService } from 'teleterm/ui/services/resources';
+import { ConnectMyComputerService } from 'teleterm/ui/services/connectMyComputer';
+import { ConfigService } from 'teleterm/services/config';
+import { TshdClient } from 'teleterm/services/tshd/createClient';
+import { IAppContext } from 'teleterm/ui/types';
+import { DeepLinksService } from 'teleterm/ui/services/deepLinks';
+import { parseDeepLink } from 'teleterm/deepLinks';
 
 import { CommandLauncher } from './commandLauncher';
 import { createTshdEventsContextBridgeService } from './tshdEvents';
@@ -63,7 +63,6 @@ export default class AppContext implements IAppContext {
   fileTransferService: FileTransferService;
   resourcesService: ResourcesService;
   tshd: TshdClient;
-  vnet: VnetClient;
   /**
    * setupTshdEventContextBridgeService adds a context-bridge-compatible version of a gRPC service
    * that's going to be called every time a client makes a particular RPC to the tshd events
@@ -83,15 +82,11 @@ export default class AppContext implements IAppContext {
   configService: ConfigService;
   connectMyComputerService: ConnectMyComputerService;
   deepLinksService: DeepLinksService;
-  private _unexpectedVnetShutdownListener:
-    | UnexpectedVnetShutdownListener
-    | undefined;
 
   constructor(config: ElectronGlobals) {
     const { tshClient, ptyServiceClient, mainProcessClient } = config;
     this.logger = new Logger('AppContext');
     this.tshd = tshClient;
-    this.vnet = config.vnetClient;
     this.setupTshdEventContextBridgeService =
       config.setupTshdEventContextBridgeService;
     this.mainProcessClient = mainProcessClient;
@@ -176,40 +171,8 @@ export default class AppContext implements IAppContext {
 
     this.subscribeToDeepLinkLaunch();
     this.notifyMainProcessAboutClusterListChanges();
-    void this.clustersService.syncGatewaysAndCatchErrors();
+    this.clustersService.syncGatewaysAndCatchErrors();
     await this.clustersService.syncRootClustersAndCatchErrors();
-    this.workspacesService.restorePersistedState();
-    // The app has been initialized (callbacks are set up, state is restored).
-    // The UI is visible.
-    this.workspacesService.markAsInitialized();
-  }
-
-  /**
-   * addUnexpectedVnetShutdownListener sets the listener and returns a cleanup function which
-   * removes the listener.
-   */
-  addUnexpectedVnetShutdownListener(
-    listener: UnexpectedVnetShutdownListener
-  ): () => void {
-    this._unexpectedVnetShutdownListener = listener;
-
-    return () => {
-      this._unexpectedVnetShutdownListener = undefined;
-    };
-  }
-
-  /**
-   * unexpectedVnetShutdownListener gets called by tshd events service when it gets a report about
-   * said shutdown from tsh daemon.
-   *
-   * The communication between tshd events service and VnetContext is done through a callback on
-   * AppContext. That's because tshd events service lives outside of React but within the same
-   * process (renderer).
-   */
-  // To force callsites to use addUnexpectedVnetShutdownListener instead of setting the property
-  // directly on appContext, we use a getter which exposes a private property.
-  get unexpectedVnetShutdownListener(): UnexpectedVnetShutdownListener {
-    return this._unexpectedVnetShutdownListener;
   }
 
   private subscribeToDeepLinkLaunch() {

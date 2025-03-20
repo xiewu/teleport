@@ -20,13 +20,12 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import styled from 'styled-components';
 
-import Table, { Cell } from 'design/DataTable';
-import { Primary, Secondary } from 'design/Label';
 import { MenuButton, MenuItem } from 'shared/components/MenuAction';
+import Table, { Cell } from 'design/DataTable';
+import { Primary } from 'design/Label';
 
-import { DropdownDivider } from 'teleport/components/Dropdown';
-import cfg from 'teleport/config';
 import { Cluster } from 'teleport/services/clusters';
+import cfg from 'teleport/config';
 
 export default function ClustersList(props: Props) {
   const { clusters = [], pageSize = 50, menuFlags } = props;
@@ -62,9 +61,7 @@ export default function ClustersList(props: Props) {
 function renderRootLabelCell({ clusterId }: Cluster) {
   const isRoot = cfg.proxyCluster === clusterId;
   return (
-    <Cell style={{ width: '40px' }}>
-      {isRoot ? <Primary>ROOT</Primary> : <Secondary>LEAF</Secondary>}
-    </Cell>
+    <Cell style={{ width: '40px' }}>{isRoot && <Primary>ROOT</Primary>}</Cell>
   );
 }
 
@@ -84,12 +81,6 @@ function renderActionCell({ clusterId }: Cluster, flags: MenuFlags) {
       renderMenuItem('Session Recordings', cfg.getRecordingsRoute(clusterId))
     );
   }
-
-  $items.push(<DropdownDivider key="divider" />);
-
-  $items.push(
-    renderMenuItem('Manage Cluster', cfg.getManageClusterRoute(clusterId))
-  );
 
   return (
     <Cell align="right">{$items && <MenuButton children={$items} />}</Cell>

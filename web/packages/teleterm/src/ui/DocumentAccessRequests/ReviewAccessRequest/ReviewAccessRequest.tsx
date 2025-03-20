@@ -18,15 +18,17 @@
 
 import styled from 'styled-components';
 
-import { Alert, Box, Flex, H1, Text } from 'design';
+import { Text, Flex, Box, Alert } from 'design';
 import { ArrowBack } from 'design/Icon';
+import { makeEmptyAttempt } from 'shared/hooks/useAsync';
+
 import {
   RequestDelete,
   RequestView,
 } from 'shared/components/AccessRequests/ReviewRequests';
-import { makeEmptyAttempt } from 'shared/hooks/useAsync';
 
 import { useAssumeAccess } from '../useAssumeAccess';
+
 import { useReviewAccessRequest } from './useReviewAccessRequest';
 
 export function ReviewAccessRequest(props: {
@@ -76,7 +78,7 @@ export function ReviewAccessRequest(props: {
   return (
     <Layout mx="auto" px={5} pt={3} height="100%">
       <Header>
-        <HeaderTitle mb={3}>
+        <HeaderTitle typography="h3" mb={3}>
           <Flex alignItems="center">
             <ArrowBack
               mr={2}
@@ -89,9 +91,7 @@ export function ReviewAccessRequest(props: {
         </HeaderTitle>
       </Header>
       {assumeRoleAttempt.status === 'error' && (
-        <Alert kind="danger" details={assumeRoleAttempt.statusText}>
-          Could not assume the role
-        </Alert>
+        <Alert kind="danger" children={assumeRoleAttempt.statusText} />
       )}
       <RequestView
         user={user?.name}
@@ -121,7 +121,7 @@ const Header = styled(Flex)`
   margin-bottom: 24px;
 `;
 
-const HeaderTitle = styled(H1)`
+const HeaderTitle = styled(Text)`
   white-space: nowrap;
 `;
 

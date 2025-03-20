@@ -9,7 +9,7 @@ on:
       - 'gen/proto/js/**'
       - 'gen/proto/ts/**'
       - 'package.json'
-      - 'pnpm-lock.yaml'
+      - 'yarn.lock'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'tsconfig.json'
@@ -22,7 +22,7 @@ on:
       - 'gen/proto/js/**'
       - 'gen/proto/ts/**'
       - 'package.json'
-      - 'pnpm-lock.yaml'
+      - 'yarn.lock'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'tsconfig.json'
@@ -34,7 +34,7 @@ jobs:
     name: Test UI
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/gravitational/teleport-buildbox:teleport17
+      image: ghcr.io/gravitational/teleport-buildbox:teleport15
       # See https://github.com/gravitational/teleport/blob/2aaa3ec9a129213db8a18083d5b4681f86328d34/web/packages/teleterm/src/agentCleanupDaemon/agentCleanupDaemon.test.ts#L82-L89
       # for the original impetus for adding --init.
       options: --init
@@ -46,13 +46,11 @@ jobs:
         run: |
           node --version
 
-      - name: Install JS dependencies
-        run: |
-          npm install -g corepack@0.31.0
-          pnpm install --frozen-lockfile
+      - name: Install Yarn dependencies
+        run: bash web/packages/build/scripts/yarn-install-frozen-lockfile.sh
 
       - name: Build WASM
-        run: pnpm build-wasm
+        run: yarn build-wasm
 
       - name: Run tests
-        run: pnpm test
+        run: yarn test

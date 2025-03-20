@@ -22,7 +22,6 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
-	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -33,6 +32,7 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/client/proto"
@@ -44,8 +44,8 @@ import (
 	"github.com/gravitational/teleport/api/types/accesslist"
 	"github.com/gravitational/teleport/api/types/header"
 	"github.com/gravitational/teleport/api/utils/sshutils"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib/auth/authclient"
+	"github.com/gravitational/teleport/lib/auth/testauthority"
 	"github.com/gravitational/teleport/lib/backend/memory"
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/services"
@@ -59,10 +59,8 @@ type accessRequestTestPack struct {
 	clusterName string
 	roles       map[string]types.RoleSpecV6
 	users       map[string][]string
-	tlsPrivKey  []byte
-	tlsPubKey   []byte
-	sshPrivKey  []byte
-	sshPubKey   []byte
+	privKey     []byte
+	pubKey      []byte
 }
 
 func newAccessRequestTestPack(ctx context.Context, t *testing.T) *accessRequestTestPack {
@@ -76,7 +74,7 @@ func newAccessRequestTestPack(ctx context.Context, t *testing.T) *accessRequestT
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, tlsServer.Close()) })
 
-	clusterName, err := tlsServer.Auth().GetClusterName(ctx)
+	clusterName, err := tlsServer.Auth().GetClusterName()
 	require.NoError(t, err)
 
 	roles := map[string]types.RoleSpecV6{
@@ -175,16 +173,16 @@ func newAccessRequestTestPack(ctx context.Context, t *testing.T) *accessRequestT
 		require.NoError(t, err)
 	}
 
-	sshPrivKey, sshPubKey, tlsPrivKey, tlsPubKey := newSSHAndTLSKeyPairs(t)
+	privKey, pubKey, err := testauthority.New().GenerateKeyPair()
+	require.NoError(t, err)
+
 	return &accessRequestTestPack{
 		tlsServer:   tlsServer,
 		clusterName: clusterName.GetClusterName(),
 		roles:       roles,
 		users:       users,
-		sshPrivKey:  sshPrivKey,
-		sshPubKey:   sshPubKey,
-		tlsPrivKey:  tlsPrivKey,
-		tlsPubKey:   tlsPubKey,
+		privKey:     privKey,
+		pubKey:      pubKey,
 	}
 }
 
@@ -236,127 +234,6 @@ func waitForAccessRequests(t *testing.T, ctx context.Context, getter services.Ac
 			require.FailNow(t, "timeout waiting for access request condition to pass")
 		}
 	}
-}
-
-// TestAccessRequestResourceRBACLimits verifies the special constraint conditions put on resource-level access
-// request permissions (create/update) to mitigate their power.
-func TestAccessRequestResourceRBACLimits(t *testing.T) {
-	const (
-		staticRoleName  = "static-role"
-		dynamicRoleName = "dynamic-role"
-		userName        = "alice@example.com"
-		otherUserName   = "bob@example.com"
-	)
-
-	t.Parallel()
-
-	clock := clockwork.NewFakeClock()
-
-	authServer, err := NewTestAuthServer(TestAuthServerConfig{
-		Dir:   t.TempDir(),
-		Clock: clock,
-	})
-	require.NoError(t, err)
-	defer authServer.Close()
-
-	tlsServer, err := authServer.NewTestTLSServer()
-	require.NoError(t, err)
-	defer tlsServer.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	staticRole, err := types.NewRole(staticRoleName, types.RoleSpecV6{
-		Allow: types.RoleConditions{
-			Request: &types.AccessRequestConditions{
-				Roles: []string{dynamicRoleName},
-			},
-			Rules: []types.Rule{
-				types.NewRule(types.KindAccessRequest, services.RW()),
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	dynamicRole, err := types.NewRole(dynamicRoleName, types.RoleSpecV6{})
-	require.NoError(t, err)
-
-	_, err = tlsServer.Auth().UpsertRole(ctx, staticRole)
-	require.NoError(t, err)
-
-	_, err = tlsServer.Auth().UpsertRole(ctx, dynamicRole)
-	require.NoError(t, err)
-
-	user, err := types.NewUser(userName)
-	require.NoError(t, err)
-
-	user.SetRoles([]string{staticRoleName})
-	_, err = tlsServer.Auth().UpsertUser(ctx, user)
-	require.NoError(t, err)
-
-	otherUser, err := types.NewUser(otherUserName)
-	require.NoError(t, err)
-
-	otherUser.SetRoles([]string{staticRoleName})
-	_, err = tlsServer.Auth().UpsertUser(ctx, otherUser)
-	require.NoError(t, err)
-
-	clt, err := tlsServer.NewClient(TestUser(userName))
-	require.NoError(t, err)
-	defer clt.Close()
-
-	// try to create a pre-approved request for self
-	req, err := services.NewAccessRequest(userName, dynamicRoleName)
-	require.NoError(t, err)
-
-	req.SetState(types.RequestState_APPROVED)
-	_, err = clt.CreateAccessRequestV2(ctx, req)
-	require.Error(t, err)
-
-	// verify that we got the expected rejection
-	require.Equal(t, "cannot create access request for self in non-pending state", err.Error())
-
-	// verify that creating pre-approved requests for others still works
-	// (note: we'd like to eventually deprecate ability too).
-	req, err = services.NewAccessRequest(otherUserName, dynamicRoleName)
-	require.NoError(t, err)
-
-	req.SetState(types.RequestState_APPROVED)
-
-	_, err = clt.CreateAccessRequestV2(ctx, req)
-	require.NoError(t, err)
-
-	// create a pending request for self
-	req, err = services.NewAccessRequest(userName, dynamicRoleName)
-	require.NoError(t, err)
-
-	req.SetState(types.RequestState_PENDING)
-	req, err = clt.CreateAccessRequestV2(ctx, req)
-	require.NoError(t, err)
-
-	// attempt to self-approve
-	err = clt.SetAccessRequestState(ctx, types.AccessRequestUpdate{
-		RequestID: req.GetName(),
-		State:     types.RequestState_APPROVED,
-	})
-	require.Error(t, err)
-
-	// verify that we got the expected rejection
-	require.Equal(t, "directly updating the state of your own access requests is not permitted", err.Error())
-
-	req, err = services.NewAccessRequest(otherUserName, dynamicRoleName)
-	require.NoError(t, err)
-
-	req.SetState(types.RequestState_PENDING)
-	req, err = clt.CreateAccessRequestV2(ctx, req)
-	require.NoError(t, err)
-
-	// approve other
-	err = clt.SetAccessRequestState(ctx, types.AccessRequestUpdate{
-		RequestID: req.GetName(),
-		State:     types.RequestState_APPROVED,
-	})
-	require.NoError(t, err)
 }
 
 // TestListAccessRequests tests some basic functionality of the ListAccessRequests API, including access-control,
@@ -761,7 +638,7 @@ func testAccessRequestDenyRules(t *testing.T, testPack *accessRequestTestPack) {
 			}
 			user, err := types.NewUser(userName)
 			require.NoError(t, err)
-			user.SetRoles(slices.Collect(maps.Keys(tc.roles)))
+			user.SetRoles(maps.Keys(tc.roles))
 			_, err = testPack.tlsServer.Auth().UpsertUser(ctx, user)
 			require.NoError(t, err)
 
@@ -876,8 +753,7 @@ func testSingleAccessRequests(t *testing.T, testPack *accessRequestTestPack) {
 			// one or more access-requests to the certificate.
 			generateCerts := func(reqIDs ...string) (*proto.Certs, error) {
 				return requesterClient.GenerateUserCerts(ctx, proto.UserCertsRequest{
-					SSHPublicKey:   testPack.sshPubKey,
-					TLSPublicKey:   testPack.tlsPubKey,
+					PublicKey:      testPack.pubKey,
 					Username:       tc.requester,
 					Expires:        time.Now().Add(time.Hour).UTC(),
 					Format:         constants.CertificateFormatStandard,
@@ -959,7 +835,7 @@ func testSingleAccessRequests(t *testing.T, testPack *accessRequestTestPack) {
 				[]string{req.GetName()},
 				requestResourceIDs)
 
-			elevatedCert, err := tls.X509KeyPair(certs.TLS, testPack.tlsPrivKey)
+			elevatedCert, err := tls.X509KeyPair(certs.TLS, testPack.privKey)
 			require.NoError(t, err)
 			elevatedClient := testPack.tlsServer.NewClientWithCert(elevatedCert)
 
@@ -975,10 +851,9 @@ func testSingleAccessRequests(t *testing.T, testPack *accessRequestTestPack) {
 
 			// renew elevated certs
 			newCerts, err := elevatedClient.GenerateUserCerts(ctx, proto.UserCertsRequest{
-				SSHPublicKey: testPack.sshPubKey,
-				TLSPublicKey: testPack.tlsPubKey,
-				Username:     tc.requester,
-				Expires:      time.Now().Add(time.Hour).UTC(),
+				PublicKey: testPack.pubKey,
+				Username:  tc.requester,
+				Expires:   time.Now().Add(time.Hour).UTC(),
 				// no new access requests
 				AccessRequests: nil,
 			})
@@ -1015,10 +890,9 @@ func testSingleAccessRequests(t *testing.T, testPack *accessRequestTestPack) {
 
 			// ensure that identities with requests in the DENIED state can't reissue new certs.
 			_, err = elevatedClient.GenerateUserCerts(ctx, proto.UserCertsRequest{
-				SSHPublicKey: testPack.sshPubKey,
-				TLSPublicKey: testPack.tlsPubKey,
-				Username:     tc.requester,
-				Expires:      time.Now().Add(time.Hour).UTC(),
+				PublicKey: testPack.pubKey,
+				Username:  tc.requester,
+				Expires:   time.Now().Add(time.Hour).UTC(),
 				// no new access requests
 				AccessRequests: nil,
 			})
@@ -1061,15 +935,15 @@ func testBotAccessRequestReview(t *testing.T, testPack *accessRequestTestPack) {
 	require.NoError(t, err)
 	defer botClient.Close()
 	certRes, err := botClient.GenerateUserCerts(ctx, proto.UserCertsRequest{
-		Username:     bot.Status.UserName,
-		TLSPublicKey: testPack.tlsPubKey,
-		Expires:      time.Now().Add(time.Hour),
+		Username:  bot.Status.UserName,
+		PublicKey: testPack.pubKey,
+		Expires:   time.Now().Add(time.Hour),
 
 		RoleRequests:    []string{"admins"},
 		UseRoleRequests: true,
 	})
 	require.NoError(t, err)
-	tlsCert, err := tls.X509KeyPair(certRes.TLS, testPack.tlsPrivKey)
+	tlsCert, err := tls.X509KeyPair(certRes.TLS, testPack.privKey)
 	require.NoError(t, err)
 	impersonatedBotClient := testPack.tlsServer.NewClientWithCert(tlsCert)
 	defer impersonatedBotClient.Close()
@@ -1150,15 +1024,14 @@ func testMultiAccessRequests(t *testing.T, testPack *accessRequestTestPack) {
 	updateClientWithNewAndDroppedRequests := func(newRequests, dropRequests []string) newClientFunc {
 		return func(t *testing.T, clt *authclient.Client, _ *proto.Certs) (*authclient.Client, *proto.Certs) {
 			certs, err := clt.GenerateUserCerts(ctx, proto.UserCertsRequest{
-				SSHPublicKey:       testPack.sshPubKey,
-				TLSPublicKey:       testPack.tlsPubKey,
+				PublicKey:          testPack.pubKey,
 				Username:           username,
 				Expires:            time.Now().Add(time.Hour).UTC(),
 				AccessRequests:     newRequests,
 				DropAccessRequests: dropRequests,
 			})
 			require.NoError(t, err)
-			tlsCert, err := tls.X509KeyPair(certs.TLS, testPack.tlsPrivKey)
+			tlsCert, err := tls.X509KeyPair(certs.TLS, testPack.privKey)
 			require.NoError(t, err)
 			return testPack.tlsServer.NewClientWithCert(tlsCert), certs
 		}
@@ -1173,8 +1046,7 @@ func testMultiAccessRequests(t *testing.T, testPack *accessRequestTestPack) {
 		return func(t *testing.T, clt *authclient.Client, certs *proto.Certs) (*authclient.Client, *proto.Certs) {
 			// assert that this request fails
 			_, err := clt.GenerateUserCerts(ctx, proto.UserCertsRequest{
-				SSHPublicKey:   testPack.sshPubKey,
-				TLSPublicKey:   testPack.tlsPubKey,
+				PublicKey:      testPack.pubKey,
 				Username:       username,
 				Expires:        time.Now().Add(time.Hour).UTC(),
 				AccessRequests: reqs,
@@ -1339,8 +1211,7 @@ func testRoleRefreshWithBogusRequestID(t *testing.T, testPack *accessRequestTest
 	require.NoError(t, err)
 
 	certs, err := clt.GenerateUserCerts(ctx, proto.UserCertsRequest{
-		SSHPublicKey:       testPack.sshPubKey,
-		TLSPublicKey:       testPack.tlsPubKey,
+		PublicKey:          testPack.pubKey,
 		Username:           username,
 		Expires:            time.Now().Add(time.Hour).UTC(),
 		DropAccessRequests: []string{"bogus-request-id"},
@@ -1546,9 +1417,7 @@ func TestUpdateAccessRequestWithAdditionalReviewers(t *testing.T) {
 
 	modules.SetTestModules(t, &modules.TestModules{
 		TestFeatures: modules.Features{
-			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-				entitlements.Identity: {Enabled: true},
-			},
+			IdentityGovernanceSecurity: true,
 		},
 	})
 
@@ -1559,17 +1428,11 @@ func TestUpdateAccessRequestWithAdditionalReviewers(t *testing.T) {
 		return req
 	}
 
-	type testAccessListOwner struct {
-		name string
-		kind string
-	}
-
-	mustAccessListWithMembershipKind := func(name string, owners ...testAccessListOwner) *accesslist.AccessList {
+	mustAccessList := func(name string, owners ...string) *accesslist.AccessList {
 		ownersSpec := make([]accesslist.Owner, len(owners))
 		for i, owner := range owners {
 			ownersSpec[i] = accesslist.Owner{
-				Name:           owner.name,
-				MembershipKind: owner.kind,
+				Name: owner,
 			}
 		}
 		accessList, err := accesslist.NewAccessList(header.Metadata{
@@ -1588,22 +1451,10 @@ func TestUpdateAccessRequestWithAdditionalReviewers(t *testing.T) {
 		return accessList
 	}
 
-	mustAccessList := func(name string, owners ...string) *accesslist.AccessList {
-		ownersStruct := make([]testAccessListOwner, 0, len(owners))
-		for _, owner := range owners {
-			ownersStruct = append(ownersStruct, testAccessListOwner{owner, accesslist.MembershipKindUser})
-		}
-		return mustAccessListWithMembershipKind(name, ownersStruct...)
-	}
-
 	tests := []struct {
 		name              string
 		req               types.AccessRequest
 		accessLists       []*accesslist.AccessList
-		accessListMembers []struct {
-			Header header.Metadata
-			Spec   accesslist.AccessListMemberSpec
-		}
 		promotions        *types.AccessRequestAllowedPromotions
 		expectedReviewers []string
 	}{
@@ -1627,94 +1478,6 @@ func TestUpdateAccessRequestWithAdditionalReviewers(t *testing.T) {
 				},
 			},
 			expectedReviewers: []string{"rev1", "rev2", "owner1", "owner2", "owner3"},
-		},
-		{
-			name: "with ownership through nested list",
-			req:  mustRequest("rev1"),
-			accessLists: []*accesslist.AccessList{
-				mustAccessList("nested1", "owner1"),
-				mustAccessListWithMembershipKind(
-					"nested",
-					testAccessListOwner{"owner1", accesslist.MembershipKindUser},
-					testAccessListOwner{"nested1", accesslist.MembershipKindList},
-				),
-				mustAccessListWithMembershipKind(
-					"root",
-					testAccessListOwner{"owner1", accesslist.MembershipKindUser},
-					testAccessListOwner{"nested", accesslist.MembershipKindList},
-				),
-			},
-			accessListMembers: []struct {
-				Header header.Metadata
-				Spec   accesslist.AccessListMemberSpec
-			}{
-				{
-					Header: header.Metadata{
-						Name: "nested",
-					},
-					Spec: accesslist.AccessListMemberSpec{
-						AccessList:     "root",
-						Name:           "nested",
-						Joined:         clock.Now().UTC(),
-						Expires:        clock.Now().UTC().Add(24 * time.Hour),
-						Reason:         "because",
-						AddedBy:        "owner1",
-						MembershipKind: accesslist.MembershipKindList,
-					},
-				},
-				{
-					Header: header.Metadata{
-						Name: "nested1",
-					},
-					Spec: accesslist.AccessListMemberSpec{
-						AccessList:     "nested",
-						Name:           "nested1",
-						Joined:         clock.Now().UTC(),
-						Expires:        clock.Now().UTC().Add(24 * time.Hour),
-						Reason:         "because",
-						AddedBy:        "owner1",
-						MembershipKind: accesslist.MembershipKindList,
-					},
-				},
-				{
-					Header: header.Metadata{
-						Name: "owner2",
-					},
-					Spec: accesslist.AccessListMemberSpec{
-						AccessList:     "nested",
-						Name:           "owner2",
-						Joined:         clock.Now().UTC(),
-						Expires:        clock.Now().UTC().Add(24 * time.Hour),
-						Reason:         "because",
-						AddedBy:        "owner1",
-						MembershipKind: accesslist.MembershipKindUser,
-					},
-				},
-				{
-					Header: header.Metadata{
-						Name: "owner3",
-					},
-					Spec: accesslist.AccessListMemberSpec{
-						AccessList:     "nested1",
-						Name:           "owner3",
-						Joined:         clock.Now().UTC(),
-						Expires:        clock.Now().UTC().Add(24 * time.Hour),
-						Reason:         "because",
-						AddedBy:        "owner1",
-						MembershipKind: accesslist.MembershipKindUser,
-					},
-				},
-			},
-			promotions: &types.AccessRequestAllowedPromotions{
-				Promotions: []*types.AccessRequestAllowedPromotion{
-					{AccessListName: "root"},
-					{AccessListName: "nested"},
-				},
-			},
-			// owner1 is owner of 'root', should be included
-			// owner2 is member of 'nested', which is owner of 'root', should be included via inheritance
-			// owner3 is member of 'nested1', which is member of 'nested', which is owner of 'root', should be included via two levels of inheritance
-			expectedReviewers: []string{"rev1", "owner1", "owner2", "owner3"},
 		},
 		{
 			name: "no promotions",
@@ -1744,14 +1507,6 @@ func TestUpdateAccessRequestWithAdditionalReviewers(t *testing.T) {
 			for _, accessList := range test.accessLists {
 				_, err = accessLists.UpsertAccessList(ctx, accessList)
 				require.NoError(t, err)
-			}
-			if test.accessListMembers != nil {
-				for _, memberData := range test.accessListMembers {
-					member, err := accesslist.NewAccessListMember(memberData.Header, memberData.Spec)
-					require.NoError(t, err)
-					_, err = accessLists.UpsertAccessListMember(ctx, member)
-					require.NoError(t, err)
-				}
 			}
 
 			req := test.req.Copy()

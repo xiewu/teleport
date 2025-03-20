@@ -75,13 +75,11 @@ func WithClusterCAs(ctx context.Context, getClusterCertPool GetClusterCACertPool
 	}
 }
 
-// WithClientCert is a LocalProxyConfigOpt that sets the client certs used to
-// connect to the remote Teleport Proxy. Note that when paired with middleware
-// that overwrites the cert, like the CertChecker middleware, this cert will
-// not have a chance to be used.
-func WithClientCert(cert tls.Certificate) LocalProxyConfigOpt {
+// WithClientCerts is a LocalProxyConfigOpt that sets the client certs used to
+// connect to the remote Teleport Proxy.
+func WithClientCerts(certs ...tls.Certificate) LocalProxyConfigOpt {
 	return func(config *LocalProxyConfig) error {
-		config.Cert = cert
+		config.Certs = certs
 		return nil
 	}
 }
@@ -128,11 +126,11 @@ func WithMiddleware(middleware LocalProxyMiddleware) LocalProxyConfigOpt {
 	}
 }
 
-// WithCheckCertNeeded is a LocalProxyConfigOpt that enables check certs on
+// WithCheckCertsNeeded is a LocalProxyConfigOpt that enables check certs on
 // demand.
-func WithCheckCertNeeded() LocalProxyConfigOpt {
+func WithCheckCertsNeeded() LocalProxyConfigOpt {
 	return func(config *LocalProxyConfig) error {
-		config.CheckCertNeeded = true
+		config.CheckCertsNeeded = true
 		return nil
 	}
 }
@@ -169,12 +167,4 @@ func mySQLVersionToProto(database types.Database) string {
 
 	// Include MySQL server version
 	return string(common.ProtocolMySQLWithVerPrefix) + versionBase64
-}
-
-// WithOnSetCert provides a callback when lp.SetCert is called.
-func WithOnSetCert(callback func(tls.Certificate)) LocalProxyConfigOpt {
-	return func(config *LocalProxyConfig) error {
-		config.onSetCert = callback
-		return nil
-	}
 }

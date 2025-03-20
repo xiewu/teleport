@@ -16,12 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {
-  createContext,
-  FC,
-  PropsWithChildren,
+import React, {
   useContext,
   useState,
+  FC,
+  createContext,
+  PropsWithChildren,
 } from 'react';
 
 import { FileTransferDialogDirection } from './FileTransferStateless';

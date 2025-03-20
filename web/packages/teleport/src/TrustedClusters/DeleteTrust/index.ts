@@ -17,5 +17,4 @@
  */
 
 import DeleteTrust from './DeleteTrust';
-
 export default DeleteTrust;

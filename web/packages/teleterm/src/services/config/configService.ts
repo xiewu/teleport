@@ -16,17 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import path from 'path';
+
 import { z, ZodIssue } from 'zod';
 import zodToJsonSchema from 'zod-to-json-schema';
 
-import Logger from 'teleterm/logger';
-import { RuntimeSettings } from 'teleterm/mainProcess/types';
 import { FileStorage } from 'teleterm/services/fileStorage';
+import Logger from 'teleterm/logger';
+import { Platform } from 'teleterm/mainProcess/types';
 
 import {
-  AppConfig,
-  AppConfigSchema,
   createAppConfigSchema,
+  AppConfigSchema,
+  AppConfig,
 } from './appConfigSchema';
 
 const logger = new Logger('ConfigService');
@@ -62,19 +64,16 @@ export interface ConfigService {
   getConfigError(): ConfigError | undefined;
 }
 
-// createConfigService must return a client that works both in the browser and in Node.js, as the
-// returned service is used both in the main process and in Storybook to provide a fake
-// implementation of config service.
 export function createConfigService({
   configFile,
   jsonSchemaFile,
-  settings,
+  platform,
 }: {
   configFile: FileStorage;
   jsonSchemaFile: FileStorage;
-  settings: RuntimeSettings;
+  platform: Platform;
 }): ConfigService {
-  const schema = createAppConfigSchema(settings);
+  const schema = createAppConfigSchema(platform);
   updateJsonSchema({ schema, configFile, jsonSchemaFile });
 
   const {
@@ -125,7 +124,7 @@ function updateJsonSchema({
     schema.extend({ $schema: z.string() }),
     { $refStrategy: 'none' }
   );
-  const jsonSchemaFileName = jsonSchemaFile.getFileName();
+  const jsonSchemaFileName = path.basename(jsonSchemaFile.getFilePath());
   const jsonSchemaFileNameInConfig = configFile.get('$schema');
 
   jsonSchemaFile.replace(jsonSchema);

@@ -1,6 +1,6 @@
 /**
  * Teleport
- * Copyright (C) 2024  Gravitational, Inc.
+ * Copyright (C) 2024 Gravitational, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -16,12 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-
-import { Box, ButtonIcon, Flex, LabelInput, Text } from 'design';
+import React, { useState } from 'react';
+import { Flex, Text, ButtonIcon, Box, LabelInput } from 'design';
 import * as Icon from 'design/Icon';
-import { IconTooltip } from 'design/Tooltip';
+
 import Select, { Option } from 'shared/components/Select';
+import { ToolTipInfo } from 'shared/components/ToolTip';
+
 import { AccessRequest } from 'shared/services/accessRequests';
 
 import { getFormattedDurationTxt } from '../../Shared/utils';
@@ -45,6 +46,7 @@ export function AdditionalOptions({
   return (
     <>
       <Flex
+        borderBottom={1}
         mt={1}
         mb={2}
         pb={2}
@@ -55,7 +57,7 @@ export function AdditionalOptions({
           border-color: ${props => props.theme.colors.spotBackground[1]};
         `}
       >
-        <Text mr={2} typography="body3">
+        <Text mr={2} fontSize={1}>
           Additional Options
         </Text>
         <ButtonIcon
@@ -68,13 +70,13 @@ export function AdditionalOptions({
       {expanded && (
         <Box data-testid="reviewers">
           {pendingRequestTtlOptions.length > 0 && (
-            <LabelInput color="text.slightlyMuted" mb={3}>
+            <LabelInput typography="body2" color="text.slightlyMuted" mb={3}>
               <Flex alignItems="center">
                 <Text mr={1}>Request expires if not reviewed in</Text>
-                <IconTooltip>
+                <ToolTipInfo>
                   The request TTL which is the amount of time this request will
                   be in the PENDING state before it expires.
-                </IconTooltip>
+                </ToolTipInfo>
               </Flex>
               <Select
                 options={pendingRequestTtlOptions}
@@ -85,13 +87,13 @@ export function AdditionalOptions({
               />
             </LabelInput>
           )}
-          <LabelInput color="text.slightlyMuted">
+          <LabelInput typography="body2" color="text.slightlyMuted">
             <Flex alignItems="center">
               <Text mr={1}>Access Request Lifetime</Text>
-              <IconTooltip>
+              <ToolTipInfo>
                 The max duration of an access request, starting from its
                 creation, until it expires.
-              </IconTooltip>
+              </ToolTipInfo>
             </Flex>
             <Text>
               {getFormattedDurationTxt({

@@ -41,6 +41,10 @@ import (
 // also provide other functionality, such as automatic address discovery and
 // ssh connectivity.
 //
+// Note: starting with v17, all Credentials must have an Expiry method.
+// For compatibility guarantees, the future interface is optional and called
+// CredentialsWithExpiry.
+//
 // See the examples below for an example of each loader.
 type Credentials interface {
 	// TLSConfig returns TLS configuration used to authenticate the client.
@@ -48,6 +52,14 @@ type Credentials interface {
 	// SSHClientConfig returns SSH configuration used to connect to the
 	// Auth server through a reverse tunnel.
 	SSHClientConfig() (*ssh.ClientConfig, error)
+}
+
+// CredentialsWithExpiry are credentials implementing the Expiry() function.
+// This interface is here to avoid breaking changes in v15 and v16. Starting with
+// v17, Expiry() will be part of the Credentials interface.
+type CredentialsWithExpiry interface {
+	Credentials
+
 	// Expiry returns the Credentials expiry if it's possible to know its expiry.
 	// When expiry can be determined returns true, else returns false.
 	// If the Credentials don't expire, returns the zero time.
@@ -66,6 +78,17 @@ type CredentialsWithDefaultAddrs interface {
 	// explicitly configured with an address to connect to. It may return a
 	// slice of addresses to be tried.
 	DefaultAddrs() ([]string, error)
+}
+
+// Expiry checks if the Credentials has an Expiry function and invokes it.
+// Starting with v17, this is part of the Credentials interface but we must be backward compatible with v16 and below.
+// If the Credentials don't implement Expiry, returns false.
+func Expiry(c Credentials) (time.Time, bool) {
+	credsWithExpiry, ok := c.(CredentialsWithExpiry)
+	if !ok {
+		return time.Time{}, false
+	}
+	return credsWithExpiry.Expiry()
 }
 
 // LoadTLS is used to load Credentials directly from a *tls.Config.
@@ -424,7 +447,7 @@ func configureTLS(c *tls.Config) *tls.Config {
 	// This logic still appears to be necessary to force client to always send
 	// a certificate regardless of the server setting. Otherwise the client may pick
 	// not to send the client certificate by looking at certificate request.
-	if len(tlsConfig.Certificates) > 0 && tlsConfig.GetClientCertificate == nil {
+	if len(tlsConfig.Certificates) > 0 {
 		cert := tlsConfig.Certificates[0]
 		tlsConfig.Certificates = nil
 		tlsConfig.GetClientCertificate = func(_ *tls.CertificateRequestInfo) (*tls.Certificate, error) {
@@ -638,63 +661,4 @@ func (d *DynamicIdentityFileCreds) Expiry() (time.Time, bool) {
 	}
 
 	return x509Cert.NotAfter, true
-}
-
-// KeyPair returns a Credential give a TLS key, certificate and CA certificates PEM-encoded.
-// It behaves live LoadKeyPair except it doesn't read the TLS material from a file.
-// This is useful when key and certs are not on the disk (e.g. environment variables).
-// This should be preferred over manually building a tls.Config and calling LoadTLS
-// as Credentials returned by KeyPair can report their expiry, which allows to warn
-// the user in case of expired certificates.
-func KeyPair(certPEM, keyPEM, caPEM []byte) (Credentials, error) {
-	if len(certPEM) == 0 {
-		return nil, trace.BadParameter("missing certificate PEM data")
-	}
-	if len(keyPEM) == 0 {
-		return nil, trace.BadParameter("missing private key PEM data")
-	}
-	return &staticKeypairCreds{
-		certPEM: certPEM,
-		keyPEM:  keyPEM,
-		caPEM:   caPEM,
-	}, nil
-}
-
-// staticKeypairCreds uses keypair certificates to provide client credentials.
-type staticKeypairCreds struct {
-	certPEM []byte
-	keyPEM  []byte
-	caPEM   []byte
-}
-
-// TLSConfig returns TLS configuration.
-func (c *staticKeypairCreds) TLSConfig() (*tls.Config, error) {
-	cert, err := keys.X509KeyPair(c.certPEM, c.keyPEM)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	pool := x509.NewCertPool()
-	if ok := pool.AppendCertsFromPEM(c.caPEM); !ok {
-		return nil, trace.BadParameter("invalid TLS CA cert PEM")
-	}
-
-	return configureTLS(&tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      pool,
-	}), nil
-}
-
-// SSHClientConfig returns SSH configuration.
-func (c *staticKeypairCreds) SSHClientConfig() (*ssh.ClientConfig, error) {
-	return nil, trace.NotImplemented("no ssh config")
-}
-
-// Expiry returns the credential expiry.
-func (c *staticKeypairCreds) Expiry() (time.Time, bool) {
-	cert, _, err := keys.X509Certificate(c.certPEM)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return cert.NotAfter, true
 }

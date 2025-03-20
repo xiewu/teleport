@@ -19,13 +19,13 @@
 package tbot
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
 
+	"github.com/coreos/go-semver/semver"
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/api/client/proto"
@@ -39,6 +39,14 @@ import (
 	"github.com/gravitational/teleport/lib/tbot/ssh"
 	"github.com/gravitational/teleport/lib/utils"
 )
+
+// sshConfigProxyModeEnv is the environment variable that controls whether or
+// not to use the new proxy command.
+// It supports:
+// - "legacy" (default in v15): use the legacy proxy command
+// - "new" (default in v16): use the new proxy command
+// In v17, it will be removed.
+const sshConfigProxyModeEnv = "TBOT_SSH_CONFIG_PROXY_COMMAND_MODE"
 
 // IdentityOutputService produces credentials which can be used to connect to
 // Teleport's API or SSH.
@@ -57,6 +65,7 @@ type IdentityOutputService struct {
 	// executablePath is called to get the path to the tbot executable.
 	// Usually this is os.Executable
 	executablePath   func() (string, error)
+	getEnv           func(key string) string
 	alpnUpgradeCache *alpnProxyConnUpgradeRequiredCache
 }
 
@@ -73,10 +82,9 @@ func (s *IdentityOutputService) Run(ctx context.Context) error {
 	defer unsubscribe()
 
 	err := runOnInterval(ctx, runOnIntervalConfig{
-		service:    s.String(),
 		name:       "output-renewal",
 		f:          s.generate,
-		interval:   cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
+		interval:   s.botCfg.RenewalInterval,
 		retryLimit: renewalRetryLimit,
 		log:        s.log,
 		reloadCh:   reloadCh,
@@ -113,16 +121,13 @@ func (s *IdentityOutputService) generate(ctx context.Context) error {
 		}
 	}
 
-	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
 	id, err := generateIdentity(
 		ctx,
 		s.botAuthClient,
 		s.getBotIdentity(),
 		roles,
-		effectiveLifetime.TTL,
-		func(req *proto.UserCertsRequest) {
-			req.ReissuableRoleImpersonation = s.cfg.AllowReissue
-		},
+		s.botCfg.CertificateTTL,
+		nil,
 	)
 	if err != nil {
 		return trace.Wrap(err, "generating identity")
@@ -142,18 +147,15 @@ func (s *IdentityOutputService) generate(ctx context.Context) error {
 			s.botAuthClient,
 			id,
 			roles,
-			cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+			s.botCfg.CertificateTTL,
 			func(req *proto.UserCertsRequest) {
 				req.RouteToCluster = s.cfg.Cluster
-				req.ReissuableRoleImpersonation = s.cfg.AllowReissue
 			},
 		)
 		if err != nil {
 			return trace.Wrap(err)
 		}
 	}
-
-	warnOnEarlyExpiration(ctx, s.log.With("output", s), id, effectiveLifetime)
 
 	hostCAs, err := s.botAuthClient.GetCertAuthorities(ctx, types.HostCA, false)
 	if err != nil {
@@ -189,6 +191,8 @@ func (s *IdentityOutputService) generate(ctx context.Context) error {
 			s.cfg.Destination,
 			s.botAuthClient,
 			s.executablePath,
+			openssh.GetSystemSSHVersion,
+			s.getEnv,
 			s.alpnUpgradeCache,
 			s.botCfg,
 		); err != nil {
@@ -210,7 +214,7 @@ func (s *IdentityOutputService) render(
 	)
 	defer span.End()
 
-	keyRing, err := NewClientKeyRing(id, hostCAs)
+	key, err := NewClientKey(id, hostCAs)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -219,7 +223,7 @@ func (s *IdentityOutputService) render(
 		return trace.Wrap(err)
 	}
 
-	if err := writeIdentityFile(ctx, s.log, keyRing, s.cfg.Destination); err != nil {
+	if err := writeIdentityFile(ctx, s.log, key, s.cfg.Destination); err != nil {
 		return trace.Wrap(err, "writing identity file")
 	}
 	if err := identity.SaveIdentity(
@@ -251,6 +255,8 @@ func renderSSHConfig(
 	dest bot.Destination,
 	certAuthGetter certAuthGetter,
 	getExecutablePath func() (string, error),
+	getOpenSSHVersion func() (*semver.Version, error),
+	getEnv func(key string) string,
 	alpnTester alpnTester,
 	botCfg *config.BotConfig,
 ) error {
@@ -260,10 +266,11 @@ func renderSSHConfig(
 	)
 	defer span.End()
 
-	proxyAddr, err := proxyPing.proxySSHAddr()
+	proxyAddr, err := proxyPing.proxyWebAddr()
 	if err != nil {
-		return trace.Wrap(err, "determining proxy ssh addr")
+		return trace.Wrap(err, "determining proxy web addr")
 	}
+
 	proxyHost, proxyPort, err := utils.SplitHostPort(proxyAddr)
 	if err != nil {
 		return trace.BadParameter(
@@ -316,53 +323,26 @@ func renderSSHConfig(
 	identityFilePath := filepath.Join(absDestPath, identity.PrivateKeyKey)
 	certificateFilePath := filepath.Join(absDestPath, identity.SSHCertKey)
 
-	// Test if ALPN upgrade is required, this will only be necessary if we
-	// are using TLS routing.
-	connUpgradeRequired := false
-	if proxyPing.Proxy.TLSRoutingEnabled {
-		connUpgradeRequired, err = alpnTester.isUpgradeRequired(
-			ctx, proxyAddr, botCfg.Insecure,
-		)
-		if err != nil {
-			return trace.Wrap(err, "determining if ALPN upgrade is required")
+	sshConf := openssh.NewSSHConfig(getOpenSSHVersion, nil)
+
+	if getEnv(sshConfigProxyModeEnv) == "new" {
+		// Test if ALPN upgrade is required, this will only be necessary if we
+		// are using TLS routing.
+		connUpgradeRequired := false
+		if proxyPing.Proxy.TLSRoutingEnabled {
+			connUpgradeRequired, err = alpnTester.isUpgradeRequired(
+				ctx, proxyAddr, botCfg.Insecure,
+			)
+			if err != nil {
+				return trace.Wrap(err, "determining if ALPN upgrade is required")
+			}
 		}
-	}
 
-	// Generate SSH config
-	if err := openssh.WriteSSHConfig(&sshConfigBuilder, &openssh.SSHConfigParameters{
-		AppName:             openssh.TbotApp,
-		ClusterNames:        clusterNames,
-		KnownHostsPath:      knownHostsPath,
-		IdentityFilePath:    identityFilePath,
-		CertificateFilePath: certificateFilePath,
-		ProxyHost:           proxyHost,
-		ProxyPort:           proxyPort,
-		ExecutablePath:      executablePath,
-		DestinationDir:      absDestPath,
-
-		PureTBotProxyCommand: true,
-		Insecure:             botCfg.Insecure,
-		FIPS:                 botCfg.FIPS,
-		TLSRouting:           proxyPing.Proxy.TLSRoutingEnabled,
-		ConnectionUpgrade:    connUpgradeRequired,
-		// Session resumption is enabled by default, this can be
-		// configurable at a later date if we discover reasons for this to
-		// be disabled.
-		Resume: true,
-	}); err != nil {
-		return trace.Wrap(err)
-	}
-
-	// Generate the per cluster files
-	for _, clusterName := range clusterNames {
-		sshConfigName := fmt.Sprintf("%s.%s", clusterName, ssh.ConfigName)
-		knownHostsName := fmt.Sprintf("%s.%s", clusterName, ssh.KnownHostsName)
-		knownHostsPath := filepath.Join(absDestPath, knownHostsName)
-
-		sb := &strings.Builder{}
-		if err := openssh.WriteClusterSSHConfig(sb, &openssh.ClusterSSHConfigParameters{
+		// Generate the primary SSH config which has the cluster-specific
+		// host blocks.
+		if err := sshConf.GetSSHConfig(&sshConfigBuilder, &openssh.SSHConfigParameters{
 			AppName:             openssh.TbotApp,
-			ClusterName:         clusterName,
+			ClusterNames:        clusterNames,
 			KnownHostsPath:      knownHostsPath,
 			IdentityFilePath:    identityFilePath,
 			CertificateFilePath: certificateFilePath,
@@ -371,10 +351,12 @@ func renderSSHConfig(
 			ExecutablePath:      executablePath,
 			DestinationDir:      absDestPath,
 
-			Insecure:          botCfg.Insecure,
-			FIPS:              botCfg.FIPS,
-			TLSRouting:        proxyPing.Proxy.TLSRoutingEnabled,
-			ConnectionUpgrade: connUpgradeRequired,
+			PureTBotProxyCommand: true,
+			Insecure:             botCfg.Insecure,
+			FIPS:                 botCfg.FIPS,
+			TLSRouting:           proxyPing.Proxy.TLSRoutingEnabled,
+			ConnectionUpgrade:    connUpgradeRequired,
+
 			// Session resumption is enabled by default, this can be
 			// configurable at a later date if we discover reasons for this to
 			// be disabled.
@@ -382,20 +364,68 @@ func renderSSHConfig(
 		}); err != nil {
 			return trace.Wrap(err)
 		}
-		if err := destDirectory.Write(ctx, sshConfigName, []byte(sb.String())); err != nil {
-			return trace.Wrap(err)
-		}
 
-		knownHosts, ok := clusterKnownHosts[clusterName]
-		if !ok {
-			log.WarnContext(
-				ctx,
-				"No generated known_hosts for cluster, will skip",
-				"cluster", clusterName,
-			)
-			continue
+		// Generate the per cluster files
+		for _, clusterName := range clusterNames {
+			sshConfigName := fmt.Sprintf("%s.%s", clusterName, ssh.ConfigName)
+			knownHostsName := fmt.Sprintf("%s.%s", clusterName, ssh.KnownHostsName)
+			knownHostsPath := filepath.Join(absDestPath, knownHostsName)
+
+			sb := &strings.Builder{}
+			if err := sshConf.GetClusterSSHConfig(sb, &openssh.ClusterSSHConfigParameters{
+				AppName:             openssh.TbotApp,
+				ClusterName:         clusterName,
+				KnownHostsPath:      knownHostsPath,
+				IdentityFilePath:    identityFilePath,
+				CertificateFilePath: certificateFilePath,
+				ProxyHost:           proxyHost,
+				ProxyPort:           proxyPort,
+				ExecutablePath:      executablePath,
+				DestinationDir:      absDestPath,
+
+				Insecure:          botCfg.Insecure,
+				FIPS:              botCfg.FIPS,
+				TLSRouting:        proxyPing.Proxy.TLSRoutingEnabled,
+				ConnectionUpgrade: connUpgradeRequired,
+				// Session resumption is enabled by default, this can be
+				// configurable at a later date if we discover reasons for this to
+				// be disabled.
+				Resume: true,
+			}); err != nil {
+				return trace.Wrap(err)
+			}
+			if err := destDirectory.Write(ctx, sshConfigName, []byte(sb.String())); err != nil {
+				return trace.Wrap(err)
+			}
+
+			knownHosts, ok := clusterKnownHosts[clusterName]
+			if !ok {
+				log.WarnContext(
+					ctx,
+					"No generated known_hosts for cluster, will skip",
+					"cluster", clusterName,
+				)
+				continue
+			}
+			if err := destDirectory.Write(ctx, knownHostsName, []byte(knownHosts)); err != nil {
+				return trace.Wrap(err)
+			}
 		}
-		if err := destDirectory.Write(ctx, knownHostsName, []byte(knownHosts)); err != nil {
+	} else {
+		// Deprecated: this block will be removed in v17. It exists so users can
+		// revert to the old behavior if necessary.
+		// TODO(strideynet) DELETE IN 17.0.0
+		if err := sshConf.GetSSHConfig(&sshConfigBuilder, &openssh.SSHConfigParameters{
+			AppName:             openssh.TbotApp,
+			ClusterNames:        clusterNames,
+			KnownHostsPath:      knownHostsPath,
+			IdentityFilePath:    identityFilePath,
+			CertificateFilePath: certificateFilePath,
+			ProxyHost:           proxyHost,
+			ProxyPort:           proxyPort,
+			ExecutablePath:      executablePath,
+			DestinationDir:      absDestPath,
+		}); err != nil {
 			return trace.Wrap(err)
 		}
 	}
@@ -412,7 +442,7 @@ func getClusterNames(
 ) ([]string, error) {
 	allClusterNames := []string{connectedClusterName}
 
-	leafClusters, err := client.GetRemoteClusters(ctx)
+	leafClusters, err := client.GetRemoteClusters()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

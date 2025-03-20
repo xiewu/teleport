@@ -81,7 +81,7 @@ func TestUnifiedResourcesList(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	samlSP, err := types.NewSAMLIdPServiceProvider(types.Metadata{
+	idpProvider, err := types.NewSAMLIdPServiceProvider(types.Metadata{
 		Name: "testApp",
 	}, types.SAMLIdPServiceProviderSpecV1{
 		ACSURL:   "https://test.example",
@@ -94,7 +94,21 @@ func TestUnifiedResourcesList(t *testing.T) {
 		{Resource: &proto.PaginatedResource_DatabaseServer{DatabaseServer: database}},
 		{Resource: &proto.PaginatedResource_KubernetesServer{KubernetesServer: kube}},
 		{Resource: &proto.PaginatedResource_AppServer{AppServer: app}},
-		{Resource: &proto.PaginatedResource_SAMLIdPServiceProvider{SAMLIdPServiceProvider: samlSP.(*types.SAMLIdPServiceProviderV1)}},
+		// just an app server like above, but wrapped in AppServerOrSAMLIdPServiceProvider
+		{Resource: &proto.PaginatedResource_AppServerOrSAMLIdPServiceProvider{
+			AppServerOrSAMLIdPServiceProvider: &types.AppServerOrSAMLIdPServiceProviderV1{
+				Resource: &types.AppServerOrSAMLIdPServiceProviderV1_AppServer{
+					AppServer: app,
+				},
+			}},
+		},
+		{Resource: &proto.PaginatedResource_AppServerOrSAMLIdPServiceProvider{
+			AppServerOrSAMLIdPServiceProvider: &types.AppServerOrSAMLIdPServiceProviderV1{
+				Resource: &types.AppServerOrSAMLIdPServiceProviderV1_SAMLIdPServiceProvider{
+					SAMLIdPServiceProvider: idpProvider.(*types.SAMLIdPServiceProviderV1),
+				},
+			}},
+		},
 	}
 	mockedNextKey := "nextKey"
 
@@ -129,10 +143,18 @@ func TestUnifiedResourcesList(t *testing.T) {
 		App:      app.GetApp(),
 	}}, response.Resources[3])
 
-	require.Equal(t, UnifiedResource{SAMLIdPServiceProvider: &clusters.SAMLIdPServiceProvider{
-		URI:      uri.NewClusterURI(cluster.ProfileName).AppendApp(samlSP.GetName()),
-		Provider: samlSP,
+	require.Equal(t, UnifiedResource{App: &clusters.App{
+		URI: uri.NewClusterURI(cluster.ProfileName).AppendApp(app.GetApp().GetName()),
+		// FQDN looks weird because we cannot mock cluster.status.ProxyHost in tests.
+		FQDN:     "testApp.",
+		AWSRoles: aws.Roles{},
+		App:      app.GetApp(),
 	}}, response.Resources[4])
+
+	require.Equal(t, UnifiedResource{SAMLIdPServiceProvider: &clusters.SAMLIdPServiceProvider{
+		URI:      uri.NewClusterURI(cluster.ProfileName).AppendApp(idpProvider.GetName()),
+		Provider: idpProvider,
+	}}, response.Resources[5])
 
 	require.Equal(t, mockedNextKey, response.NextKey)
 }

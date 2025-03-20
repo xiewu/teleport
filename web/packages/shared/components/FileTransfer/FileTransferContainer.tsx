@@ -19,5 +19,9 @@
 import styled from 'styled-components';
 
 export const FileTransferContainer = styled.div`
-  width: 100%;
+  position: absolute;
+  right: 8px;
+  width: 500px;
+  top: 8px;
+  z-index: 10;
 `;

@@ -21,10 +21,9 @@ package sftp
 import (
 	"bytes"
 	"context"
-	cryptorand "crypto/rand"
 	"fmt"
 	"io"
-	mathrand "math/rand/v2"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
@@ -320,7 +320,6 @@ func TestUpload(t *testing.T) {
 			},
 			errCheck: func(t require.TestingT, err error, i ...interface{}) {
 				require.EqualError(t, err, fmt.Sprintf(`"%s/src" is a directory, but the recursive option was not passed`, i[0]))
-				require.ErrorAs(t, err, new(*NonRecursiveDirectoryTransferError))
 			},
 		},
 		{
@@ -722,10 +721,9 @@ func createFile(t *testing.T, path string) {
 	}()
 
 	// populate file with random amount of random contents
-	buf := make([]byte, mathrand.N(fileMaxSize)+1)
-	_, err = cryptorand.Read(buf)
-	require.NoError(t, err)
-	_, err = f.Write(buf)
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+	lr := io.LimitReader(r, r.Int63n(fileMaxSize)+1)
+	_, err = io.Copy(f, lr)
 	require.NoError(t, err)
 }
 
@@ -773,7 +771,7 @@ func checkTransfer(t *testing.T, preserveAttrs bool, dst string, srcs ...string)
 			dstPath := filepath.Join(dst, relPath)
 			dstInfo, err := os.Stat(dstPath)
 			if err != nil {
-				return fmt.Errorf("error getting dst file info: %w", err)
+				return fmt.Errorf("error getting dst file info: %v", err)
 			}
 			require.Equal(t, info.IsDir(), dstInfo.IsDir(), "expected %q IsDir=%t, got %t", dstPath, info.IsDir(), dstInfo.IsDir())
 

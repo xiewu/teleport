@@ -84,12 +84,12 @@ type UserACL struct {
 	Plugins ResourceAccess `json:"plugins"`
 	// Integrations defines whether the user has access to manage integrations.
 	Integrations ResourceAccess `json:"integrations"`
-	// UserTasks defines whether the user has access to manage UserTasks.
-	UserTasks ResourceAccess `json:"userTasks"`
 	// DeviceTrust defines access to device trust.
 	DeviceTrust ResourceAccess `json:"deviceTrust"`
 	// Locks defines access to locking resources.
 	Locks ResourceAccess `json:"lock"`
+	// Assist defines access to assist feature.
+	Assist ResourceAccess `json:"assist"`
 	// SAMLIdpServiceProvider defines access to `saml_idp_service_provider` objects.
 	SAMLIdpServiceProvider ResourceAccess `json:"samlIdpServiceProvider"`
 	// AccessList defines access to access list management.
@@ -106,22 +106,12 @@ type UserACL struct {
 	AccessGraph ResourceAccess `json:"accessGraph"`
 	// Bots defines access to manage Bots.
 	Bots ResourceAccess `json:"bots"`
-	// BotInstances defines access to manage bot instances
-	BotInstances ResourceAccess `json:"botInstances"`
 	// AccessMonitoringRule defines access to manage access monitoring rule resources.
 	AccessMonitoringRule ResourceAccess `json:"accessMonitoringRule"`
 	// CrownJewel defines access to manage CrownJewel resources.
 	CrownJewel ResourceAccess `json:"crownJewel"`
 	// AccessGraphSettings defines access to manage access graph settings.
 	AccessGraphSettings ResourceAccess `json:"accessGraphSettings"`
-	// ReviewRequests defines the ability to review requests
-	ReviewRequests bool `json:"reviewRequests"`
-	// Contact defines the ability to manage contacts
-	Contact ResourceAccess `json:"contact"`
-	// FileTransferAccess defines the ability to perform remote file operations via SCP or SFTP
-	FileTransferAccess bool `json:"fileTransferAccess"`
-	// GitServers defines access to Git servers.
-	GitServers ResourceAccess `json:"gitServers"`
 }
 
 func hasAccess(roleSet RoleSet, ctx *Context, kind string, verbs ...string) bool {
@@ -166,7 +156,6 @@ func NewUserACL(user types.User, userRoles RoleSet, features proto.Features, des
 	desktopAccess := newAccess(userRoles, ctx, types.KindWindowsDesktop)
 	cnDiagnosticAccess := newAccess(userRoles, ctx, types.KindConnectionDiagnostic)
 	samlIdpServiceProviderAccess := newAccess(userRoles, ctx, types.KindSAMLIdPServiceProvider)
-	gitServersAccess := newAccess(userRoles, ctx, types.KindGitServer)
 
 	// active sessions are a special case - if a user's role set has any join_sessions
 	// policies then the ACL must permit showing active sessions
@@ -176,14 +165,17 @@ func NewUserACL(user types.User, userRoles RoleSet, features proto.Features, des
 		activeSessionAccess.Read = true
 	}
 
-	// The billing dashboards are available in: cloud clusters &
-	// usage-based self-hosted non-stripe dashboards.
+	var assistAccess ResourceAccess
+	if features.Assist {
+		assistAccess = newAccess(userRoles, ctx, types.KindAssistant)
+	}
+
+	// The billing dashboards are available in cloud clusters or for
+	// self-hosted dashboards for usage-based subscriptions.
 	var billingAccess ResourceAccess
 	isDashboard := IsDashboard(features)
-	isUsageBased := features.IsUsageBased
-	isStripeManaged := features.IsStripeManaged
-
-	if features.Cloud || (isDashboard && isUsageBased && !isStripeManaged) {
+	isUsageBasedEnterprise := features.GetProductType() == proto.ProductType_PRODUCT_TYPE_EUB
+	if features.Cloud || (isDashboard && isUsageBasedEnterprise) {
 		billingAccess = newAccess(userRoles, ctx, types.KindBilling)
 	}
 
@@ -211,11 +203,7 @@ func NewUserACL(user types.User, userRoles RoleSet, features proto.Features, des
 	accessListAccess := newAccess(userRoles, ctx, types.KindAccessList)
 	externalAuditStorage := newAccess(userRoles, ctx, types.KindExternalAuditStorage)
 	bots := newAccess(userRoles, ctx, types.KindBot)
-	botInstances := newAccess(userRoles, ctx, types.KindBotInstance)
 	crownJewelAccess := newAccess(userRoles, ctx, types.KindCrownJewel)
-	userTasksAccess := newAccess(userRoles, ctx, types.KindUserTask)
-	reviewRequests := userRoles.MaybeCanReviewRequests()
-	fileTransferAccess := userRoles.CanCopyFiles()
 
 	var auditQuery ResourceAccess
 	var securityReports ResourceAccess
@@ -224,14 +212,11 @@ func NewUserACL(user types.User, userRoles RoleSet, features proto.Features, des
 		securityReports = newAccess(userRoles, ctx, types.KindSecurityReport)
 	}
 
-	contact := newAccess(userRoles, ctx, types.KindContact)
-
 	return UserACL{
 		AccessRequests:          requestAccess,
 		AppServers:              appServerAccess,
 		DBServers:               dbServerAccess,
 		DB:                      dbAccess,
-		ReviewRequests:          reviewRequests,
 		KubeServers:             kubeServerAccess,
 		Desktops:                desktopAccess,
 		AuthConnectors:          authConnectors,
@@ -252,10 +237,10 @@ func NewUserACL(user types.User, userRoles RoleSet, features proto.Features, des
 		License:                 license,
 		Plugins:                 pluginsAccess,
 		Integrations:            integrationsAccess,
-		UserTasks:               userTasksAccess,
 		DiscoveryConfig:         discoveryConfigsAccess,
 		DeviceTrust:             deviceTrust,
 		Locks:                   lockAccess,
+		Assist:                  assistAccess,
 		SAMLIdpServiceProvider:  samlIdpServiceProviderAccess,
 		AccessList:              accessListAccess,
 		AuditQuery:              auditQuery,
@@ -263,12 +248,8 @@ func NewUserACL(user types.User, userRoles RoleSet, features proto.Features, des
 		ExternalAuditStorage:    externalAuditStorage,
 		AccessGraph:             accessGraphAccess,
 		Bots:                    bots,
-		BotInstances:            botInstances,
 		AccessMonitoringRule:    accessMonitoringRules,
 		CrownJewel:              crownJewelAccess,
 		AccessGraphSettings:     accessGraphSettings,
-		Contact:                 contact,
-		FileTransferAccess:      fileTransferAccess,
-		GitServers:              gitServersAccess,
 	}
 }

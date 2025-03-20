@@ -20,25 +20,25 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 
-import { app, dialog, globalShortcut, nativeTheme, shell } from 'electron';
+import { app, dialog, globalShortcut, shell, nativeTheme } from 'electron';
 
 import { CUSTOM_PROTOCOL } from 'shared/deepLinks';
 
-import { parseDeepLink } from 'teleterm/deepLinks';
-import Logger from 'teleterm/logger';
 import MainProcess from 'teleterm/mainProcess';
-import { enableWebHandlersProtection } from 'teleterm/mainProcess/protocolHandler';
-import { manageRootClusterProxyHostAllowList } from 'teleterm/mainProcess/rootClusterProxyHostAllowList';
 import { getRuntimeSettings } from 'teleterm/mainProcess/runtimeSettings';
-import { WindowsManager } from 'teleterm/mainProcess/windowsManager';
+import { enableWebHandlersProtection } from 'teleterm/mainProcess/protocolHandler';
+import { LoggerColor, createFileLoggerService } from 'teleterm/services/logger';
+import Logger from 'teleterm/logger';
+import * as types from 'teleterm/types';
 import {
   createConfigService,
   runConfigFileMigration,
 } from 'teleterm/services/config';
 import { createFileStorage } from 'teleterm/services/fileStorage';
-import { createFileLoggerService, LoggerColor } from 'teleterm/services/logger';
-import * as types from 'teleterm/types';
+import { WindowsManager } from 'teleterm/mainProcess/windowsManager';
+import { parseDeepLink } from 'teleterm/deepLinks';
 import { assertUnreachable } from 'teleterm/ui/utils';
+import { manageRootClusterProxyHostAllowList } from 'teleterm/mainProcess/rootClusterProxyHostAllowList';
 
 if (!app.isPackaged) {
   // Sets app name and data directories to Electron.
@@ -60,10 +60,10 @@ if (app.requestSingleInstanceLock()) {
   app.exit(1);
 }
 
-async function initializeApp(): Promise<void> {
+function initializeApp(): void {
   updateSessionDataPath();
   let devRelaunchScheduled = false;
-  const settings = await getRuntimeSettings();
+  const settings = getRuntimeSettings();
   const logger = initMainLogger(settings);
   logger.info(`Starting ${app.getName()} version ${app.getVersion()}`);
   const {
@@ -76,7 +76,7 @@ async function initializeApp(): Promise<void> {
   const configService = createConfigService({
     configFile: configFileStorage,
     jsonSchemaFile: configJsonSchemaFileStorage,
-    settings,
+    platform: settings.platform,
   });
 
   nativeTheme.themeSource = configService.get('theme').value;
@@ -150,6 +150,9 @@ async function initializeApp(): Promise<void> {
   // Since setUpDeepLinks adds another listener for second-instance, it's important to call it after
   // the listener which calls windowsManager.focusWindow. This way the focus will be brought to the
   // window before processing the listener for deep links.
+  //
+  // The setup must be done synchronously when starting the app, otherwise the listeners won't get
+  // triggered on macOS if the app is not already running when the user opens a deep link.
   setUpDeepLinks(logger, windowsManager, settings);
 
   const rootClusterProxyHostAllowList = new Set<string>();
@@ -398,8 +401,8 @@ function launchDeepLink(
         reason = `unknown protocol of the deep link ("${result.protocol}")`;
         break;
       }
-      case 'unsupported-url': {
-        reason = 'unsupported URL received';
+      case 'unsupported-uri': {
+        reason = 'unsupported URI received';
         break;
       }
       case 'malformed-url': {

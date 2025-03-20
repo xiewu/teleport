@@ -16,14 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { createMemoryHistory } from 'history';
+import React from 'react';
 import { Router } from 'react-router';
+import { createMemoryHistory } from 'history';
 
 import * as teleport from 'teleport';
-import { getOSSFeatures } from 'teleport/features';
+
 import { FeaturesContextProvider } from 'teleport/FeaturesContext';
 
-import { ClusterListPage } from './Clusters';
+import { getOSSFeatures } from 'teleport/features';
+
+import { Clusters } from './Clusters';
 import * as fixtures from './fixtures';
 
 export default {
@@ -37,7 +40,7 @@ export function Story({ value }: { value: teleport.Context }) {
     <teleport.ContextProvider ctx={ctx}>
       <FeaturesContextProvider value={getOSSFeatures()}>
         <Router history={createMemoryHistory()}>
-          <ClusterListPage />
+          <Clusters />
         </Router>
       </FeaturesContextProvider>
     </teleport.ContextProvider>

@@ -29,11 +29,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/gravitational/teleport/api/constants"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/accesslist"
 	"github.com/gravitational/teleport/api/types/header"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/integrations/access/common"
 	"github.com/gravitational/teleport/integrations/access/common/teleport"
 	"github.com/gravitational/teleport/lib/auth"
@@ -108,17 +106,18 @@ func (m *mockPluginConfig) GetPluginType() types.PluginType {
 	return types.PluginTypeSlack
 }
 
-func (m *mockPluginConfig) GetTeleportUser() string {
-	return ""
-}
-
 func TestAccessListReminders_Single(t *testing.T) {
 	t.Parallel()
 
 	clock := clockwork.NewFakeClockAt(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC))
 
-	server := newTestAuth(t)
-
+	server, err := auth.NewTestServer(auth.TestServerConfig{
+		Auth: auth.TestAuthServerConfig{
+			Dir:   t.TempDir(),
+			Clock: clockwork.NewFakeClock(),
+		},
+	})
+	require.NoError(t, err)
 	as := server.Auth()
 	t.Cleanup(func() {
 		require.NoError(t, as.Close())
@@ -209,16 +208,19 @@ func TestAccessListReminders_Single(t *testing.T) {
 func TestAccessListReminders_Batched(t *testing.T) {
 	modules.SetTestModules(t, &modules.TestModules{
 		TestFeatures: modules.Features{
-			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-				entitlements.Identity: {Enabled: true},
-			},
+			IdentityGovernanceSecurity: true,
 		},
 	})
 
 	clock := clockwork.NewFakeClockAt(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC))
 
-	server := newTestAuth(t)
-
+	server, err := auth.NewTestServer(auth.TestServerConfig{
+		Auth: auth.TestAuthServerConfig{
+			Dir:   t.TempDir(),
+			Clock: clockwork.NewFakeClock(),
+		},
+	})
+	require.NoError(t, err)
 	as := server.Auth()
 	t.Cleanup(func() {
 		require.NoError(t, as.Close())
@@ -311,7 +313,13 @@ func TestAccessListReminders_BadClient(t *testing.T) {
 
 	clock := clockwork.NewFakeClockAt(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC))
 
-	server := newTestAuth(t)
+	server, err := auth.NewTestServer(auth.TestServerConfig{
+		Auth: auth.TestAuthServerConfig{
+			Dir:   t.TempDir(),
+			Clock: clockwork.NewFakeClock(),
+		},
+	})
+	require.NoError(t, err)
 	as := server.Auth()
 	t.Cleanup(func() {
 		require.NoError(t, as.Close())
@@ -357,7 +365,7 @@ func TestAccessListReminders_BadClient(t *testing.T) {
 func advanceAndLookForRecipients(t *testing.T,
 	bot *mockMessagingBot,
 	alSvc services.AccessLists,
-	clock *clockwork.FakeClock,
+	clock clockwork.FakeClock,
 	advance time.Duration,
 	accessLists []*accesslist.AccessList,
 	recipients ...string) {
@@ -382,21 +390,4 @@ func advanceAndLookForRecipients(t *testing.T,
 	clock.BlockUntil(1)
 
 	require.ElementsMatch(t, expectedRecipients, bot.getLastRecipients())
-}
-
-func newTestAuth(t *testing.T) *auth.TestServer {
-	server, err := auth.NewTestServer(auth.TestServerConfig{
-		Auth: auth.TestAuthServerConfig{
-			Dir:   t.TempDir(),
-			Clock: clockwork.NewFakeClock(),
-			AuthPreferenceSpec: &types.AuthPreferenceSpecV2{
-				SecondFactor: constants.SecondFactorOn,
-				Webauthn: &types.Webauthn{
-					RPID: "localhost",
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-	return server
 }

@@ -20,11 +20,11 @@ package local
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/gravitational/trace"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/client/proto"
@@ -36,14 +36,14 @@ import (
 // AccessService manages roles
 type AccessService struct {
 	backend.Backend
-	logger *slog.Logger
+	log *logrus.Entry
 }
 
 // NewAccessService returns new access service instance
 func NewAccessService(backend backend.Backend) *AccessService {
 	return &AccessService{
 		Backend: backend,
-		logger:  slog.With(teleport.ComponentKey, "AccessService"),
+		log:     logrus.WithFields(logrus.Fields{teleport.ComponentKey: "AccessService"}),
 	}
 }
 
@@ -112,7 +112,7 @@ func (s *AccessService) ListRoles(ctx context.Context, req *proto.ListRolesReque
 				return true, nil
 			}
 
-			if !item.Key.HasSuffix(backend.NewKey(paramsPrefix)) {
+			if !item.Key.HasSuffix(backend.Key(paramsPrefix)) {
 				// Item represents a different resource type in the
 				// same namespace.
 				continue
@@ -120,14 +120,12 @@ func (s *AccessService) ListRoles(ctx context.Context, req *proto.ListRolesReque
 
 			role, err := services.UnmarshalRoleV6(
 				item.Value,
+				services.WithResourceID(item.ID),
 				services.WithExpires(item.Expires),
 				services.WithRevision(item.Revision),
 			)
 			if err != nil {
-				s.logger.WarnContext(ctx, "Failed to unmarshal role",
-					"key", item.Key,
-					"error", err,
-				)
+				s.log.Warnf("Failed to unmarshal role at %q: %v", item.Key, err)
 				continue
 			}
 
@@ -173,6 +171,7 @@ func (s *AccessService) CreateRole(ctx context.Context, role types.Role) (types.
 		Key:      backend.NewKey(rolesPrefix, role.GetName(), paramsPrefix),
 		Value:    value,
 		Expires:  role.Expiry(),
+		ID:       role.GetResourceID(),
 		Revision: rev,
 	}
 
@@ -201,6 +200,7 @@ func (s *AccessService) UpdateRole(ctx context.Context, role types.Role) (types.
 		Key:      backend.NewKey(rolesPrefix, role.GetName(), paramsPrefix),
 		Value:    value,
 		Expires:  role.Expiry(),
+		ID:       role.GetResourceID(),
 		Revision: rev,
 	}
 
@@ -229,6 +229,7 @@ func (s *AccessService) UpsertRole(ctx context.Context, role types.Role) (types.
 		Key:      backend.NewKey(rolesPrefix, role.GetName(), paramsPrefix),
 		Value:    value,
 		Expires:  role.Expiry(),
+		ID:       role.GetResourceID(),
 		Revision: rev,
 	}
 
@@ -248,13 +249,12 @@ func (s *AccessService) GetRole(ctx context.Context, name string) (types.Role, e
 	item, err := s.Get(ctx, backend.NewKey(rolesPrefix, name, paramsPrefix))
 	if err != nil {
 		if trace.IsNotFound(err) {
-			// This error message format should be kept in sync with web/packages/teleport/src/services/api/api.isRoleNotFoundError
 			return nil, trace.NotFound("role %v is not found", name)
 		}
 		return nil, trace.Wrap(err)
 	}
 	return services.UnmarshalRole(item.Value,
-		services.WithExpires(item.Expires), services.WithRevision(item.Revision))
+		services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))
 }
 
 // DeleteRole deletes a role from the backend
@@ -283,7 +283,7 @@ func (s *AccessService) GetLock(ctx context.Context, name string) (types.Lock, e
 		}
 		return nil, trace.Wrap(err)
 	}
-	return services.UnmarshalLock(item.Value, services.WithExpires(item.Expires), services.WithRevision(item.Revision))
+	return services.UnmarshalLock(item.Value, services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))
 }
 
 // GetLocks gets all/in-force locks that match at least one of the targets when specified.
@@ -296,7 +296,7 @@ func (s *AccessService) GetLocks(ctx context.Context, inForceOnly bool, targets 
 
 	out := []types.Lock{}
 	for _, item := range result.Items {
-		lock, err := services.UnmarshalLock(item.Value, services.WithExpires(item.Expires), services.WithRevision(item.Revision))
+		lock, err := services.UnmarshalLock(item.Value, services.WithResourceID(item.ID), services.WithExpires(item.Expires), services.WithRevision(item.Revision))
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -330,6 +330,7 @@ func (s *AccessService) UpsertLock(ctx context.Context, lock types.Lock) error {
 		Key:      backend.NewKey(locksPrefix, lock.GetName()),
 		Value:    value,
 		Expires:  lock.Expiry(),
+		ID:       lock.GetResourceID(),
 		Revision: rev,
 	}
 
@@ -376,12 +377,8 @@ func (s *AccessService) ReplaceRemoteLocks(ctx context.Context, clusterName stri
 
 		newRemoteLocksToStore := make(map[string]backend.Item, len(newRemoteLocks))
 		for _, lock := range newRemoteLocks {
-			key := backend.NewKey(locksPrefix)
 			if !strings.HasPrefix(lock.GetName(), clusterName) {
-				key = key.AppendKey(backend.NewKey(clusterName, lock.GetName()))
 				lock.SetName(clusterName + "/" + lock.GetName())
-			} else {
-				key = key.AppendKey(backend.NewKey(lock.GetName()))
 			}
 			rev := lock.GetRevision()
 			value, err := services.MarshalLock(lock)
@@ -389,9 +386,10 @@ func (s *AccessService) ReplaceRemoteLocks(ctx context.Context, clusterName stri
 				return trace.Wrap(err)
 			}
 			item := backend.Item{
-				Key:      key,
+				Key:      backend.NewKey(locksPrefix, lock.GetName()),
 				Value:    value,
 				Expires:  lock.Expiry(),
+				ID:       lock.GetResourceID(),
 				Revision: rev,
 			}
 			newRemoteLocksToStore[item.Key.String()] = item

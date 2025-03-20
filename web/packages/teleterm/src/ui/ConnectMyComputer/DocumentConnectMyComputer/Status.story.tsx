@@ -16,25 +16,28 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useLayoutEffect } from 'react';
+import React, { useLayoutEffect } from 'react';
 
-import { makeRuntimeSettings } from 'teleterm/mainProcess/fixtures/mocks';
-import { AgentProcessState } from 'teleterm/mainProcess/types';
 import {
-  makeLabelsList,
   makeRootCluster,
   makeServer,
+  makeLabelsList,
 } from 'teleterm/services/tshd/testHelpers';
-import { ResourcesContextProvider } from 'teleterm/ui/DocumentCluster/resourcesContext';
 import { MockAppContextProvider } from 'teleterm/ui/fixtures/MockAppContextProvider';
-import { MockAppContext } from 'teleterm/ui/fixtures/mocks';
+import AppContext from 'teleterm/ui/appContext';
+
 import { MockWorkspaceContextProvider } from 'teleterm/ui/fixtures/MockWorkspaceContextProvider';
+import { MockAppContext } from 'teleterm/ui/fixtures/mocks';
+import { AgentProcessState } from 'teleterm/mainProcess/types';
+import { makeRuntimeSettings } from 'teleterm/mainProcess/fixtures/mocks';
+import { ResourcesContextProvider } from 'teleterm/ui/DocumentCluster/resourcesContext';
 
 import {
   AgentCompatibilityError,
   ConnectMyComputerContextProvider,
   NodeWaitJoinTimeout,
 } from '../connectMyComputerContext';
+
 import { Status } from './Status';
 
 export default {
@@ -235,7 +238,7 @@ export function UpgradeAgentSuggestion() {
 
 function ShowState(props: {
   agentProcessState: AgentProcessState;
-  appContext?: MockAppContext;
+  appContext?: AppContext;
   proxyVersion?: string;
   autoStart?: boolean;
 }) {
@@ -247,7 +250,18 @@ function ShowState(props: {
     new MockAppContext({ appVersion: cluster.proxyVersion });
 
   appContext.mainProcessClient.getAgentState = () => props.agentProcessState;
-  appContext.addRootCluster(cluster);
+  appContext.clustersService.state.clusters.set(cluster.uri, cluster);
+  appContext.workspacesService.setState(draftState => {
+    draftState.rootClusterUri = cluster.uri;
+    draftState.workspaces = {
+      [cluster.uri]: {
+        localClusterUri: cluster.uri,
+        documents: [],
+        location: '/docs/1234',
+        accessRequests: undefined,
+      },
+    };
+  });
 
   if (props.autoStart) {
     appContext.workspacesService.setConnectMyComputerAutoStart(

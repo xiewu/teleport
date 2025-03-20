@@ -136,8 +136,6 @@ role 'editor-reviewer' has been created
 role 'editor-requester' has been created
 ```
 
-(!docs/pages/includes/create-role-using-web.mdx!)
-
 ### `demo-role-requester`
 
 Create a file called `demo-role-requester.yaml` with the following content:
@@ -326,14 +324,14 @@ To grant these permissions to your user, give your user the `editor-reviewer`,
 `access-plugin-impersonator`, and `demo-role-requester` roles we defined
 earlier.
 
-Open your user definition in an editor:
+Retrieve your user definition:
 
 ```code
 $ TELEPORT_USER=$(tsh status --format=json | jq -r .active.username)
-$ tctl edit users/${TELEPORT_USER?}
+$ tctl get users/${TELEPORT_USER?} > myuser.yaml
 ```
 
-Edit the user to include the roles you just created:
+Edit `myuser.yaml` to include the roles you just created:
 
 ```diff
   roles:
@@ -345,7 +343,11 @@ Edit the user to include the roles you just created:
 +  - demo-role-requester
 ```
 
-Apply your changes by saving and closing the file in your editor.
+Apply your changes:
+
+```code
+$ tctl create -f myuser.yaml
+```
 
 Log out of your Teleport cluster and log in again. You will now be able to
 review requests for the `editor` role, request the `demo-role` role, and
@@ -423,7 +425,7 @@ the host where you have Helm installed, create a file called
 
 ```yaml
 teleport:
-  address: ""                 # Teleport Auth Service GRPC API address
+  address: ""                 # Teleport Auth Server GRPC API address
   identitySecretName: ""      # Identity secret name
   identitySecretPath: ""      # Identity secret path
 

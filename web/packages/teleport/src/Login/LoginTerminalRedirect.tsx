@@ -16,15 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { LogoHero } from 'teleport/components/LogoHero';
+import React from 'react';
+import { CardTerminalLogin } from 'design/CardTerminal';
 
-import { CardTerminal } from './CardTerminal';
+import LogoHero from 'teleport/components/LogoHero';
 
 export function LoginTerminalRedirect() {
   return (
     <>
       <LogoHero />
-      <CardTerminal />
+      <CardTerminalLogin />
     </>
   );
 }

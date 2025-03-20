@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { MenuItem } from 'design';
 import { render, screen, userEvent } from 'design/utils/testing';
+import { MenuItem } from 'design';
 
 import { ButtonWithMenu } from './ButtonWithMenu';
 

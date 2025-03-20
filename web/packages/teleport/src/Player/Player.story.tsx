@@ -16,11 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { createMemoryHistory } from 'history';
+import React from 'react';
 
 import { Flex } from 'design';
 
-import { Route, Router } from 'teleport/components/Router';
+import { createMemoryHistory } from 'history';
+
+import { Router, Route } from 'teleport/components/Router';
 
 import { Player } from './Player';
 
@@ -30,9 +32,7 @@ export default {
 
 export const SSH = () => {
   const history = createMemoryHistory({
-    initialEntries: [
-      '/web/cluster/localhost/session/123?recordingType=ssh&durationMs=1234',
-    ],
+    initialEntries: ['/web/cluster/localhost/session/123?recordingType=ssh'],
     initialIndex: 0,
   });
 
@@ -46,11 +46,6 @@ export const SSH = () => {
     </Router>
   );
 };
-
-// SSH player attempts to write to a web socket, and currently, there's no
-// official support for web sockets in MSW (see
-// https://github.com/mswjs/msw/issues/156).
-SSH.tags = ['skip-test'];
 
 export const Desktop = () => {
   const history = createMemoryHistory({

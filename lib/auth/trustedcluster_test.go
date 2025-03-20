@@ -21,6 +21,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	insecurerand "math/rand"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/gravitational/teleport/api/constants"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/auth/authclient"
+	"github.com/gravitational/teleport/lib/auth/keystore"
 	authority "github.com/gravitational/teleport/lib/auth/testauthority"
 	"github.com/gravitational/teleport/lib/backend/memory"
 	"github.com/gravitational/teleport/lib/modules"
@@ -43,22 +45,22 @@ import (
 func TestRemoteClusterStatus(t *testing.T) {
 	ctx := context.Background()
 	a := newTestAuthServer(ctx, t)
+	rnd := insecurerand.New(insecurerand.NewSource(a.GetClock().Now().UnixNano()))
 
 	rc, err := types.NewRemoteCluster("rc")
 	require.NoError(t, err)
-	rc, err = a.CreateRemoteCluster(ctx, rc)
-	require.NoError(t, err)
+	require.NoError(t, a.CreateRemoteCluster(rc))
 
 	// This scenario deals with only one remote cluster, so it never hits the limit on status updates.
 	// TestRefreshRemoteClusters focuses on verifying the update limit logic.
-	a.refreshRemoteClusters(ctx)
+	a.refreshRemoteClusters(ctx, rnd)
 
 	wantRC := rc
 	// Initially, no tunnels exist and status should be "offline".
 	wantRC.SetConnectionStatus(teleport.RemoteClusterStatusOffline)
-	gotRC, err := a.GetRemoteCluster(ctx, rc.GetName())
+	gotRC, err := a.GetRemoteCluster(rc.GetName())
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(wantRC, gotRC, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(rc, gotRC, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision")))
 
 	// Create several tunnel connections.
 	lastHeartbeat := a.clock.Now().UTC()
@@ -81,40 +83,40 @@ func TestRemoteClusterStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, a.UpsertTunnelConnection(tc2))
 
-	a.refreshRemoteClusters(ctx)
+	a.refreshRemoteClusters(ctx, rnd)
 
 	// With active tunnels, the status is "online" and last_heartbeat is set to
 	// the latest tunnel heartbeat.
 	wantRC.SetConnectionStatus(teleport.RemoteClusterStatusOnline)
 	wantRC.SetLastHeartbeat(tc2.GetLastHeartbeat())
-	gotRC, err = a.GetRemoteCluster(ctx, rc.GetName())
+	gotRC, err = a.GetRemoteCluster(rc.GetName())
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(rc, gotRC, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(rc, gotRC, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision")))
 
 	// Delete the latest connection.
 	require.NoError(t, a.DeleteTunnelConnection(tc2.GetClusterName(), tc2.GetName()))
 
-	a.refreshRemoteClusters(ctx)
+	a.refreshRemoteClusters(ctx, rnd)
 
 	// The status should remain the same, since tc1 still exists.
 	// The last_heartbeat should remain the same, since tc1 has an older
 	// heartbeat.
 	wantRC.SetConnectionStatus(teleport.RemoteClusterStatusOnline)
-	gotRC, err = a.GetRemoteCluster(ctx, rc.GetName())
+	gotRC, err = a.GetRemoteCluster(rc.GetName())
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(rc, gotRC, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(rc, gotRC, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision")))
 
 	// Delete the remaining connection
 	require.NoError(t, a.DeleteTunnelConnection(tc1.GetClusterName(), tc1.GetName()))
 
-	a.refreshRemoteClusters(ctx)
+	a.refreshRemoteClusters(ctx, rnd)
 
 	// The status should switch to "offline".
 	// The last_heartbeat should remain the same.
 	wantRC.SetConnectionStatus(teleport.RemoteClusterStatusOffline)
-	gotRC, err = a.GetRemoteCluster(ctx, rc.GetName())
+	gotRC, err = a.GetRemoteCluster(rc.GetName())
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(rc, gotRC, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(rc, gotRC, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision")))
 }
 
 func TestRefreshRemoteClusters(t *testing.T) {
@@ -160,14 +162,14 @@ func TestRefreshRemoteClusters(t *testing.T) {
 			require.LessOrEqual(t, tt.clustersNeedUpdate, tt.clustersTotal)
 
 			a := newTestAuthServer(ctx, t)
+			rnd := insecurerand.New(insecurerand.NewSource(a.GetClock().Now().UnixNano()))
 
 			allClusters := make(map[string]types.RemoteCluster)
 			for i := 0; i < tt.clustersTotal; i++ {
 				rc, err := types.NewRemoteCluster(fmt.Sprintf("rc-%03d", i))
 				rc.SetConnectionStatus(teleport.RemoteClusterStatusOffline)
 				require.NoError(t, err)
-				rc, err = a.CreateRemoteCluster(ctx, rc)
-				require.NoError(t, err)
+				require.NoError(t, a.CreateRemoteCluster(rc))
 				allClusters[rc.GetName()] = rc
 
 				if i < tt.clustersNeedUpdate {
@@ -183,15 +185,15 @@ func TestRefreshRemoteClusters(t *testing.T) {
 				}
 			}
 
-			a.refreshRemoteClusters(ctx)
+			a.refreshRemoteClusters(ctx, rnd)
 
-			clusters, err := a.GetRemoteClusters(ctx)
+			clusters, err := a.GetRemoteClusters()
 			require.NoError(t, err)
 
 			var updated int
 			for _, cluster := range clusters {
 				old := allClusters[cluster.GetName()]
-				if cmp.Diff(old, cluster, cmpopts.IgnoreFields(types.Metadata{}, "Revision")) != "" {
+				if cmp.Diff(old, cluster, cmpopts.IgnoreFields(types.Metadata{}, "ID", "Revision")) != "" {
 					updated++
 				}
 			}
@@ -329,7 +331,7 @@ func TestValidateTrustedCluster(t *testing.T) {
 			require.True(t, services.CertAuthoritiesEquivalent(localCA, returnedCA))
 		}
 
-		rcs, err := a.GetRemoteClusters(ctx)
+		rcs, err := a.GetRemoteClusters()
 		require.NoError(t, err)
 		require.Len(t, rcs, 1)
 		require.Equal(t, leafClusterCA.GetName(), rcs[0].GetName())
@@ -371,10 +373,26 @@ func TestValidateTrustedCluster(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		require.Len(t, resp.CAs, 4)
+		require.Len(t, resp.CAs, 3)
 		require.ElementsMatch(t,
-			[]types.CertAuthType{types.HostCA, types.UserCA, types.DatabaseCA, types.OpenSSHCA},
-			[]types.CertAuthType{resp.CAs[0].GetType(), resp.CAs[1].GetType(), resp.CAs[2].GetType(), resp.CAs[3].GetType()},
+			[]types.CertAuthType{types.HostCA, types.UserCA, types.DatabaseCA},
+			[]types.CertAuthType{resp.CAs[0].GetType(), resp.CAs[1].GetType(), resp.CAs[2].GetType()},
+		)
+	})
+
+	t.Run("OpenSSH CA not returned for pre v12", func(t *testing.T) {
+		leafClusterCA := types.CertAuthority(suite.NewTestCA(types.HostCA, "leafcluster"))
+		resp, err := a.validateTrustedCluster(ctx, &authclient.ValidateTrustedClusterRequest{
+			Token:           validToken,
+			CAs:             []types.CertAuthority{leafClusterCA},
+			TeleportVersion: "11.0.0",
+		})
+		require.NoError(t, err)
+
+		require.Len(t, resp.CAs, 3)
+		require.ElementsMatch(t,
+			[]types.CertAuthType{types.HostCA, types.UserCA, types.DatabaseCA},
+			[]types.CertAuthType{resp.CAs[0].GetType(), resp.CAs[1].GetType(), resp.CAs[2].GetType()},
 		)
 	})
 
@@ -428,6 +446,11 @@ func newTestAuthServer(ctx context.Context, t *testing.T, name ...string) *Serve
 		VersionStorage:         NewFakeTeleportVersion(),
 		Authority:              authority.New(),
 		SkipPeriodicOperations: true,
+		KeyStoreConfig: keystore.Config{
+			Software: keystore.SoftwareConfig{
+				RSAKeyPairSource: authority.New().GenerateKeyPair,
+			},
+		},
 	}
 	a, err := NewServer(authConfig)
 	require.NoError(t, err)
@@ -468,23 +491,17 @@ func TestUpsertTrustedCluster(t *testing.T) {
 	err = a.SetStaticTokens(tks)
 	require.NoError(t, err)
 
-	role, err := types.NewRole("test-role", types.RoleSpecV6{})
-	require.NoError(t, err)
-	_, err = a.UpsertRole(ctx, role)
-	require.NoError(t, err)
-
-	trustedClusterSpec := types.TrustedClusterSpecV2{
-		Enabled: true,
-		RoleMap: []types.RoleMapping{
-			{
-				Local:  []string{"test-role"},
-				Remote: "someRole",
+	trustedCluster, err := types.NewTrustedCluster("trustedcluster",
+		types.TrustedClusterSpecV2{
+			Enabled: true,
+			RoleMap: []types.RoleMapping{
+				{
+					Local:  []string{"someRole"},
+					Remote: "someRole",
+				},
 			},
-		},
-		ProxyAddress: "localhost",
-	}
-
-	trustedCluster, err := types.NewTrustedCluster("trustedcluster", trustedClusterSpec)
+			ProxyAddress: "localhost",
+		})
 	require.NoError(t, err)
 
 	ca := suite.NewTestCA(types.UserCA, "trustedcluster")
@@ -494,7 +511,7 @@ func TestUpsertTrustedCluster(t *testing.T) {
 	_, err = a.Services.CreateTrustedCluster(ctx, trustedCluster, []types.CertAuthority{ca})
 	require.NoError(t, err)
 
-	err = a.createReverseTunnel(ctx, trustedCluster)
+	err = a.createReverseTunnel(trustedCluster)
 	require.NoError(t, err)
 
 	t.Run("Invalid role change", func(t *testing.T) {
@@ -510,7 +527,7 @@ func TestUpsertTrustedCluster(t *testing.T) {
 				ProxyAddress: "localhost",
 			})
 		require.NoError(t, err)
-		_, err = a.UpsertTrustedClusterV2(ctx, trustedCluster)
+		_, err = a.UpsertTrustedCluster(ctx, trustedCluster)
 		require.ErrorContains(t, err, "someNewRole")
 	})
 	t.Run("Change role map of existing enabled trusted cluster", func(t *testing.T) {
@@ -526,7 +543,7 @@ func TestUpsertTrustedCluster(t *testing.T) {
 				ProxyAddress: "localhost",
 			})
 		require.NoError(t, err)
-		_, err = a.UpsertTrustedClusterV2(ctx, trustedCluster)
+		_, err = a.UpsertTrustedCluster(ctx, trustedCluster)
 		require.NoError(t, err)
 	})
 	t.Run("Disable existing trusted cluster", func(t *testing.T) {
@@ -542,7 +559,7 @@ func TestUpsertTrustedCluster(t *testing.T) {
 				ProxyAddress: "localhost",
 			})
 		require.NoError(t, err)
-		_, err = a.UpsertTrustedClusterV2(ctx, trustedCluster)
+		_, err = a.UpsertTrustedCluster(ctx, trustedCluster)
 		require.NoError(t, err)
 	})
 	t.Run("Change role map of existing disabled trusted cluster", func(t *testing.T) {
@@ -558,7 +575,7 @@ func TestUpsertTrustedCluster(t *testing.T) {
 				ProxyAddress: "localhost",
 			})
 		require.NoError(t, err)
-		_, err = a.UpsertTrustedClusterV2(ctx, trustedCluster)
+		_, err = a.UpsertTrustedCluster(ctx, trustedCluster)
 		require.NoError(t, err)
 	})
 	t.Run("Enable existing trusted cluster", func(t *testing.T) {
@@ -574,177 +591,23 @@ func TestUpsertTrustedCluster(t *testing.T) {
 				ProxyAddress: "localhost",
 			})
 		require.NoError(t, err)
-		_, err = a.UpsertTrustedClusterV2(ctx, trustedCluster)
+		_, err = a.UpsertTrustedCluster(ctx, trustedCluster)
 		require.NoError(t, err)
 	})
-	t.Run("Upsert unmodified trusted cluster", func(t *testing.T) {
-		trustedCluster, err := types.NewTrustedCluster("trustedcluster", trustedClusterSpec)
-		require.NoError(t, err)
-		_, err = a.UpsertTrustedClusterV2(ctx, trustedCluster)
-		require.NoError(t, err)
-	})
-}
+	t.Run("Cloud prohibits being a leaf cluster", func(t *testing.T) {
+		modules.SetTestModules(t, &modules.TestModules{
+			TestFeatures: modules.Features{Cloud: true},
+		})
 
-func TestUpdateTrustedCluster(t *testing.T) {
-	ctx := context.Background()
-	testAuth, err := NewTestAuthServer(TestAuthServerConfig{
-		ClusterName: "localcluster",
-		Dir:         t.TempDir(),
-	})
-	require.NoError(t, err)
-	a := testAuth.AuthServer
-
-	const validToken = "validtoken"
-	tks, err := types.NewStaticTokens(types.StaticTokensSpecV2{
-		StaticTokens: []types.ProvisionTokenV1{{
-			Roles: []types.SystemRole{types.RoleTrustedCluster},
-			Token: validToken,
-		}},
-	})
-	require.NoError(t, err)
-
-	err = a.SetStaticTokens(tks)
-	require.NoError(t, err)
-
-	role, err := types.NewRole("test-role", types.RoleSpecV6{})
-	require.NoError(t, err)
-	_, err = a.UpsertRole(ctx, role)
-	require.NoError(t, err)
-
-	trustedClusterSpec := types.TrustedClusterSpecV2{
-		Enabled: true,
-		RoleMap: []types.RoleMapping{
-			{
-				Local:  []string{"test-role"},
-				Remote: "someRole",
+		tc, err := types.NewTrustedCluster("test", types.TrustedClusterSpecV2{
+			RoleMap: []types.RoleMapping{
+				{Remote: teleport.PresetAccessRoleName, Local: []string{teleport.PresetAccessRoleName}},
 			},
-		},
-		ProxyAddress: "localhost",
-	}
+		})
+		require.NoError(t, err, "creating trusted cluster resource")
 
-	testClusterName := "trustedcluster"
-	trustedCluster, err := types.NewTrustedCluster(testClusterName, trustedClusterSpec)
-	require.NoError(t, err)
-
-	ca := suite.NewTestCA(types.UserCA, testClusterName)
-
-	configureCAsForTrustedCluster(trustedCluster, []types.CertAuthority{ca})
-
-	_, err = a.Services.CreateTrustedCluster(ctx, trustedCluster, []types.CertAuthority{ca})
-	require.NoError(t, err)
-
-	err = a.createReverseTunnel(ctx, trustedCluster)
-	require.NoError(t, err)
-
-	t.Run("Invalid role change", func(t *testing.T) {
-		existing, err := a.GetTrustedCluster(ctx, testClusterName)
-		require.NoError(t, err)
-		trustedCluster, err := types.NewTrustedCluster(testClusterName,
-			types.TrustedClusterSpecV2{
-				Enabled: true,
-				RoleMap: []types.RoleMapping{
-					{
-						Local:  []string{"someNewRole"},
-						Remote: "someRole",
-					},
-				},
-				ProxyAddress: "localhost",
-			})
-		require.NoError(t, err)
-		trustedCluster.SetRevision(existing.GetRevision())
-		_, err = a.UpdateTrustedCluster(ctx, trustedCluster)
-		require.ErrorContains(t, err, "someNewRole")
-	})
-	t.Run("Change role map of existing enabled trusted cluster", func(t *testing.T) {
-		existing, err := a.GetTrustedCluster(ctx, testClusterName)
-		require.NoError(t, err)
-		trustedCluster, err := types.NewTrustedCluster(testClusterName,
-			types.TrustedClusterSpecV2{
-				Enabled: true,
-				RoleMap: []types.RoleMapping{
-					{
-						Local:  []string{constants.DefaultImplicitRole},
-						Remote: "someRole",
-					},
-				},
-				ProxyAddress: "localhost",
-			})
-		require.NoError(t, err)
-		trustedCluster.SetRevision(existing.GetRevision())
-		_, err = a.UpdateTrustedCluster(ctx, trustedCluster)
-		require.NoError(t, err)
-	})
-	t.Run("Disable existing trusted cluster", func(t *testing.T) {
-		existing, err := a.GetTrustedCluster(ctx, testClusterName)
-		require.NoError(t, err)
-		trustedCluster, err := types.NewTrustedCluster(testClusterName,
-			types.TrustedClusterSpecV2{
-				Enabled: false,
-				RoleMap: []types.RoleMapping{
-					{
-						Local:  []string{constants.DefaultImplicitRole},
-						Remote: "someRole",
-					},
-				},
-				ProxyAddress: "localhost",
-			})
-		require.NoError(t, err)
-		trustedCluster.SetRevision(existing.GetRevision())
-		_, err = a.UpdateTrustedCluster(ctx, trustedCluster)
-		require.NoError(t, err)
-	})
-	t.Run("Change role map of existing disabled trusted cluster", func(t *testing.T) {
-		existing, err := a.GetTrustedCluster(ctx, testClusterName)
-		require.NoError(t, err)
-		trustedCluster, err := types.NewTrustedCluster(testClusterName,
-			types.TrustedClusterSpecV2{
-				Enabled: false,
-				RoleMap: []types.RoleMapping{
-					{
-						Local:  []string{constants.DefaultImplicitRole},
-						Remote: "someOtherRole",
-					},
-				},
-				ProxyAddress: "localhost",
-			})
-		require.NoError(t, err)
-		trustedCluster.SetRevision(existing.GetRevision())
-		_, err = a.UpdateTrustedCluster(ctx, trustedCluster)
-		require.NoError(t, err)
-	})
-	t.Run("Enable existing trusted cluster", func(t *testing.T) {
-		existing, err := a.GetTrustedCluster(ctx, testClusterName)
-		require.NoError(t, err)
-		trustedCluster, err := types.NewTrustedCluster(testClusterName,
-			types.TrustedClusterSpecV2{
-				Enabled: true,
-				RoleMap: []types.RoleMapping{
-					{
-						Local:  []string{constants.DefaultImplicitRole},
-						Remote: "someOtherRole",
-					},
-				},
-				ProxyAddress: "localhost",
-			})
-		require.NoError(t, err)
-		trustedCluster.SetRevision(existing.GetRevision())
-		_, err = a.UpdateTrustedCluster(ctx, trustedCluster)
-		require.NoError(t, err)
-	})
-	t.Run("Update unmodified trusted cluster", func(t *testing.T) {
-		existing, err := a.GetTrustedCluster(ctx, testClusterName)
-		require.NoError(t, err)
-		trustedCluster, err := types.NewTrustedCluster(testClusterName, trustedClusterSpec)
-		require.NoError(t, err)
-		trustedCluster.SetRevision(existing.GetRevision())
-		_, err = a.UpdateTrustedCluster(ctx, trustedCluster)
-		require.NoError(t, err)
-	})
-
-	t.Run("Invalid revision", func(t *testing.T) {
-		trustedCluster, err := types.NewTrustedCluster(testClusterName, trustedClusterSpec)
-		require.NoError(t, err)
-		_, err = a.UpdateTrustedCluster(ctx, trustedCluster)
-		require.Error(t, err)
+		server := ServerWithRoles{authServer: a}
+		_, err = server.UpsertTrustedCluster(ctx, tc)
+		require.True(t, trace.IsNotImplemented(err), "UpsertTrustedCluster returned an unexpected error, got = %v (%T), want trace.NotImplementedError", err, err)
 	})
 }

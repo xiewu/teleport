@@ -34,9 +34,6 @@ import (
 	"github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/lib/defaults"
 	libevents "github.com/gravitational/teleport/lib/events"
-	"github.com/gravitational/teleport/lib/events/eventstest"
-	"github.com/gravitational/teleport/lib/srv/db/common"
-	"github.com/gravitational/teleport/lib/srv/db/postgres"
 	"github.com/gravitational/teleport/lib/srv/db/redis"
 )
 
@@ -44,12 +41,7 @@ import (
 // connections.
 func TestAuditPostgres(t *testing.T) {
 	ctx := context.Background()
-	recorder := eventstest.NewChannelRecorder(100)
-	testCtx := setupTestContext(ctx, t)
-	testCtx.server = testCtx.setupDatabaseServer(ctx, t, agentParams{
-		Databases: []types.Database{withSelfHostedPostgres("postgres")(t, ctx, testCtx)},
-		Recorder:  recorder,
-	})
+	testCtx := setupTestContext(ctx, t, withSelfHostedPostgres("postgres"))
 	go testCtx.startHandlingConnections()
 
 	testCtx.createUserAndRole(ctx, t, "alice", "admin", []string{"postgres"}, []string{"postgres"})
@@ -60,26 +52,17 @@ func TestAuditPostgres(t *testing.T) {
 	requireEvent(t, testCtx, libevents.DatabaseSessionStartFailureCode)
 
 	// Connect should trigger successful session start event.
-	userAgent := "psql"
-	psql, err := testCtx.postgresClient(ctx, "alice", "postgres", "postgres", "postgres", common.WithUserAgent(userAgent))
+	psql, err := testCtx.postgresClient(ctx, "alice", "postgres", "postgres", "postgres")
 	require.NoError(t, err)
 	startEvt, ok := requireEvent(t, testCtx, libevents.DatabaseSessionStartCode).(*events.DatabaseSessionStart)
 	require.True(t, ok)
 	require.NotNil(t, startEvt)
 	require.NotZero(t, startEvt.PostgresPID)
-	require.Equal(t, userAgent, startEvt.ClientMetadata.UserAgent)
 
 	// Simple query should trigger the query event.
 	_, err = psql.Exec(ctx, "select 1").ReadAll()
 	require.NoError(t, err)
 	requireQueryEvent(t, testCtx, libevents.DatabaseSessionQueryCode, "select 1")
-	requireResultEvent(t, recorder, true, 1)
-
-	// Execute query with errors.
-	_, err = psql.Exec(ctx, postgres.TestErrorQuery).ReadAll()
-	require.Error(t, err)
-	requireQueryEvent(t, testCtx, libevents.DatabaseSessionQueryCode, postgres.TestErrorQuery)
-	requireResultEvent(t, recorder, false, 0)
 
 	// Execute unnamed prepared statement.
 	resultUnnamed := psql.ExecParams(ctx, "select now()", nil, nil, nil, nil).Read()
@@ -87,7 +70,6 @@ func TestAuditPostgres(t *testing.T) {
 	requireEvent(t, testCtx, libevents.PostgresParseCode)
 	requireEvent(t, testCtx, libevents.PostgresBindCode)
 	requireEvent(t, testCtx, libevents.PostgresExecuteCode)
-	requireResultEvent(t, recorder, true, 1)
 
 	// Execute named prepared statement.
 	_, err = psql.Prepare(ctx, "test-stmt", "select 1", nil)
@@ -97,7 +79,6 @@ func TestAuditPostgres(t *testing.T) {
 	requireEvent(t, testCtx, libevents.PostgresParseCode)
 	requireEvent(t, testCtx, libevents.PostgresBindCode)
 	requireEvent(t, testCtx, libevents.PostgresExecuteCode)
-	requireResultEvent(t, recorder, true, 1)
 
 	bindTests := []struct {
 		desc        string
@@ -158,7 +139,6 @@ func TestAuditPostgres(t *testing.T) {
 			event := requireBindEvent(t, testCtx)
 			require.Equal(t, test.wantParams, event.Parameters)
 			requireEvent(t, testCtx, libevents.PostgresExecuteCode)
-			requireResultEvent(t, recorder, true, 1)
 		})
 	}
 
@@ -426,31 +406,6 @@ func waitForAnyEvent(t *testing.T, testCtx *testContext) events.AuditEvent {
 		require.FailNow(t, "timed out waiting for an audit event", "didn't receive any event in time")
 	}
 	return nil
-}
-
-func requireResultEvent(t *testing.T, recorder *eventstest.ChannelRecorder, success bool, affectedRecords uint64) {
-	t.Helper()
-	evt := waitForRecordingEvent(t, recorder, libevents.DatabaseSessionCommandResultCode)
-	result, ok := evt.(*events.DatabaseSessionCommandResult)
-	require.True(t, ok, "expected type DatabaseSessionCommandResult but got %T", evt)
-	require.Equal(t, success, result.Status.Success)
-	require.Equal(t, affectedRecords, result.AffectedRecords)
-}
-
-func waitForRecordingEvent(t *testing.T, recorder *eventstest.ChannelRecorder, code string) events.AuditEvent {
-	t.Helper()
-	for {
-		select {
-		case event := <-recorder.C():
-			if event.GetCode() != code {
-				continue
-			}
-
-			return event
-		case <-time.After(time.Second):
-			require.FailNow(t, "timed out waiting for a recording event", "didn't receive any recording event after 1 second")
-		}
-	}
 }
 
 // waitForEvent waits for particular event code ignoring other events.

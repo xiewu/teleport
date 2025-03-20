@@ -17,6 +17,7 @@
 package web
 
 import (
+	"crypto/rsa"
 	"net/http"
 	"time"
 
@@ -26,11 +27,10 @@ import (
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/lib/jwt"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/tlsca"
-	"github.com/gravitational/teleport/lib/utils/oidc"
+	"github.com/gravitational/teleport/lib/utils"
 )
 
 // getSPIFFEBundle returns the SPIFFE-compatible trust bundle which allows other
@@ -41,7 +41,7 @@ import (
 // Must abide by the standard for a "https_web" profile as described in
 // https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Federation.md#5-serving-and-consuming-a-spiffe-bundle-endpoint
 func (h *Handler) getSPIFFEBundle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) (any, error) {
-	cn, err := h.GetAccessPoint().GetClusterName(r.Context())
+	cn, err := h.GetAccessPoint().GetClusterName()
 	if err != nil {
 		return nil, trace.Wrap(err, "fetching cluster name")
 	}
@@ -85,14 +85,15 @@ func (h *Handler) getSPIFFEBundle(w http.ResponseWriter, r *http.Request, _ http
 
 	// Add JWT authorities to the trust bundle.
 	for _, keyPair := range spiffeCA.GetTrustedJWTKeyPairs() {
-		pubKey, err := keys.ParsePublicKey(keyPair.PublicKey)
+		pubKey, err := utils.ParsePublicKey(keyPair.PublicKey)
 		if err != nil {
 			return nil, trace.Wrap(err, "parsing public key")
 		}
-		kid, err := jwt.KeyID(pubKey)
-		if err != nil {
-			return nil, trace.Wrap(err, "generating key ID")
+		rsaPubKey, ok := pubKey.(*rsa.PublicKey)
+		if !ok {
+			return nil, trace.BadParameter("unsupported key format %T", pubKey)
 		}
+		kid := jwt.KeyID(rsaPubKey)
 		if err := bundle.AddJWTAuthority(kid, pubKey); err != nil {
 			return nil, trace.Wrap(err, "adding JWT authority to bundle")
 		}
@@ -109,41 +110,4 @@ func (h *Handler) getSPIFFEBundle(w http.ResponseWriter, r *http.Request, _ http
 		h.logger.DebugContext(h.cfg.Context, "Failed to write SPIFFE bundle response", "error", err)
 	}
 	return nil, nil
-}
-
-// Mounted at /workload-identity/.well-known/openid-configuration
-func (h *Handler) getSPIFFEOIDCDiscoveryDocument(_ http.ResponseWriter, _ *http.Request, _ httprouter.Params) (any, error) {
-	issuer, err := oidc.IssuerFromPublicAddress(h.cfg.PublicProxyAddr, "/workload-identity")
-	if err != nil {
-		return nil, trace.Wrap(err, "determining issuer from public address")
-	}
-
-	return &oidc.OpenIDConfiguration{
-		Issuer:  issuer,
-		JWKSURI: issuer + "/jwt-jwks.json",
-		Claims: []string{
-			"iss",
-			"sub",
-			"jti",
-			"aud",
-			"exp",
-			"iat",
-		},
-		IdTokenSigningAlgValuesSupported: []string{
-			"RS256",
-		},
-		ResponseTypesSupported: []string{
-			"id_token",
-		},
-		// Whilst this field is not required for GCP's Workload Identity
-		// Federation, it is required for AWS's AssumeRoleWithWebIdentity.
-		SubjectTypesSupported: []string{
-			"public",
-		},
-	}, nil
-}
-
-// Mounted at /workload-identity/jwt-jwks.json
-func (h *Handler) getSPIFFEJWKS(_ http.ResponseWriter, r *http.Request, _ httprouter.Params) (interface{}, error) {
-	return h.jwks(r.Context(), types.SPIFFECA, false)
 }

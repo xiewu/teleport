@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ReactNode } from 'react';
+import React, { ReactNode } from 'react';
 import styled from 'styled-components';
 
 export function Toggle({
@@ -40,16 +40,16 @@ export function Toggle({
         checked={isToggled}
         onChange={onToggle}
         disabled={disabled}
-        $size={size}
+        size={size}
         data-testid="toggle"
       />
-      <StyledSlider $size={size} />
+      <StyledSlider size={size} />
       {children}
     </StyledWrapper>
   );
 }
 
-const StyledWrapper = styled.label<{ disabled?: boolean }>`
+const StyledWrapper = styled.label`
   position: relative;
   display: flex;
   align-items: center;
@@ -60,12 +60,8 @@ const StyledWrapper = styled.label<{ disabled?: boolean }>`
   }
 `;
 
-interface SizeProps {
-  $size?: 'small' | 'large';
-}
-
-const size = (props: SizeProps) => {
-  switch (props.$size) {
+const size = props => {
+  switch (props.size) {
     case 'large':
       return {
         track: {
@@ -96,7 +92,7 @@ const size = (props: SizeProps) => {
   }
 };
 
-const StyledSlider = styled.div<SizeProps>`
+const StyledSlider = styled.div`
   // the slider 'track'
   ${props => size(props).track};
   border-radius: 10px;
@@ -126,7 +122,7 @@ const StyledSlider = styled.div<SizeProps>`
   }
 `;
 
-const StyledInput = styled.input.attrs({ type: 'checkbox' })<SizeProps>`
+const StyledInput = styled.input.attrs({ type: 'checkbox' })`
   opacity: 0;
   position: absolute;
   cursor: inherit;

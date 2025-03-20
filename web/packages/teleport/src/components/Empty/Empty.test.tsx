@@ -16,9 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+import { render, screen } from 'design/utils/testing';
 import { MemoryRouter } from 'react-router';
 
-import { render, screen } from 'design/utils/testing';
+import { SearchResource } from 'teleport/Discover/SelectResource';
 
 import Empty, { Props } from './Empty';
 
@@ -55,6 +57,7 @@ const props: Props = {
       'Teleport Server Access consolidates SSH access across all environments.',
     docsURL:
       'https://goteleport.com/docs/enroll-resources/server-access/getting-started/',
+    resourceType: SearchResource.SERVER,
     readOnly: {
       title: 'No Servers Found',
       resource: 'servers',

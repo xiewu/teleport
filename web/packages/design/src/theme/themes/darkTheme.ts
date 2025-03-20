@@ -29,14 +29,11 @@ import {
 } from 'design/theme/palette';
 
 import { lighten } from '../utils/colorManipulator';
+
 import { sharedColors, sharedStyles } from './sharedStyles';
 import { DataVisualisationColors, Theme, ThemeColors } from './types';
 
-/**
- * Used for the user icon in Connect (the top-right one).
- * In both the light and dark mode, the dark version of dataVisualisationColors is used.
- */
-export const dataVisualisationColors: DataVisualisationColors = {
+const dataVisualisationColors: DataVisualisationColors = {
   primary: {
     purple: '#9F85FF',
     wednesdays: '#F74DFF',
@@ -94,34 +91,6 @@ const colors: ThemeColors = {
   brand: '#9F85FF',
 
   interactive: {
-    solid: {
-      primary: {
-        default: '#9F85FF',
-        hover: '#B29DFF',
-        active: '#C5B6FF',
-      },
-      success: {
-        default: '#00BFA6',
-        hover: '#33CCB8',
-        active: '#66D9CA',
-      },
-      accent: {
-        default: '#009EFF',
-        hover: '#33B1FF',
-        active: '#66C5FF',
-      },
-      danger: {
-        default: '#FF6257',
-        hover: '#FF8179',
-        active: '#FFA19A',
-      },
-      alert: {
-        default: '#FFAB00',
-        hover: '#FFBC33',
-        active: '#FFCD66',
-      },
-    },
-
     tonal: {
       primary: [
         'rgba(159,133,255, 0.1)',
@@ -148,7 +117,7 @@ const colors: ThemeColors = {
         'rgba(0, 158, 255, 0.18)',
         'rgba(0, 158, 255, 0.25)',
       ],
-      neutral: [neutralColors[0], neutralColors[1], neutralColors[2]],
+      neutral: neutralColors,
     },
   },
 
@@ -205,8 +174,7 @@ const colors: ThemeColors = {
   },
 
   tooltip: {
-    background: 'rgba(255, 255, 255, 0.8)',
-    inverseBackground: 'rgba(0, 0, 0, 0.5)',
+    background: '#212B2F',
   },
 
   progressBarColor: '#00BFA5',
@@ -270,8 +238,6 @@ const colors: ThemeColors = {
     brightBlue: dataVisualisationColors.tertiary.picton,
     brightMagenta: dataVisualisationColors.tertiary.purple,
     brightCyan: dataVisualisationColors.tertiary.cyan,
-    searchMatch: '#FFD98C',
-    activeSearchMatch: '#FFAB00',
   },
 
   accessGraph: {

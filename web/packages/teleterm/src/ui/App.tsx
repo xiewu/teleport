@@ -22,14 +22,11 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 
 import { AppInitializer } from 'teleterm/ui/AppInitializer';
 
-import AppContext from './appContext';
-import AppContextProvider from './appContextProvider';
-import { StyledApp } from './components/App';
 import { CatchError } from './components/CatchError';
-import { ResourcesContextProvider } from './DocumentCluster/resourcesContext';
+import { StyledApp } from './components/App';
+import AppContextProvider from './appContextProvider';
+import AppContext from './appContext';
 import { ThemeProvider } from './ThemeProvider';
-import { ConnectionsContextProvider } from './TopBar/Connections/connectionsContext';
-import { VnetContextProvider } from './Vnet/vnetContext';
 
 export const App: React.FC<{ ctx: AppContext }> = ({ ctx }) => {
   return (
@@ -37,15 +34,9 @@ export const App: React.FC<{ ctx: AppContext }> = ({ ctx }) => {
       <StyledApp>
         <DndProvider backend={HTML5Backend}>
           <AppContextProvider value={ctx}>
-            <ResourcesContextProvider>
-              <ConnectionsContextProvider>
-                <VnetContextProvider>
-                  <ThemeProvider>
-                    <AppInitializer />
-                  </ThemeProvider>
-                </VnetContextProvider>
-              </ConnectionsContextProvider>
-            </ResourcesContextProvider>
+            <ThemeProvider>
+              <AppInitializer />
+            </ThemeProvider>
           </AppContextProvider>
         </DndProvider>
       </StyledApp>

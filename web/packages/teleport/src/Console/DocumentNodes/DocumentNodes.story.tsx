@@ -16,11 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+
 import { Node } from 'teleport/services/nodes/types';
 
-import { TestLayout } from './../Console.story';
-import ConsoleCtx from './../consoleContext';
 import DocumentNodes from './DocumentNodes';
+import ConsoleCtx from './../consoleContext';
+import { TestLayout } from './../Console.story';
 
 export default {
   title: 'Teleport/Console/DocumentNodes',

@@ -21,6 +21,8 @@ package common
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -38,9 +40,7 @@ import (
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/utils/keys"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib/client"
-	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/fixtures"
 	"github.com/gravitational/teleport/lib/modules"
@@ -76,9 +76,7 @@ func TestTshDB(t *testing.T) {
 		&modules.TestModules{
 			TestBuildType: modules.BuildEnterprise,
 			TestFeatures: modules.Features{
-				Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-					entitlements.DB: {Enabled: true},
-				},
+				DB: true,
 			},
 		},
 	)
@@ -207,13 +205,8 @@ func testDatabaseLogin(t *testing.T) {
 				}, {
 					Name:         "mssql",
 					Protocol:     defaults.ProtocolSQLServer,
-					URI:          "sqlserver.example.com:1433",
+					URI:          "localhost:1433",
 					StaticLabels: map[string]string{"env": "dev"},
-					AD: servicecfg.DatabaseAD{
-						KeytabFile: "/etc/keytab",
-						Domain:     "EXAMPLE.COM",
-						SPN:        "MSSQLSvc/sqlserver.example.com:1433",
-					},
 				}, {
 					Name:         "dynamodb",
 					Protocol:     defaults.ProtocolDynamoDB,
@@ -231,7 +224,7 @@ func testDatabaseLogin(t *testing.T) {
 	s.user = alice
 
 	// Log into Teleport cluster.
-	tmpHomePath, _ := mustLoginLegacy(t, s)
+	tmpHomePath, _ := mustLogin(t, s)
 
 	testCases := []struct {
 		// the test name
@@ -440,7 +433,7 @@ func testDatabaseLogin(t *testing.T) {
 			}
 			args := append([]string{
 				// default --db-user and --db-name are selected from roles.
-				"db", "login", "--insecure",
+				"db", "login",
 			}, selectors...)
 			args = append(args, test.extraLoginOptions...)
 
@@ -717,7 +710,7 @@ func testListDatabase(t *testing.T) {
 		}),
 	)
 
-	tshHome, _ := mustLoginLegacy(t, s)
+	tshHome, _ := mustLogin(t, s)
 
 	captureStdout := new(bytes.Buffer)
 	err := Run(context.Background(), []string{
@@ -929,7 +922,7 @@ func TestDBInfoHasChanged(t *testing.T) {
 
 	ca, err := tlsca.FromKeys([]byte(fixtures.TLSCACertPEM), []byte(fixtures.TLSCAKeyPEM))
 	require.NoError(t, err)
-	privateKey, err := cryptosuites.GenerateKeyWithAlgorithm(cryptosuites.RSA2048)
+	privateKey, err := rsa.GenerateKey(rand.Reader, constants.RSAKeySize)
 	require.NoError(t, err)
 
 	for _, tc := range tests {
@@ -1589,7 +1582,7 @@ func testDatabaseSelection(t *testing.T) {
 	s.user = alice
 
 	// Log into Teleport cluster.
-	tmpHomePath, _ := mustLoginLegacy(t, s)
+	tmpHomePath, _ := mustLogin(t, s)
 
 	t.Run("GetDatabasesForLogout", func(t *testing.T) {
 		t.Parallel()

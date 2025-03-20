@@ -29,11 +29,9 @@ export const MessageTypeEnum = {
   RESIZE: 'w',
   FILE_TRANSFER_REQUEST: 'f',
   FILE_TRANSFER_DECISION: 't',
-  MFA_CHALLENGE: 'n',
+  WEBAUTHN_CHALLENGE: 'n',
   ERROR: 'e',
   LATENCY: 'l',
-  KUBE_EXEC: 'k',
-  DB_CONNECT: 'd',
 };
 
 export const messageFields = {
@@ -60,10 +58,8 @@ export const messageFields = {
       data: MessageTypeEnum.RAW.charCodeAt(0),
       event: MessageTypeEnum.AUDIT.charCodeAt(0),
       close: MessageTypeEnum.SESSION_END.charCodeAt(0),
-      challengeResponse: MessageTypeEnum.MFA_CHALLENGE.charCodeAt(0),
-      kubeExec: MessageTypeEnum.KUBE_EXEC.charCodeAt(0),
+      challengeResponse: MessageTypeEnum.WEBAUTHN_CHALLENGE.charCodeAt(0),
       error: MessageTypeEnum.ERROR.charCodeAt(0),
-      dbConnect: MessageTypeEnum.DB_CONNECT.charCodeAt(0),
     },
   },
 };
@@ -91,14 +87,6 @@ export class Protobuf {
 
   encodeFileTransferDecision(message) {
     return this.encode(messageFields.type.values.fileTransferDecision, message);
-  }
-
-  encodeKubeExecData(message) {
-    return this.encode(messageFields.type.values.kubeExec, message);
-  }
-
-  encodeDbConnectData(message) {
-    return this.encode(messageFields.type.values.dbConnect, message);
   }
 
   encodeRawMessage(message) {

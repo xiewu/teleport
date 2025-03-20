@@ -21,6 +21,11 @@ package services
 import (
 	"context"
 
+	"github.com/gravitational/trace"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	crownjewelv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/crownjewel/v1"
 )
 
@@ -44,10 +49,39 @@ type CrownJewels interface {
 
 // MarshalCrownJewel marshals the CrownJewel object into a JSON byte array.
 func MarshalCrownJewel(object *crownjewelv1.CrownJewel, opts ...MarshalOption) ([]byte, error) {
-	return MarshalProtoResource(object, opts...)
+	cfg, err := CollectOptions(opts)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	if !cfg.PreserveResourceID {
+		object = proto.Clone(object).(*crownjewelv1.CrownJewel)
+		object.Metadata.Revision = ""
+	}
+	data, err := protojson.Marshal(object)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return data, nil
 }
 
 // UnmarshalCrownJewel unmarshals the CrownJewel object from a JSON byte array.
 func UnmarshalCrownJewel(data []byte, opts ...MarshalOption) (*crownjewelv1.CrownJewel, error) {
-	return UnmarshalProtoResource[*crownjewelv1.CrownJewel](data, opts...)
+	if len(data) == 0 {
+		return nil, trace.BadParameter("missing crown jewel data")
+	}
+	cfg, err := CollectOptions(opts)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	var obj crownjewelv1.CrownJewel
+	if err := protojson.Unmarshal(data, &obj); err != nil {
+		return nil, trace.BadParameter(err.Error())
+	}
+	if cfg.Revision != "" {
+		obj.Metadata.Revision = cfg.Revision
+	}
+	if !cfg.Expires.IsZero() {
+		obj.Metadata.Expires = timestamppb.New(cfg.Expires)
+	}
+	return &obj, nil
 }

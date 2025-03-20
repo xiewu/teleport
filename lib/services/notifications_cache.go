@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"reflect"
 	"sync"
 	"time"
 
@@ -35,7 +36,6 @@ import (
 	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/utils"
-	logutils "github.com/gravitational/teleport/lib/utils/log"
 	"github.com/gravitational/teleport/lib/utils/sortcache"
 )
 
@@ -205,30 +205,23 @@ func (c *UserNotificationCache) StreamUserNotifications(ctx context.Context, use
 	// Get the initial startKey if it wasn't provided.
 	if startKey == "" {
 		startKey = sortcache.NextKey(endKey)
-	} else {
-		// The sortcache expects the key to be in <username>/<uuid> format, so we prepend the username since the startKey passed into this function will just be a UUID.
-		startKey = fmt.Sprintf("%s/%s", username, startKey)
 	}
 
-	const limit = 50
 	var done bool
 	return stream.PageFunc(func() ([]*notificationsv1.Notification, error) {
 		if done {
 			return nil, io.EOF
 		}
+		notifications, nextKey := c.primaryCache.DescendPaginated(notificationKey, startKey, endKey, 50)
+		startKey = nextKey
+		done = nextKey == ""
 
-		notifications := make([]*notificationsv1.Notification, 0, limit)
-		for n := range c.primaryCache.Descend(notificationKey, startKey, endKey) {
-			if len(notifications) == limit {
-				startKey = c.primaryCache.KeyOf(notificationKey, n)
-				return notifications, nil
-			}
-
-			notifications = append(notifications, apiutils.CloneProtoMsg(n))
+		// Return copies of the notification to prevent mutating the original.
+		clonedNotifications := make([]*notificationsv1.Notification, 0, len(notifications))
+		for _, notification := range notifications {
+			clonedNotifications = append(clonedNotifications, apiutils.CloneProtoMsg(notification))
 		}
-
-		done = true
-		return notifications, nil
+		return clonedNotifications, nil
 	})
 }
 
@@ -273,7 +266,7 @@ func (c *UserNotificationCache) fetch(ctx context.Context) (*sortcache.SortCache
 // GetUserSpecificKey returns the key for a user-specific notification in <username>/<notification uuid> format.
 func GetUserSpecificKey(n *notificationsv1.Notification) string {
 	username := n.GetSpec().GetUsername()
-	id := n.GetMetadata().GetName()
+	id := n.GetSpec().GetId()
 
 	return fmt.Sprintf("%s/%s", username, id)
 }
@@ -319,25 +312,21 @@ func (c *GlobalNotificationCache) StreamGlobalNotifications(ctx context.Context,
 		return stream.Fail[*notificationsv1.GlobalNotification](trace.Errorf("global notifications cache was not configured with index %q (this is a bug)", notificationID))
 	}
 
-	const limit = 50
 	var done bool
 	return stream.PageFunc(func() ([]*notificationsv1.GlobalNotification, error) {
 		if done {
 			return nil, io.EOF
 		}
+		notifications, nextKey := c.primaryCache.DescendPaginated(notificationID, startKey, "", 50)
+		startKey = nextKey
+		done = nextKey == ""
 
-		notifications := make([]*notificationsv1.GlobalNotification, 0, limit)
-		for n := range c.primaryCache.Descend(notificationID, startKey, "") {
-			if len(notifications) == limit {
-				startKey = c.primaryCache.KeyOf(notificationID, n)
-				return notifications, nil
-			}
-
-			notifications = append(notifications, apiutils.CloneProtoMsg(n))
+		// Return copies of the notification to prevent mutating the original.
+		clonedNotifications := make([]*notificationsv1.GlobalNotification, 0, len(notifications))
+		for _, notification := range notifications {
+			clonedNotifications = append(clonedNotifications, apiutils.CloneProtoMsg(notification))
 		}
-
-		done = true
-		return notifications, nil
+		return clonedNotifications, nil
 	})
 }
 
@@ -464,14 +453,14 @@ func (c *UserNotificationCache) processEventsAndUpdateCurrent(ctx context.Contex
 			// to transform the notification into a legacy resource. We now have to use Unwrap() to get the original RFD153-style notification out and add it to the cache.
 			resource153, ok := event.Resource.(types.Resource153Unwrapper)
 			if !ok {
-				slog.WarnContext(ctx, "Unexpected resource type in event (expected types.Resource153Unwrapper)", "resource_type", logutils.TypeAttr(resource153))
+				slog.WarnContext(ctx, "Unexpected resource type in event (expected types.Resource153Unwrapper)", "resource_type", reflect.TypeOf(resource153))
 				continue
 			}
 			resource := resource153.Unwrap()
 
 			notification, ok := resource.(*notificationsv1.Notification)
 			if !ok {
-				slog.WarnContext(ctx, "Unexpected resource type in event (expected *notificationsv1.Notification)", "resource_type", logutils.TypeAttr(resource))
+				slog.WarnContext(ctx, "Unexpected resource type in event (expected *notificationsv1.Notification)", "resource_type", reflect.TypeOf(resource))
 				continue
 			}
 			if evicted := cache.Put(notification); evicted > 1 {
@@ -495,14 +484,14 @@ func (c *GlobalNotificationCache) processEventsAndUpdateCurrent(ctx context.Cont
 		case types.OpPut:
 			resource153, ok := event.Resource.(types.Resource153Unwrapper)
 			if !ok {
-				slog.WarnContext(ctx, "Unexpected resource type in event (expected types.Resource153Unwrapper)", "resource_type", logutils.TypeAttr(resource153))
+				slog.WarnContext(ctx, "Unexpected resource type in event (expected types.Resource153Unwrapper)", "resource_type", reflect.TypeOf(resource153))
 				continue
 			}
 			resource := resource153.Unwrap()
 
 			globalNotification, ok := resource.(*notificationsv1.GlobalNotification)
 			if !ok {
-				slog.WarnContext(ctx, "Unexpected resource type in event (expected *notificationsv1.GlobalNotification)", "resource_type", logutils.TypeAttr(resource))
+				slog.WarnContext(ctx, "Unexpected resource type in event (expected *notificationsv1.GlobalNotification)", "resource_type", reflect.TypeOf(resource))
 				continue
 			}
 			if evicted := cache.Put(globalNotification); evicted > 1 {

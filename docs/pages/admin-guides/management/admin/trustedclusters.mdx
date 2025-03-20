@@ -151,11 +151,13 @@ To complete the steps in this guide, verify your environment meets the following
 
 - The `tctl` admin tool and `tsh` client tool version >= (=teleport.version=).
   
-  You can verify the tools you have installed by running the following commands:
+  For Teleport Enterprise and Teleport Enterprise cloud, you should have the
+  Enterprise version of `tctl` and `tsh` installed.  You can verify the tools
+  you have installed by running the following commands:
 
   ```code
   $ tctl version
-  # Teleport v(=teleport.version=) go(=teleport.golang=)
+  # Teleport Enterprise v(=teleport.version=) go(=teleport.golang=)
   
   $ tsh version
   # Teleport v(=teleport.version=) go(=teleport.golang=)
@@ -180,7 +182,7 @@ logging in to the server in the leaf cluster.
 
 To add a user and role for accessing the trusted cluster:
 
-1. Open a terminal shell on the server running the Teleport Agent in the leaf cluster.
+1. Open a terminal shell on the server running the Teleport agent in the leaf cluster.
 
 1. Add the local `visitor` user and create a home directory for the user by running the 
 following command:
@@ -223,7 +225,7 @@ your Teleport username:
    ```
 
    You must explicitly allow access to nodes with labels to SSH into the server running 
-   the Teleport Agent. In this example, the `visitor` login is allowed access to any server.
+   the Teleport agent. In this example, the `visitor` login is allowed access to any server.
 
 1. Create the `visitor` role by running the following command:
    
@@ -231,8 +233,6 @@ your Teleport username:
    $ tctl create visitor.yaml
    ```
    
-   (!docs/pages/includes/create-role-using-web.mdx!)
-
    You now have a `visitor` role on your leaf cluster. The `visitor` role allows 
    users with the `visitor` login to access nodes in the leaf cluster. In the next step, 
    you must add the `visitor` login to your user so you can satisfy the conditions of 
@@ -263,16 +263,16 @@ your Teleport username:
    Replace `rootcluster.example.com` with the Teleport root cluster domain and 
    `myuser` with your Teleport username.
 
-1. Open your user resource in your editor by running a command similar to the
-   following:
+1. Create a file called `user.yaml` with your current user configuration by running 
+a command similar to the following:
 
    ```code
-   $ tctl edit user/<Var name="myuser" />
+   $ tctl get user/<Var name="myuser" /> > user.yaml
    ```
 
    Replace `myuser` with your Teleport username.
 
-1. Add the `visitor` login:
+1. Open the `user.yaml` file in a text editor and add the `visitor` login:
    
    ```diff
       traits:
@@ -282,7 +282,11 @@ your Teleport username:
         - root
    ```
 
-1. Apply your changes by saving and closing the file in your editor.
+1. Apply your changes by running the following command:
+   
+   ```code
+   $ tctl create -f user.yaml
+   ```
 
 ## Step 3/6. Establish trust between clusters
 
@@ -572,7 +576,7 @@ running the following command:
    ```
    
 
-1. Confirm that the server running the Teleport Agent is joined to the leaf cluster by 
+1. Confirm that the server running the Teleport agent is joined to the leaf cluster by 
 running a command similar to the following:
    
    ```code
@@ -695,7 +699,7 @@ node_labels:
 ```
 
 For full details on how variable expansion works in Teleport roles, see the
-[Access Controls
+[Teleport Access Controls
 Reference](../../../reference/access-controls/roles.mdx).
 
 ### Update role mappings
@@ -746,10 +750,10 @@ your Teleport username:
    Replace `leafcluster.example.com` with the Teleport leaf cluster domain and 
    `myuser` with your Teleport username.
 
-1. Edit the resource configuration by running the following command:
+1. Retrieve the resource configuration by running the following command:
 
    ```code
-   $ tctl edit trusted_cluster/<Var name="rootcluster.example.com" />
+   $ tctl get trusted_cluster/<Var name="rootcluster.example.com" /> > trusted_cluster.yaml
    ```
 
 1. Set the `spec.enabled` field to `false`:
@@ -763,9 +767,12 @@ your Teleport username:
         - visitor
    ```
 
-1. Update the trusted cluster configuration by saving and closing the file in
-   your editor.
+1. Update the trusted cluster configuration by running the following command:
 
+   ```code
+   $ tctl create --force trusted_cluster.yaml
+   ```
+      
    This command closes the reverse tunnel between your leaf cluster and your root cluster.
    It also deactivates the root cluster's certificate authority on the leaf cluster.
 
@@ -895,9 +902,8 @@ command to start the teleport service:
 teleport start --debug`
 ```
 
-You can also enable verbose output by updating the configuration file for both
-Auth Service instances.  Open the `/etc/teleport.yaml` configuration file and
-add `DEBUG` to the `log` configuration section:
+You can also enable verbose output by updating the configuration file for both Auth Services.
+Open the `/etc/teleport.yaml` configuration file and add `DEBUG` to the `log` configuration section:
 
 ```yaml
 # Snippet from /etc/teleport.yaml

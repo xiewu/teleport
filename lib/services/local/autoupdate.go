@@ -32,29 +32,27 @@ import (
 )
 
 const (
-	autoUpdateConfigPrefix       = "auto_update_config"
-	autoUpdateVersionPrefix      = "auto_update_version"
-	autoUpdateAgentRolloutPrefix = "auto_update_agent_rollout"
+	autoUpdateConfigPrefix  = "auto_update_config"
+	autoUpdateVersionPrefix = "auto_update_version"
 )
 
 // AutoUpdateService is responsible for managing AutoUpdateConfig and AutoUpdateVersion singleton resources.
 type AutoUpdateService struct {
 	config  *generic.ServiceWrapper[*autoupdate.AutoUpdateConfig]
 	version *generic.ServiceWrapper[*autoupdate.AutoUpdateVersion]
-	rollout *generic.ServiceWrapper[*autoupdate.AutoUpdateAgentRollout]
 }
 
 // NewAutoUpdateService returns a new AutoUpdateService.
-func NewAutoUpdateService(b backend.Backend) (*AutoUpdateService, error) {
+func NewAutoUpdateService(backend backend.Backend) (*AutoUpdateService, error) {
 	config, err := generic.NewServiceWrapper(
-		generic.ServiceConfig[*autoupdate.AutoUpdateConfig]{
-			Backend:       b,
+		generic.ServiceWrapperConfig[*autoupdate.AutoUpdateConfig]{
+			Backend:       backend,
 			ResourceKind:  types.KindAutoUpdateConfig,
-			BackendPrefix: backend.NewKey(autoUpdateConfigPrefix),
+			BackendPrefix: autoUpdateConfigPrefix,
 			MarshalFunc:   services.MarshalProtoResource[*autoupdate.AutoUpdateConfig],
 			UnmarshalFunc: services.UnmarshalProtoResource[*autoupdate.AutoUpdateConfig],
 			ValidateFunc:  update.ValidateAutoUpdateConfig,
-			NameKeyFunc: func(string) string {
+			KeyFunc: func(*autoupdate.AutoUpdateConfig) string {
 				return types.MetaNameAutoUpdateConfig
 			},
 		})
@@ -62,30 +60,15 @@ func NewAutoUpdateService(b backend.Backend) (*AutoUpdateService, error) {
 		return nil, trace.Wrap(err)
 	}
 	version, err := generic.NewServiceWrapper(
-		generic.ServiceConfig[*autoupdate.AutoUpdateVersion]{
-			Backend:       b,
+		generic.ServiceWrapperConfig[*autoupdate.AutoUpdateVersion]{
+			Backend:       backend,
 			ResourceKind:  types.KindAutoUpdateVersion,
-			BackendPrefix: backend.NewKey(autoUpdateVersionPrefix),
+			BackendPrefix: autoUpdateVersionPrefix,
 			MarshalFunc:   services.MarshalProtoResource[*autoupdate.AutoUpdateVersion],
 			UnmarshalFunc: services.UnmarshalProtoResource[*autoupdate.AutoUpdateVersion],
 			ValidateFunc:  update.ValidateAutoUpdateVersion,
-			NameKeyFunc: func(string) string {
+			KeyFunc: func(version *autoupdate.AutoUpdateVersion) string {
 				return types.MetaNameAutoUpdateVersion
-			},
-		})
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	rollout, err := generic.NewServiceWrapper(
-		generic.ServiceConfig[*autoupdate.AutoUpdateAgentRollout]{
-			Backend:       b,
-			ResourceKind:  types.KindAutoUpdateAgentRollout,
-			BackendPrefix: backend.NewKey(autoUpdateAgentRolloutPrefix),
-			MarshalFunc:   services.MarshalProtoResource[*autoupdate.AutoUpdateAgentRollout],
-			UnmarshalFunc: services.UnmarshalProtoResource[*autoupdate.AutoUpdateAgentRollout],
-			ValidateFunc:  update.ValidateAutoUpdateAgentRollout,
-			NameKeyFunc: func(string) string {
-				return types.MetaNameAutoUpdateAgentRollout
 			},
 		})
 	if err != nil {
@@ -95,7 +78,6 @@ func NewAutoUpdateService(b backend.Backend) (*AutoUpdateService, error) {
 	return &AutoUpdateService{
 		config:  config,
 		version: version,
-		rollout: rollout,
 	}, nil
 }
 
@@ -113,7 +95,7 @@ func (s *AutoUpdateService) UpdateAutoUpdateConfig(
 	ctx context.Context,
 	c *autoupdate.AutoUpdateConfig,
 ) (*autoupdate.AutoUpdateConfig, error) {
-	config, err := s.config.ConditionalUpdateResource(ctx, c)
+	config, err := s.config.UpdateResource(ctx, c)
 	return config, trace.Wrap(err)
 }
 
@@ -151,7 +133,7 @@ func (s *AutoUpdateService) UpdateAutoUpdateVersion(
 	ctx context.Context,
 	v *autoupdate.AutoUpdateVersion,
 ) (*autoupdate.AutoUpdateVersion, error) {
-	version, err := s.version.ConditionalUpdateResource(ctx, v)
+	version, err := s.version.UpdateResource(ctx, v)
 	return version, trace.Wrap(err)
 }
 
@@ -175,44 +157,6 @@ func (s *AutoUpdateService) DeleteAutoUpdateVersion(ctx context.Context) error {
 	return trace.Wrap(s.version.DeleteResource(ctx, types.MetaNameAutoUpdateVersion))
 }
 
-// CreateAutoUpdateAgentRollout creates the AutoUpdateAgentRollout singleton resource.
-func (s *AutoUpdateService) CreateAutoUpdateAgentRollout(
-	ctx context.Context,
-	v *autoupdate.AutoUpdateAgentRollout,
-) (*autoupdate.AutoUpdateAgentRollout, error) {
-	rollout, err := s.rollout.CreateResource(ctx, v)
-	return rollout, trace.Wrap(err)
-}
-
-// UpdateAutoUpdateAgentRollout updates the AutoUpdateAgentRollout singleton resource.
-func (s *AutoUpdateService) UpdateAutoUpdateAgentRollout(
-	ctx context.Context,
-	v *autoupdate.AutoUpdateAgentRollout,
-) (*autoupdate.AutoUpdateAgentRollout, error) {
-	rollout, err := s.rollout.ConditionalUpdateResource(ctx, v)
-	return rollout, trace.Wrap(err)
-}
-
-// UpsertAutoUpdateAgentRollout sets the AutoUpdateAgentRollout singleton resource.
-func (s *AutoUpdateService) UpsertAutoUpdateAgentRollout(
-	ctx context.Context,
-	v *autoupdate.AutoUpdateAgentRollout,
-) (*autoupdate.AutoUpdateAgentRollout, error) {
-	rollout, err := s.rollout.UpsertResource(ctx, v)
-	return rollout, trace.Wrap(err)
-}
-
-// GetAutoUpdateAgentRollout gets the AutoUpdateAgentRollout singleton resource.
-func (s *AutoUpdateService) GetAutoUpdateAgentRollout(ctx context.Context) (*autoupdate.AutoUpdateAgentRollout, error) {
-	rollout, err := s.rollout.GetResource(ctx, types.MetaNameAutoUpdateAgentRollout)
-	return rollout, trace.Wrap(err)
-}
-
-// DeleteAutoUpdateAgentRollout deletes the AutoUpdateAgentRollout singleton resource.
-func (s *AutoUpdateService) DeleteAutoUpdateAgentRollout(ctx context.Context) error {
-	return trace.Wrap(s.rollout.DeleteResource(ctx, types.MetaNameAutoUpdateAgentRollout))
-}
-
 // itemFromAutoUpdateConfig generates `backend.Item` from `AutoUpdateConfig` resource type.
 func itemFromAutoUpdateConfig(config *autoupdate.AutoUpdateConfig) (*backend.Item, error) {
 	if err := update.ValidateAutoUpdateConfig(config); err != nil {
@@ -222,7 +166,7 @@ func itemFromAutoUpdateConfig(config *autoupdate.AutoUpdateConfig) (*backend.Ite
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	value, err := services.MarshalProtoResource(config)
+	value, err := services.MarshalProtoResource[*autoupdate.AutoUpdateConfig](config)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -231,7 +175,7 @@ func itemFromAutoUpdateConfig(config *autoupdate.AutoUpdateConfig) (*backend.Ite
 		return nil, trace.Wrap(err)
 	}
 	item := &backend.Item{
-		Key:      backend.NewKey(autoUpdateConfigPrefix).AppendKey(backend.NewKey(types.MetaNameAutoUpdateConfig)),
+		Key:      backend.NewKey(autoUpdateConfigPrefix, types.MetaNameAutoUpdateConfig),
 		Value:    value,
 		Expires:  expires,
 		Revision: rev,
@@ -248,7 +192,7 @@ func itemFromAutoUpdateVersion(version *autoupdate.AutoUpdateVersion) (*backend.
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	value, err := services.MarshalProtoResource(version)
+	value, err := services.MarshalProtoResource[*autoupdate.AutoUpdateVersion](version)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -257,7 +201,7 @@ func itemFromAutoUpdateVersion(version *autoupdate.AutoUpdateVersion) (*backend.
 		return nil, trace.Wrap(err)
 	}
 	item := &backend.Item{
-		Key:      backend.NewKey(autoUpdateVersionPrefix).AppendKey(backend.NewKey(types.MetaNameAutoUpdateVersion)),
+		Key:      backend.NewKey(autoUpdateVersionPrefix, types.MetaNameAutoUpdateVersion),
 		Value:    value,
 		Expires:  expires,
 		Revision: rev,

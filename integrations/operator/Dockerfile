@@ -58,7 +58,6 @@ RUN go mod download
 COPY *.go ./
 COPY lib/ lib/
 COPY gen/ gen/
-COPY entitlements/ entitlements/
 COPY integrations/lib/embeddedtbot/ integrations/lib/embeddedtbot/
 COPY integrations/operator/apis/ integrations/operator/apis/
 COPY integrations/operator/controllers/ integrations/operator/controllers/
@@ -77,7 +76,7 @@ ARG TARGETARCH
 # CGO is required for github.com/gravitational/teleport/lib/system
 RUN echo "Targeting $TARGETOS/$TARGETARCH with CC=$COMPILER_NAME" && \
     CGO_ENABLED=1 CC=$COMPILER_NAME GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -tags "kustomize_disable_go_plugin_support" -a -o /go/bin/teleport-operator github.com/gravitational/teleport/integrations/operator
+    go build -a -o /go/bin/teleport-operator github.com/gravitational/teleport/integrations/operator
 
 # Create the image with the build operator on the $TARGETPLATFORM
 # TARGETPLATFORM is provided by Docker/buildx

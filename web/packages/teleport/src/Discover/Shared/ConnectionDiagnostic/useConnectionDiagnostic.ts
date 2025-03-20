@@ -17,23 +17,21 @@
  */
 
 import { useState } from 'react';
-
 import useAttempt from 'shared/hooks/useAttemptNext';
 
-import {
-  getDatabaseProtocol,
-  type ResourceSpec,
-} from 'teleport/Discover/SelectResource';
-import { useDiscover } from 'teleport/Discover/useDiscover';
-import {
-  agentService,
-  type ConnectionDiagnostic,
-  type ConnectionDiagnosticRequest,
-} from 'teleport/services/agents';
-import auth from 'teleport/services/auth/auth';
-import type { MfaChallengeResponse } from 'teleport/services/mfa';
-import { DiscoverEventStatus } from 'teleport/services/userEvent';
 import useTeleport from 'teleport/useTeleport';
+import { useDiscover } from 'teleport/Discover/useDiscover';
+import { DiscoverEventStatus } from 'teleport/services/userEvent';
+import auth from 'teleport/services/auth/auth';
+import { getDatabaseProtocol } from 'teleport/Discover/SelectResource';
+import { agentService } from 'teleport/services/agents';
+
+import type {
+  ConnectionDiagnostic,
+  ConnectionDiagnosticRequest,
+} from 'teleport/services/agents';
+import type { MfaAuthnResponse } from 'teleport/services/mfa';
+import type { ResourceSpec } from 'teleport/Discover/SelectResource';
 
 export function useConnectionDiagnostic() {
   const ctx = useTeleport();
@@ -62,7 +60,7 @@ export function useConnectionDiagnostic() {
    */
   async function runConnectionDiagnostic(
     req: ConnectionDiagnosticRequest,
-    mfaAuthnResponse?: MfaChallengeResponse
+    mfaAuthnResponse?: MfaAuthnResponse
   ): Promise<{ mfaRequired: boolean }> {
     setDiagnosis(null); // reset since user's can re-test connection.
     setRanDiagnosis(true);

@@ -16,14 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { RequestableResourceKind } from 'shared/components/AccessRequests/NewRequest/resource';
 import type { Option } from 'shared/components/Select';
+
+import type { ResourceIdKind } from 'teleport/services/agents';
 
 export type DurationOption = Option<number>;
 
 export interface Resource {
   id: {
-    kind: RequestableResourceKind;
+    kind: ResourceIdKind;
     name: string;
     clusterName: string;
     subResourceName?: string;
@@ -37,7 +38,7 @@ export interface Resource {
 type RequestState = 'NONE' | 'PENDING' | 'APPROVED' | 'DENIED' | 'APPLIED' | '';
 
 export interface ResourceId {
-  kind: RequestableResourceKind;
+  kind: ResourceIdKind;
   name: string;
   clusterName: string;
   subResourceName?: string;
@@ -68,21 +69,3 @@ export interface CreateAccessRequest {
   maxDuration?: Date;
   dryRun?: boolean;
 }
-
-interface AccessRequestResourceBase {
-  id: string;
-  type: 'app' | 'node' | 'kubernetes' | 'desktop' | 'database';
-}
-
-interface AccessRequestGenericResource extends AccessRequestResourceBase {
-  type: 'app' | 'kubernetes' | 'desktop' | 'database';
-}
-
-interface AccessRequestNodeResource extends AccessRequestResourceBase {
-  type: 'node';
-  friendlyName: string;
-}
-
-export type AccessRequestResource =
-  | AccessRequestGenericResource
-  | AccessRequestNodeResource;

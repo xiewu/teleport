@@ -16,25 +16,24 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Integration, IntegrationKind } from 'teleport/services/integrations';
+import React from 'react';
 
-import { EditAwsOidcIntegrationDialog } from '../EditAwsOidcIntegrationDialog';
+import { Integration } from 'teleport/services/integrations';
+
 import { DeleteIntegrationDialog } from '../RemoveIntegrationDialog';
+import { EditAwsOidcIntegrationDialog } from '../EditAwsOidcIntegrationDialog';
+
 import {
-  EditableIntegrationFields,
   OperationType,
+  EditableIntegrationFields,
 } from './useIntegrationOperation';
 
-export type DeleteRequestOptions = {
-  deleteAssociatedResources?: boolean;
-};
-
-export type Props<UpdateRequest> = {
+type Props = {
   operation: OperationType;
   integration: Integration;
   close(): void;
-  edit(req: UpdateRequest): Promise<void>;
-  remove(opt?: DeleteRequestOptions): Promise<void>;
+  edit(req: EditableIntegrationFields): Promise<void>;
+  remove(): Promise<void>;
 };
 
 export function IntegrationOperations({
@@ -43,7 +42,7 @@ export function IntegrationOperations({
   close,
   edit,
   remove,
-}: Props<EditableIntegrationFields>) {
+}: Props) {
   if (operation === 'delete') {
     return (
       <DeleteIntegrationDialog
@@ -54,7 +53,7 @@ export function IntegrationOperations({
     );
   }
 
-  if (operation === 'edit' && integration.kind === IntegrationKind.AwsOidc) {
+  if (operation === 'edit') {
     return (
       <EditAwsOidcIntegrationDialog
         integration={integration}

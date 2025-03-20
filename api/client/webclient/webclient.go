@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -35,6 +34,7 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"golang.org/x/net/http/httpproxy"
 
@@ -45,15 +45,6 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/api/utils/keys"
-)
-
-const (
-	// AgentUpdateGroupParameter is the parameter used to specify the updater
-	// group when doing a Ping() or Find() query.
-	// The proxy server will modulate the auto_update part of the PingResponse
-	// based on the specified group. e.g. some groups might need to update
-	// before others.
-	AgentUpdateGroupParameter = "group"
 )
 
 // Config specifies information when building requests with the
@@ -77,9 +68,6 @@ type Config struct {
 	Timeout time.Duration
 	// TraceProvider is used to retrieve a Tracer for creating spans
 	TraceProvider oteltrace.TracerProvider
-	// UpdateGroup is used to vary the webapi response based on the
-	// client's auto-update group.
-	UpdateGroup string
 }
 
 // CheckAndSetDefaults checks and sets defaults
@@ -139,8 +127,7 @@ func doWithFallback(clt *http.Client, allowPlainHTTP bool, extraHeaders map[stri
 		req.Header.Add(k, v)
 	}
 
-	logger := slog.With("method", req.Method, "host", req.URL.Host, "path", req.URL.Path)
-	logger.DebugContext(req.Context(), "Attempting request to Proxy web api")
+	log.Debugf("Attempting %s %s%s", req.Method, req.URL.Host, req.URL.Path)
 	span.AddEvent("sending https request")
 	resp, err := clt.Do(req)
 
@@ -159,7 +146,7 @@ func doWithFallback(clt *http.Client, allowPlainHTTP bool, extraHeaders map[stri
 	// If we get to here a) the HTTPS attempt failed, and b) we're allowed to try
 	// clear-text HTTP to see if that works.
 	req.URL.Scheme = "http"
-	logger.WarnContext(req.Context(), "HTTPS request failed, falling back to HTTP")
+	log.Warnf("Request for %s %s%s falling back to PLAIN HTTP", req.Method, req.URL.Host, req.URL.Path)
 	span.AddEvent("falling back to http request")
 	resp, err = clt.Do(req)
 	if err != nil {
@@ -178,25 +165,12 @@ func Find(cfg *Config) (*PingResponse, error) {
 	}
 	defer clt.CloseIdleConnections()
 
-	return findWithClient(cfg, clt)
-}
-
-func findWithClient(cfg *Config, clt *http.Client) (*PingResponse, error) {
 	ctx, span := cfg.TraceProvider.Tracer("webclient").Start(cfg.Context, "webclient/Find")
 	defer span.End()
 
-	endpoint := &url.URL{
-		Scheme: "https",
-		Host:   cfg.ProxyAddr,
-		Path:   "/webapi/find",
-	}
-	if cfg.UpdateGroup != "" {
-		endpoint.RawQuery = url.Values{
-			AgentUpdateGroupParameter: []string{cfg.UpdateGroup},
-		}.Encode()
-	}
+	endpoint := fmt.Sprintf("https://%s/webapi/find", cfg.ProxyAddr)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -227,28 +201,15 @@ func Ping(cfg *Config) (*PingResponse, error) {
 	}
 	defer clt.CloseIdleConnections()
 
-	return pingWithClient(cfg, clt)
-}
-
-func pingWithClient(cfg *Config, clt *http.Client) (*PingResponse, error) {
 	ctx, span := cfg.TraceProvider.Tracer("webclient").Start(cfg.Context, "webclient/Ping")
 	defer span.End()
 
-	endpoint := &url.URL{
-		Scheme: "https",
-		Host:   cfg.ProxyAddr,
-		Path:   "/webapi/ping",
-	}
-	if cfg.UpdateGroup != "" {
-		endpoint.RawQuery = url.Values{
-			AgentUpdateGroupParameter: []string{cfg.UpdateGroup},
-		}.Encode()
-	}
+	endpoint := fmt.Sprintf("https://%s/webapi/ping", cfg.ProxyAddr)
 	if cfg.ConnectorName != "" {
-		endpoint = endpoint.JoinPath(cfg.ConnectorName)
+		endpoint = fmt.Sprintf("%s/%s", endpoint, cfg.ConnectorName)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -260,7 +221,7 @@ func pingWithClient(cfg *Config, clt *http.Client) (*PingResponse, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.DebugContext(req.Context(), "Received unsuccessful ping response", "code", resp.StatusCode)
+		log.WithField("code", resp.StatusCode).Debug("Received unsuccessful ping response")
 
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -269,7 +230,7 @@ func pingWithClient(cfg *Config, clt *http.Client) (*PingResponse, error) {
 
 		errResp := &PingErrorResponse{}
 		if err := json.Unmarshal(bodyBytes, errResp); err != nil {
-			slog.DebugContext(req.Context(), "Could not parse ping response body", "body", string(bodyBytes))
+			log.WithField("body", string(bodyBytes)).Debug("Could not parse ping response body")
 			return nil, trace.Wrap(err, "cannot parse ping response; is proxy reachable?")
 		}
 
@@ -284,7 +245,6 @@ func pingWithClient(cfg *Config, clt *http.Client) (*PingResponse, error) {
 	return pr, nil
 }
 
-// GetMOTD retrieves the Message Of The Day from the web proxy.
 func GetMOTD(cfg *Config) (*MotD, error) {
 	clt, err := newWebClient(cfg)
 	if err != nil {
@@ -292,10 +252,6 @@ func GetMOTD(cfg *Config) (*MotD, error) {
 	}
 	defer clt.CloseIdleConnections()
 
-	return getMOTDWithClient(cfg, clt)
-}
-
-func getMOTDWithClient(cfg *Config, clt *http.Client) (*MotD, error) {
 	ctx, span := cfg.TraceProvider.Tracer("webclient").Start(cfg.Context, "webclient/GetMOTD")
 	defer span.End()
 
@@ -324,60 +280,6 @@ func getMOTDWithClient(cfg *Config, clt *http.Client) (*MotD, error) {
 	return motd, nil
 }
 
-// NewReusableClient creates a reusable webproxy client. If you need to do a single call,
-// use the webclient.Ping or webclient.Find functions instead.
-func NewReusableClient(cfg *Config) (*ReusableClient, error) {
-	// no need to check and set config defaults, this happens in newWebClient
-	client, err := newWebClient(cfg)
-	if err != nil {
-		return nil, trace.Wrap(err, "building new web client")
-	}
-
-	return &ReusableClient{
-		client: client,
-		config: cfg,
-	}, nil
-}
-
-// ReusableClient is a webproxy client that allows the caller to make multiple calls
-// without having to buildi a new HTTP client each time.
-// Before retiring the client, you must make sure no calls are still in-flight, then call
-// ReusableClient.CloseIdleConnections().
-type ReusableClient struct {
-	client *http.Client
-	config *Config
-}
-
-// Find fetches discovery data by connecting to the given web proxy address.
-// It is designed to fetch proxy public addresses without any inefficiencies.
-func (c *ReusableClient) Find() (*PingResponse, error) {
-	return findWithClient(c.config, c.client)
-}
-
-// Ping serves two purposes. The first is to validate the HTTP endpoint of a
-// Teleport proxy. This leads to better user experience: users get connection
-// errors before being asked for passwords. The second is to return the form
-// of authentication that the server supports. This also leads to better user
-// experience: users only get prompted for the type of authentication the server supports.
-func (c *ReusableClient) Ping() (*PingResponse, error) {
-	return pingWithClient(c.config, c.client)
-}
-
-// GetMOTD retrieves the Message Of The Day from the web proxy.
-func (c *ReusableClient) GetMOTD() (*MotD, error) {
-	return getMOTDWithClient(c.config, c.client)
-}
-
-// CloseIdleConnections closes any connections on its [Transport] which
-// were previously connected from previous requests but are now
-// sitting idle in a "keep-alive" state. It does not interrupt any
-// connections currently in use.
-//
-// This must be run before retiring the ReusableClient.
-func (c *ReusableClient) CloseIdleConnections() {
-	c.client.CloseIdleConnections()
-}
-
 // MotD holds data about the current message of the day.
 type MotD struct {
 	Text string
@@ -402,10 +304,6 @@ type PingResponse struct {
 	// reserved: license_warnings ([]string)
 	// AutomaticUpgrades describes whether agents should automatically upgrade.
 	AutomaticUpgrades bool `json:"automatic_upgrades"`
-	// Edition represents the Teleport edition. Possible values are "oss", "ent", and "community".
-	Edition string `json:"edition"`
-	// FIPS represents if Teleport is using FIPS-compliant cryptography.
-	FIPS bool `json:"fips"`
 }
 
 // PingErrorResponse contains the error from /webapi/ping.
@@ -429,6 +327,8 @@ type ProxySettings struct {
 	// TLSRoutingEnabled indicates that proxy supports ALPN SNI server where
 	// all proxy services are exposed on a single TLS listener (Proxy Web Listener).
 	TLSRoutingEnabled bool `json:"tls_routing_enabled"`
+	// AssistEnabled is true when Teleport Assist is enabled.
+	AssistEnabled bool `json:"assist_enabled"`
 }
 
 // AutoUpdateSettings contains information about the auto update requirements.
@@ -437,12 +337,6 @@ type AutoUpdateSettings struct {
 	ToolsVersion string `json:"tools_version"`
 	// ToolsAutoUpdate indicates if the requesting tools client should be updated.
 	ToolsAutoUpdate bool `json:"tools_auto_update"`
-	// AgentVersion defines the version of teleport that agents enrolled into autoupdates should run.
-	AgentVersion string `json:"agent_version"`
-	// AgentAutoUpdate indicates if the requesting agent should attempt to update now.
-	AgentAutoUpdate bool `json:"agent_auto_update"`
-	// AgentUpdateJitterSeconds defines the jitter time an agent should wait before updating.
-	AgentUpdateJitterSeconds int `json:"agent_update_jitter_seconds"`
 }
 
 // KubeProxySettings is kubernetes proxy settings
@@ -529,6 +423,11 @@ type AuthenticationSettings struct {
 	PrivateKeyPolicy keys.PrivateKeyPolicy `json:"private_key_policy"`
 	// PIVSlot specifies a specific PIV slot to use with hardware key support.
 	PIVSlot keys.PIVSlot `json:"piv_slot"`
+	// DeviceTrustDisabled provides a clue to Teleport clients on whether to avoid
+	// device authentication.
+	// Deprecated: Use DeviceTrust.Disabled instead.
+	// DELETE IN 16.0, replaced by the DeviceTrust field (codingllama).
+	DeviceTrustDisabled bool `json:"device_trust_disabled,omitempty"`
 	// DeviceTrust holds cluster-wide device trust settings.
 	DeviceTrust DeviceTrustSettings `json:"device_trust,omitempty"`
 	// HasMessageOfTheDay is a flag indicating that the cluster has MOTD
@@ -540,9 +439,6 @@ type AuthenticationSettings struct {
 	// DefaultSessionTTL is the TTL requested for user certs if
 	// a TTL is not otherwise specified.
 	DefaultSessionTTL types.Duration `json:"default_session_ttl"`
-	// SignatureAlgorithmSuite is the configured signature algorithm suite for
-	// the cluster.
-	SignatureAlgorithmSuite types.SignatureAlgorithmSuite `json:"signature_algorithm_suite,omitempty"`
 }
 
 // LocalSettings holds settings for local authentication.
@@ -571,8 +467,6 @@ type SAMLSettings struct {
 	Display string `json:"display"`
 	// SingleLogoutEnabled is whether SAML SLO (single logout) is enabled for this auth connector.
 	SingleLogoutEnabled bool `json:"singleLogoutEnabled,omitempty"`
-	// SSO is the URL of the identity provider's SSO service.
-	SSO string
 }
 
 // OIDCSettings contains the Name and Display string for OIDC.
@@ -581,8 +475,6 @@ type OIDCSettings struct {
 	Name string `json:"name"`
 	// Display is the display name for the connector.
 	Display string `json:"display"`
-	// Issuer URL is the endpoint of the provider
-	IssuerURL string
 }
 
 // GithubSettings contains the Name and Display string for Github connector.
@@ -591,8 +483,6 @@ type GithubSettings struct {
 	Name string `json:"name"`
 	// Display is the connector display name
 	Display string `json:"display"`
-	// EndpointURL is the endpoint URL.
-	EndpointURL string
 }
 
 // DeviceTrustSettings holds cluster-wide device trust settings that are liable

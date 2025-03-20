@@ -50,9 +50,7 @@ func (rt contextRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	return resp, trace.Wrap(err)
 }
 
-// MetadataGetter defines a function that is used to get InstanceMetadata.
-// Receives the metadata path and returns the value or an error.
-type MetadataGetter func(ctx context.Context, path string) (string, error)
+type metadataGetter func(ctx context.Context, path string) (string, error)
 
 // InstanceRequest contains parameters for making a request to a specific instance.
 type InstanceRequest struct {
@@ -119,32 +117,16 @@ type InstanceGetter interface {
 
 // InstanceMetadataClient is a client for GCP instance metadata.
 type InstanceMetadataClient struct {
-	getMetadata    MetadataGetter
+	getMetadata    metadataGetter
 	instanceGetter InstanceGetter
 }
 
 // NewInstanceMetadataClient creates a new instance metadata client.
-func NewInstanceMetadataClient(getter InstanceGetter, opts ...ClientOption) (*InstanceMetadataClient, error) {
-	ret := &InstanceMetadataClient{
+func NewInstanceMetadataClient(getter InstanceGetter) (*InstanceMetadataClient, error) {
+	return &InstanceMetadataClient{
 		getMetadata:    getMetadata,
 		instanceGetter: getter,
-	}
-
-	for _, opt := range opts {
-		opt(ret)
-	}
-
-	return ret, nil
-}
-
-// ClientOption is used to customize the InstanceMetadataClient.
-type ClientOption func(*InstanceMetadataClient)
-
-// WithMetadataClient replaces the metadata getter with a custom one.
-func WithMetadataClient(getter MetadataGetter) func(*InstanceMetadataClient) {
-	return func(imc *InstanceMetadataClient) {
-		imc.getMetadata = getter
-	}
+	}, nil
 }
 
 // IsAvailable checks if instance metadata is available.

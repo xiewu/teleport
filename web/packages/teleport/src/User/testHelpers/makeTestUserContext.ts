@@ -27,6 +27,10 @@ export const makeTestUserContext = (
     {
       preferences: {
         theme: 1,
+        assist: {
+          preferredLogins: [],
+          viewMode: 1,
+        },
         onboard: {
           preferredResources: [],
         },
@@ -38,7 +42,6 @@ export const makeTestUserContext = (
       updatePreferences: () => Promise.resolve(),
       updateClusterPinnedResources: () => Promise.resolve(),
       getClusterPinnedResources: () => Promise.resolve(),
-      updateDiscoverResourcePreferences: () => Promise.resolve(),
     },
     overrides
   );

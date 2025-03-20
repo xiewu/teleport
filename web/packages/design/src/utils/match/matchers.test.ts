@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { dateMatcher, dateTimeMatcher } from './matchers';
+import { dateTimeMatcher, dateMatcher } from './matchers';
 
 test('dateTimeMatcher should match date times correctly', () => {
   const searchValue = '23:13';

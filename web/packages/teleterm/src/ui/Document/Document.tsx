@@ -17,7 +17,6 @@
  */
 
 import React from 'react';
-
 import { Flex } from 'design';
 import { useRefAutoFocus } from 'shared/hooks';
 

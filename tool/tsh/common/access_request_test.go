@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib"
 	"github.com/gravitational/teleport/lib/asciitable"
 	"github.com/gravitational/teleport/lib/modules"
@@ -41,9 +40,7 @@ func TestAccessRequestSearch(t *testing.T) {
 	modules.SetTestModules(t, &modules.TestModules{
 		TestBuildType: modules.BuildEnterprise,
 		TestFeatures: modules.Features{
-			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
-				entitlements.K8s: {Enabled: true},
-			},
+			Kubernetes: true,
 		},
 	},
 	)
@@ -200,7 +197,7 @@ func TestAccessRequestSearch(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			homePath, _ := mustLoginLegacy(t, s, tc.args.teleportCluster)
+			homePath, _ := mustLogin(t, s, tc.args.teleportCluster)
 			captureStdout := new(bytes.Buffer)
 			err := Run(
 				context.Background(),

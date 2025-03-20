@@ -16,18 +16,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
+
 import { useLocation, useParams } from 'react-router';
 
 import { Flex, Indicator } from 'design';
+
 import { AccessDenied } from 'design/CardError';
+
 import useAttempt from 'shared/hooks/useAttemptNext';
 
-import AuthnDialog from 'teleport/components/AuthnDialog';
-import { CreateAppSessionParams, UrlLauncherParams } from 'teleport/config';
-import { useMfa } from 'teleport/lib/useMfa';
+import { UrlLauncherParams } from 'teleport/config';
 import service from 'teleport/services/apps';
-import { MfaChallengeScope } from 'teleport/services/auth/auth';
 
 export function AppLauncher() {
   const { attempt, setAttempt } = useAttempt('processing');
@@ -35,35 +35,18 @@ export function AppLauncher() {
   const pathParams = useParams<UrlLauncherParams>();
   const { search } = useLocation();
   const queryParams = new URLSearchParams(search);
-  const isRedirectFlow = queryParams.get('required-apps');
-
-  const mfa = useMfa({
-    req: {
-      scope: MfaChallengeScope.USER_SESSION,
-      isMfaRequiredRequest: {
-        app: {
-          fqdn: pathParams.fqdn,
-          cluster_name: pathParams.clusterId,
-          public_addr: pathParams.publicAddr,
-        },
-      },
-    },
-  });
 
   const createAppSession = useCallback(async (params: UrlLauncherParams) => {
     let fqdn = params.fqdn;
     const port = location.port ? `:${location.port}` : '';
 
     try {
-      // TODO (avatus): see if we can get appDetails inside the initial /web/launch
-      // fetch request and remove the need for this second request.
-
       // Attempt to resolve the fqdn of the app, if we can't then an error
       // will be returned preventing a redirect to a potentially arbitrary
       // address. Compare the resolved fqdn with the one that was passed,
       // if they don't match then the public address was used to find the
       // resolved fqdn, and the passed fdqn isn't valid.
-      const resolvedApp = await service.getAppDetails({
+      const resolvedApp = await service.getAppFqdn({
         fqdn: params.fqdn,
         clusterId: params.clusterId,
         publicAddr: params.publicAddr,
@@ -92,45 +75,24 @@ export function AppLauncher() {
         }
       }
 
-      let requiredApps = resolvedApp.requiredAppFQDNs || [];
-      if (isRedirectFlow !== null) {
-        requiredApps = isRedirectFlow.split(',');
-      }
-
       // Let the target app know of a new auth exchange.
       const stateToken = queryParams.get('state');
       if (!stateToken) {
-        initiateNewAuthExchange({
-          fqdn,
-          port,
-          path,
-          params,
-          requiredApps,
-        });
+        initiateNewAuthExchange({ fqdn, port, path, params });
         return;
       }
 
       // Continue the auth exchange.
+
       if (params.arn) {
         params.arn = decodeURIComponent(params.arn);
       }
-
-      const createAppSessionParams: CreateAppSessionParams = {
-        fqdn: params.fqdn,
-        cluster_name: params.clusterId,
-        public_addr: params.publicAddr,
-        arn: params.arn,
-        mfaResponse: await mfa.getChallengeResponse(),
-      };
-      const session = await service.createAppSession(createAppSessionParams);
+      const session = await service.createAppSession(params);
 
       // Set all the fields expected by server to validate request.
       const url = getXTeleportAuthUrl({ fqdn, port });
       url.searchParams.set('state', stateToken);
       url.searchParams.set('subject', session.subjectCookieValue);
-      if (requiredApps.length > 1) {
-        url.searchParams.set('required-apps', requiredApps.join(','));
-      }
       url.hash = `#value=${session.cookieValue}`;
 
       if (path) {
@@ -146,8 +108,6 @@ export function AppLauncher() {
       if (err instanceof TypeError) {
         // `fetch` returns `TypeError` when there is a network error.
         statusText = `Unable to access "${fqdn}". This may happen if your Teleport Proxy is using untrusted or self-signed certificate. Please ensure Teleport Proxy service uses valid certificate or access the application domain directly (https://${fqdn}${port}) and accept the certificate exception from your browser.`;
-      } else if (isRedirectFlow) {
-        statusText = `Error while authenticating a required app: ${err.message}`;
       } else if (err instanceof Error) {
         statusText = err.message;
       }
@@ -163,16 +123,11 @@ export function AppLauncher() {
     createAppSession(pathParams);
   }, [pathParams]);
 
-  return (
-    <div>
-      {attempt.status === 'failed' ? (
-        <AppLauncherAccessDenied statusText={attempt.statusText} />
-      ) : (
-        <AppLauncherProcessing />
-      )}
-      <AuthnDialog mfaState={mfa}></AuthnDialog>
-    </div>
-  );
+  if (attempt.status === 'failed') {
+    return <AppLauncherAccessDenied statusText={attempt.statusText} />;
+  }
+
+  return <AppLauncherProcessing />;
 }
 
 export function AppLauncherProcessing() {
@@ -231,7 +186,6 @@ function initiateNewAuthExchange({
   port,
   params,
   path,
-  requiredApps,
 }: {
   fqdn: string;
   port: string;
@@ -245,16 +199,11 @@ function initiateNewAuthExchange({
   // The path preserves both the path and query params of
   // the original request.
   path: string;
-  requiredApps: string[];
 }) {
   const url = getXTeleportAuthUrl({ fqdn, port });
 
   if (path) {
     url.searchParams.set('path', path);
-  }
-
-  if (requiredApps.length > 1) {
-    url.searchParams.set('required-apps', requiredApps.join(','));
   }
 
   // Preserve "params" so that the initial auth exchange can

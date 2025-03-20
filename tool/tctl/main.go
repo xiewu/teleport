@@ -29,5 +29,8 @@ func main() {
 	ctx, cancel := signal.GetSignalHandler().NotifyContext(context.Background())
 	defer cancel()
 
-	common.Run(ctx, common.Commands())
+	// aggregate common and oss-specific command variants
+	commands := common.Commands()
+	commands = append(commands, common.OSSCommands()...)
+	common.Run(ctx, commands)
 }

@@ -16,15 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { useTheme } from 'styled-components';
-
-import { Flex, Text, TopNav } from 'design';
+import { Text, TopNav, Flex } from 'design';
 import { Clipboard, FolderShared } from 'design/Icon';
-import { HoverTooltip } from 'design/Tooltip';
-import type { NotificationItem } from 'shared/components/Notification';
+
+import { HoverTooltip } from 'shared/components/ToolTip';
 
 import ActionMenu from './ActionMenu';
-import { AlertDropdown } from './AlertDropdown';
+import { WarningDropdown } from './WarningDropdown';
+
+import type { NotificationItem } from 'shared/components/Notification';
 
 export default function TopBar(props: Props) {
   const {
@@ -36,8 +38,8 @@ export default function TopBar(props: Props) {
     isSharingDirectory,
     onShareDirectory,
     onCtrlAltDel,
-    alerts,
-    onRemoveAlert,
+    warnings,
+    onRemoveWarning,
   } = props;
   const theme = useTheme();
 
@@ -66,14 +68,22 @@ export default function TopBar(props: Props) {
               canShareDirectory,
               isSharingDirectory
             )}
-            position="bottom"
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'center' }}
           >
             <FolderShared style={primaryOnTrue(isSharingDirectory)} pr={3} />
           </HoverTooltip>
-          <HoverTooltip tipContent={clipboardSharingMessage} position="bottom">
+          <HoverTooltip
+            tipContent={clipboardSharingMessage}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'center' }}
+          >
             <Clipboard style={primaryOnTrue(isSharingClipboard)} pr={3} />
           </HoverTooltip>
-          <AlertDropdown alerts={alerts} onRemoveAlert={onRemoveAlert} />
+          <WarningDropdown
+            warnings={warnings}
+            onRemoveWarning={onRemoveWarning}
+          />
         </Flex>
         <ActionMenu
           onDisconnect={onDisconnect}
@@ -110,6 +120,6 @@ type Props = {
   onDisconnect: VoidFunction;
   onShareDirectory: VoidFunction;
   onCtrlAltDel: VoidFunction;
-  alerts: NotificationItem[];
-  onRemoveAlert(id: string): void;
+  warnings: NotificationItem[];
+  onRemoveWarning(id: string): void;
 };

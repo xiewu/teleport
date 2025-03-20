@@ -23,9 +23,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -35,11 +37,11 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	testingkubemock "github.com/gravitational/teleport/lib/kube/proxy/testing/kube_server"
 	"github.com/gravitational/teleport/lib/reversetunnel"
@@ -64,13 +66,13 @@ func TestMTLSClientCAs(t *testing.T) {
 		cas: make(map[string]types.CertAuthority),
 	}
 	// Reuse the same CA private key for performance.
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
 	addCA := func(t *testing.T, name string) (key, cert []byte) {
 		cert, err := tlsca.GenerateSelfSignedCAWithSigner(caKey, pkix.Name{CommonName: name}, nil, time.Minute)
 		require.NoError(t, err)
-		key, err = keys.MarshalPrivateKey(caKey)
+		_, key, err = utils.MarshalPrivateKey(caKey)
 		require.NoError(t, err)
 		ca, err := types.NewCertAuthority(types.CertAuthoritySpecV2{
 			Type:        types.HostCA,
@@ -103,17 +105,19 @@ func TestMTLSClientCAs(t *testing.T) {
 			DNSNames:  sans,
 		})
 		require.NoError(t, err)
-		keyPEM, err := keys.MarshalPrivateKey(userHostKey)
+		keyRaw, err := x509.MarshalECPrivateKey(userHostKey)
 		require.NoError(t, err)
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyRaw})
 		cert, err := tls.X509KeyPair(certRaw, keyPEM)
 		require.NoError(t, err)
 		return cert
 	}
 	hostCert := genCert(t, "localhost", "localhost", "127.0.0.1", "::1")
 	userCert := genCert(t, "user")
+	log := logrus.New()
 	srv := &TLSServer{
 		TLSServerConfig: TLSServerConfig{
-			Log: utils.NewSlogLoggerForTests(),
+			Log: log,
 			ForwarderConfig: ForwarderConfig{
 				ClusterName: mainClusterName,
 			},
@@ -124,7 +128,7 @@ func TestMTLSClientCAs(t *testing.T) {
 			},
 			GetRotation: func(role types.SystemRole) (*types.Rotation, error) { return &types.Rotation{}, nil },
 		},
-		log: utils.NewSlogLoggerForTests(),
+		log: logrus.NewEntry(log),
 	}
 
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -206,7 +210,7 @@ func TestGetServerInfo(t *testing.T) {
 
 	srv := &TLSServer{
 		TLSServerConfig: TLSServerConfig{
-			Log: utils.NewSlogLoggerForTests(),
+			Log: logrus.New(),
 			ForwarderConfig: ForwarderConfig{
 				Clock:       clockwork.NewFakeClock(),
 				ClusterName: "kube-cluster",
@@ -229,16 +233,24 @@ func TestGetServerInfo(t *testing.T) {
 	}
 
 	t.Run("GetServerInfo gets listener addr with PublicAddr unset", func(t *testing.T) {
-		kubeServer, err := srv.getServerInfo("kube-cluster")
+		serverInfo, err := srv.getServerInfo("kube-cluster")
 		require.NoError(t, err)
+
+		kubeServer, ok := serverInfo.(types.KubeServer)
+		require.True(t, ok)
+
 		require.Equal(t, listener.Addr().String(), kubeServer.GetHostname())
 	})
 
 	t.Run("GetServerInfo gets correct public addr with PublicAddr set", func(t *testing.T) {
 		srv.TLSServerConfig.ForwarderConfig.PublicAddr = "k8s.example.com"
 
-		kubeServer, err := srv.getServerInfo("kube-cluster")
+		serverInfo, err := srv.getServerInfo("kube-cluster")
 		require.NoError(t, err)
+
+		kubeServer, ok := serverInfo.(types.KubeServer)
+		require.True(t, ok)
+
 		require.Equal(t, "k8s.example.com", kubeServer.GetHostname())
 	})
 }

@@ -16,14 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useRef } from 'react';
-import styled from 'styled-components';
-
+import { useRef, useEffect } from 'react';
 import { Flex, Label, Text } from 'design';
 
-import { Cluster } from 'teleterm/services/tshd/types';
-import { useKeyboardArrowsNavigation } from 'teleterm/ui/components/KeyboardArrowsNavigation';
+import styled from 'styled-components';
+
 import { ListItem } from 'teleterm/ui/components/ListItem';
+import { useKeyboardArrowsNavigation } from 'teleterm/ui/components/KeyboardArrowsNavigation';
+import { Cluster } from 'teleterm/services/tshd/types';
 
 interface ClusterItemProps {
   index: number;
@@ -37,7 +37,7 @@ export function ClusterItem(props: ClusterItemProps) {
     index: props.index,
     onRun: props.onSelect,
   });
-  const ref = useRef<HTMLLIElement>();
+  const ref = useRef<HTMLElement>();
 
   const clusterName = props.item.name;
 
@@ -50,6 +50,7 @@ export function ClusterItem(props: ClusterItemProps) {
       ref={ref}
       onClick={props.onSelect}
       isActive={isActive}
+      isSelected={props.isSelected}
       isLeaf={props.item.leaf}
     >
       <Flex
@@ -59,7 +60,7 @@ export function ClusterItem(props: ClusterItemProps) {
         width="100%"
         minWidth="0"
       >
-        <Text typography="body2" title={clusterName}>
+        <Text typography="body1" title={clusterName}>
           {clusterName}
         </Text>
         <Flex>
@@ -79,7 +80,7 @@ export function ClusterItem(props: ClusterItemProps) {
   );
 }
 
-const StyledListItem = styled(ListItem)<{ isLeaf?: boolean }>`
+const StyledListItem = styled(ListItem)`
   padding-left: ${props => (props.isLeaf ? '32px' : null)};
 
   &:hover,

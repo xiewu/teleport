@@ -16,15 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Shell } from 'teleterm/mainProcess/shell';
-import { IPtyProcess, PtyProcessOptions } from 'teleterm/sharedProcess/ptyHost';
+import { PtyProcessOptions, IPtyProcess } from 'teleterm/sharedProcess/ptyHost';
 
 import { PtyEventsStreamHandler } from './ptyHost/ptyEventsStreamHandler';
 
 export enum PtyProcessCreationStatus {
   Ok = 'Ok',
   ResolveShellEnvTimeout = 'ResolveShellEnvTimeout',
-  ShellNotResolved = 'ShellNotResolved',
 }
 
 export interface PtyHostClient {
@@ -40,7 +38,6 @@ export type PtyServiceClient = {
     process: IPtyProcess;
     creationStatus: PtyProcessCreationStatus;
     windowsPty: WindowsPty;
-    shell: Shell;
   }>;
 };
 
@@ -67,8 +64,6 @@ export type ShellCommand = PtyCommandBase & {
   // The initMessage is rendered on the terminal UI without being written or
   // read by the underlying PTY.
   initMessage?: string;
-  /** Shell identifier. */
-  shellId: string;
 };
 
 export type TshLoginCommand = PtyCommandBase & {
@@ -131,4 +126,9 @@ export type SshOptions = {
 
 export type TerminalOptions = {
   windowsBackend: 'auto' | 'winpty';
+};
+
+export type PtyOptions = {
+  ssh: SshOptions;
+  terminal: TerminalOptions;
 };

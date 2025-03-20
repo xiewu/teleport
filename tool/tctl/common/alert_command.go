@@ -20,8 +20,8 @@ package common
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -37,9 +37,6 @@ import (
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	libclient "github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
-	"github.com/gravitational/teleport/lib/utils"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // AlertCommand implements the `tctl alerts` family of commands.
@@ -65,7 +62,7 @@ type AlertCommand struct {
 }
 
 // Initialize allows AlertCommand to plug itself into the CLI parser
-func (c *AlertCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, config *servicecfg.Config) {
+func (c *AlertCommand) Initialize(app *kingpin.Application, config *servicecfg.Config) {
 	c.config = config
 	alert := app.Command("alerts", "Manage cluster alerts.").Alias("alert")
 
@@ -96,25 +93,17 @@ func (c *AlertCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLI
 }
 
 // TryRun takes the CLI command as an argument (like "alerts ls") and executes it.
-func (c *AlertCommand) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (match bool, err error) {
-	var commandFunc func(ctx context.Context, client *authclient.Client) error
+func (c *AlertCommand) TryRun(ctx context.Context, cmd string, client *authclient.Client) (match bool, err error) {
 	switch cmd {
 	case c.alertList.FullCommand():
-		commandFunc = c.List
+		err = c.List(ctx, client)
 	case c.alertCreate.FullCommand():
-		commandFunc = c.Create
+		err = c.Create(ctx, client)
 	case c.alertAck.FullCommand():
-		commandFunc = c.Ack
+		err = c.Ack(ctx, client)
 	default:
 		return false, nil
 	}
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	err = commandFunc(ctx, client)
-	closeFn(ctx)
-
 	return true, trace.Wrap(err)
 }
 
@@ -262,7 +251,12 @@ func calculateTTL(expiration *time.Time) time.Duration {
 }
 
 func displayAlertsJSON(alerts []types.ClusterAlert) error {
-	return utils.WriteJSONArray(os.Stdout, alerts)
+	out, err := json.MarshalIndent(alerts, "", "  ")
+	if err != nil {
+		return trace.Wrap(err, "failed to marshal alerts")
+	}
+	fmt.Println(string(out))
+	return nil
 }
 
 func (c *AlertCommand) Create(ctx context.Context, client *authclient.Client) error {

@@ -16,14 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import styled from 'styled-components';
-
+import React from 'react';
 import { Text } from 'design';
 
-import { KeyboardShortcutAction } from 'teleterm/services/config';
-import { useAppContext } from 'teleterm/ui/appContextProvider';
+import styled from 'styled-components';
+
 import Document from 'teleterm/ui/Document';
 import { useKeyboardShortcutFormatters } from 'teleterm/ui/services/keyboardShortcuts';
+import { KeyboardShortcutAction } from 'teleterm/services/config';
+import { useAppContext } from 'teleterm/ui/appContextProvider';
 
 export function KeyboardShortcutsPanel() {
   const { mainProcessClient } = useAppContext();
@@ -88,7 +89,7 @@ export function KeyboardShortcutsPanel() {
 function Entry(props: { title: string; accelerator: string }) {
   return (
     <>
-      <Text textAlign="right" typography="body2" py="4px">
+      <Text textAlign="right" typography="subtitle1" py="4px">
         {props.title}
       </Text>
       <MonoText

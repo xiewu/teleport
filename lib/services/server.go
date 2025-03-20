@@ -21,8 +21,6 @@ package services
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
-	"slices"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -30,7 +28,6 @@ import (
 
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/api/types/wrappers"
 	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/utils"
@@ -99,10 +96,11 @@ func compareServers(a, b types.Server) int {
 	if len(a.GetPublicAddrs()) != len(b.GetPublicAddrs()) {
 		return Different
 	}
-	if !slices.Equal(a.GetPublicAddrs(), b.GetPublicAddrs()) {
-		return Different
+	for i := range a.GetPublicAddrs() {
+		if a.GetPublicAddrs()[i] != b.GetPublicAddrs()[i] {
+			return Different
+		}
 	}
-
 	r := a.GetRotation()
 	if !r.Matches(b.GetRotation()) {
 		return Different
@@ -110,25 +108,17 @@ func compareServers(a, b types.Server) int {
 	if a.GetUseTunnel() != b.GetUseTunnel() {
 		return Different
 	}
-	if !maps.Equal(a.GetStaticLabels(), b.GetStaticLabels()) {
+	if !utils.StringMapsEqual(a.GetStaticLabels(), b.GetStaticLabels()) {
 		return Different
 	}
-
-	if !maps.EqualFunc(a.GetCmdLabels(), b.GetCmdLabels(), func(label types.CommandLabel, label2 types.CommandLabel) bool {
-		return slices.Equal(label.GetCommand(), label2.GetCommand()) &&
-			label.GetPeriod() == label2.GetPeriod() &&
-			label.GetResult() == label2.GetResult()
-	}) {
+	if !cmp.Equal(a.GetCmdLabels(), b.GetCmdLabels()) {
 		return Different
 	}
 	if a.GetTeleportVersion() != b.GetTeleportVersion() {
 		return Different
 	}
 
-	if !slices.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
-		return Different
-	}
-	if !cmp.Equal(a.GetGitHub(), b.GetGitHub()) {
+	if !cmp.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
 		return Different
 	}
 	// OnlyTimestampsDifferent check must be after all Different checks.
@@ -158,7 +148,7 @@ func compareApplicationServers(a, b types.AppServer) int {
 	if !cmp.Equal(a.GetApp(), b.GetApp()) {
 		return Different
 	}
-	if !slices.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
+	if !cmp.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
 		return Different
 	}
 	// OnlyTimestampsDifferent check must be after all Different checks.
@@ -178,14 +168,7 @@ func compareDatabaseServices(a, b types.DatabaseService) int {
 	if a.GetNamespace() != b.GetNamespace() {
 		return Different
 	}
-	if !slices.EqualFunc(a.GetResourceMatchers(), b.GetResourceMatchers(),
-		func(matcher *types.DatabaseResourceMatcher, matcher2 *types.DatabaseResourceMatcher) bool {
-			return matcher.AWS.AssumeRoleARN == matcher2.AWS.AssumeRoleARN &&
-				maps.EqualFunc(matcher.Labels.ToProto().Values, matcher2.Labels.ToProto().Values,
-					func(values wrappers.StringValues, values2 wrappers.StringValues) bool {
-						return slices.Equal(values.Values, values2.Values)
-					})
-		}) {
+	if !cmp.Equal(a.GetResourceMatchers(), b.GetResourceMatchers()) {
 		return Different
 	}
 	if !a.Expiry().Equal(b.Expiry()) {
@@ -214,7 +197,7 @@ func compareKubernetesServers(a, b types.KubeServer) int {
 	if !cmp.Equal(a.GetCluster(), b.GetCluster()) {
 		return Different
 	}
-	if !slices.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
+	if !cmp.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
 		return Different
 	}
 	// OnlyTimestampsDifferent check must be after all Different checks.
@@ -244,7 +227,7 @@ func compareDatabaseServers(a, b types.DatabaseServer) int {
 	if !cmp.Equal(a.GetDatabase(), b.GetDatabase()) {
 		return Different
 	}
-	if !slices.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
+	if !cmp.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
 		return Different
 	}
 	// OnlyTimestampsDifferent check must be after all Different checks.
@@ -267,7 +250,7 @@ func compareWindowsDesktopServices(a, b types.WindowsDesktopService) int {
 	if a.GetTeleportVersion() != b.GetTeleportVersion() {
 		return Different
 	}
-	if !slices.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
+	if !cmp.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
 		return Different
 	}
 	// OnlyTimestampsDifferent check must be after all Different checks.
@@ -365,11 +348,14 @@ func UnmarshalServer(bytes []byte, kind string, opts ...MarshalOption) (types.Se
 
 	var s types.ServerV2
 	if err := utils.FastUnmarshal(bytes, &s); err != nil {
-		return nil, trace.BadParameter("%s", err)
+		return nil, trace.BadParameter(err.Error())
 	}
 	s.Kind = kind
 	if err := s.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
+	}
+	if cfg.ID != 0 {
+		s.SetResourceID(cfg.ID)
 	}
 	if cfg.Revision != "" {
 		s.SetRevision(cfg.Revision)
@@ -400,7 +386,7 @@ func MarshalServer(server types.Server, opts ...MarshalOption) ([]byte, error) {
 			return nil, trace.Wrap(err)
 		}
 
-		return utils.FastMarshal(maybeResetProtoRevision(cfg.PreserveRevision, server))
+		return utils.FastMarshal(maybeResetProtoResourceID(cfg.PreserveResourceID, server))
 	default:
 		return nil, trace.BadParameter("unrecognized server version %T", server)
 	}
@@ -436,13 +422,4 @@ func MarshalServers(s []types.Server) ([]byte, error) {
 func NodeHasMissedKeepAlives(s types.Server) bool {
 	serverExpiry := s.Expiry()
 	return serverExpiry.Before(time.Now().Add(apidefaults.ServerAnnounceTTL - (apidefaults.ServerKeepAliveTTL() * 2)))
-}
-
-// EqualFromBool is a helper function that converts a boolean value to an integer
-// value that represents the equality status.
-func EqualFromBool(b bool) int {
-	if !b {
-		return Different
-	}
-	return Equal
 }

@@ -31,7 +31,6 @@ func main() {
 	ctx, cancel := stacksignal.GetSignalHandler().NotifyContext(context.Background())
 	defer cancel()
 
-	modules.SetInsecureTestMode(true)
 	modules.SetModules(&updater.TestModules{})
 
 	tctl.Run(ctx, tctl.Commands())

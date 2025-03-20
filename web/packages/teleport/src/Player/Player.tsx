@@ -16,26 +16,29 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
+
 import styled from 'styled-components';
 
-import { Box, Flex, Indicator } from 'design';
+import { Flex, Box, Indicator } from 'design';
 import { Danger } from 'design/Alert';
+
 import { makeSuccessAttempt, useAsync } from 'shared/hooks/useAsync';
 
-import { useLocation, useParams } from 'teleport/components/Router';
+import { useParams, useLocation } from 'teleport/components/Router';
+import session from 'teleport/services/websession';
 import { UrlPlayerParams } from 'teleport/config';
 import { getUrlParameter } from 'teleport/services/history';
 import { RecordingType } from 'teleport/services/recordings';
-import session from 'teleport/services/websession';
+
 import useTeleport from 'teleport/useTeleport';
 
 import ActionBar from './ActionBar';
 import { DesktopPlayer } from './DesktopPlayer';
-import Tabs, { TabItem } from './PlayerTabs';
 import SshPlayer from './SshPlayer';
+import Tabs, { TabItem } from './PlayerTabs';
 
-const validRecordingTypes = ['ssh', 'k8s', 'desktop', 'database'];
+const validRecordingTypes = ['ssh', 'k8s', 'desktop'];
 
 export function Player() {
   const ctx = useTeleport();

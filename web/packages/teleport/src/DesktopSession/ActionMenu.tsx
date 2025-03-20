@@ -16,9 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Flex } from 'design';
-import * as Icons from 'design/Icon';
+import React from 'react';
 import { MenuIcon, MenuItem, MenuItemIcon } from 'shared/components/MenuAction';
+import * as Icons from 'design/Icon';
+import { Flex } from 'design';
 
 export default function ActionMenu(props: Props) {
   const { showShareDirectory, onShareDirectory, onDisconnect, onCtrlAltDel } =

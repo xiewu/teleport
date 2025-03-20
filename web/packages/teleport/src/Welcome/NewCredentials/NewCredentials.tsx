@@ -16,20 +16,23 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-
-import { Box } from 'design';
+import React, { useState } from 'react';
 import { NewFlow, StepSlider } from 'design/StepSlider';
 
-import { OnboardCard } from 'teleport/components/Onboard';
+import { OnboardCard } from 'design/Onboard/OnboardCard';
+
+import { Box } from 'design';
+
 import OSSRecoveryCodes from 'teleport/components/RecoveryCodes';
 import cfg from 'teleport/config';
+
 import { loginFlows } from 'teleport/Welcome/NewCredentials/constants';
 
 import useToken from '../useToken';
+
 import { Expired } from './Expired';
-import { RegisterSuccess } from './Success';
 import { LoginFlow, NewCredentialsProps } from './types';
+import { RegisterSuccess } from './Success';
 
 /**
  *
@@ -60,6 +63,9 @@ export function NewCredentials(props: NewCredentialsProps) {
     success,
     finishedRegister,
     isDashboard,
+    displayOnboardingQuestionnaire = false,
+    setDisplayOnboardingQuestionnaire = false,
+    Questionnaire = undefined,
     displayInviteCollaborators = false,
     setDisplayInviteCollaborators = null,
     InviteCollaborators = undefined,
@@ -95,6 +101,24 @@ export function NewCredentials(props: NewCredentialsProps) {
       <OnboardCard>
         <InviteCollaborators
           onSubmit={() => setDisplayInviteCollaborators(false)}
+        />
+      </OnboardCard>
+    );
+  }
+
+  if (
+    success &&
+    !resetMode &&
+    displayOnboardingQuestionnaire &&
+    setDisplayOnboardingQuestionnaire &&
+    Questionnaire
+  ) {
+    return (
+      <OnboardCard>
+        <Questionnaire
+          username={resetToken.user}
+          onSubmit={() => setDisplayOnboardingQuestionnaire(false)}
+          onboard={true}
         />
       </OnboardCard>
     );

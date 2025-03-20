@@ -19,7 +19,6 @@
 package tbot
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -61,10 +60,9 @@ func (s *ApplicationOutputService) Run(ctx context.Context) error {
 	defer unsubscribe()
 
 	err := runOnInterval(ctx, runOnIntervalConfig{
-		service:    s.String(),
 		name:       "output-renewal",
 		f:          s.generate,
-		interval:   cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
+		interval:   s.botCfg.RenewalInterval,
 		retryLimit: renewalRetryLimit,
 		log:        s.log,
 		reloadCh:   reloadCh,
@@ -106,7 +104,7 @@ func (s *ApplicationOutputService) generate(ctx context.Context) error {
 		s.botAuthClient,
 		s.getBotIdentity(),
 		roles,
-		cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+		s.botCfg.CertificateTTL,
 		nil,
 	)
 	if err != nil {
@@ -131,13 +129,12 @@ func (s *ApplicationOutputService) generate(ctx context.Context) error {
 		return trace.Wrap(err)
 	}
 
-	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
 	routedIdentity, err := generateIdentity(
 		ctx,
 		s.botAuthClient,
 		id,
 		roles,
-		effectiveLifetime.TTL,
+		s.botCfg.CertificateTTL,
 		func(req *proto.UserCertsRequest) {
 			req.RouteToApp = routeToApp
 		},
@@ -145,8 +142,6 @@ func (s *ApplicationOutputService) generate(ctx context.Context) error {
 	if err != nil {
 		return trace.Wrap(err)
 	}
-
-	warnOnEarlyExpiration(ctx, s.log.With("output", s), id, effectiveLifetime)
 
 	s.log.InfoContext(
 		ctx,
@@ -184,12 +179,12 @@ func (s *ApplicationOutputService) render(
 	)
 	defer span.End()
 
-	keyRing, err := NewClientKeyRing(routedIdentity, hostCAs)
+	key, err := NewClientKey(routedIdentity, hostCAs)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	if err := writeIdentityFile(ctx, s.log, keyRing, s.cfg.Destination); err != nil {
+	if err := writeIdentityFile(ctx, s.log, key, s.cfg.Destination); err != nil {
 		return trace.Wrap(err, "writing identity file")
 	}
 	if err := identity.SaveIdentity(
@@ -199,7 +194,7 @@ func (s *ApplicationOutputService) render(
 	}
 
 	if s.cfg.SpecificTLSExtensions {
-		if err := writeIdentityFileTLS(ctx, s.log, keyRing, s.cfg.Destination); err != nil {
+		if err := writeIdentityFileTLS(ctx, s.log, key, s.cfg.Destination); err != nil {
 			return trace.Wrap(err, "writing specific tls extension files")
 		}
 	}
@@ -221,15 +216,27 @@ func getRouteToApp(
 		return proto.RouteToApp{}, nil, trace.Wrap(err)
 	}
 
-	// TODO(noah): Now that app session ids are no longer being retrieved,
-	// we can begin to cache the routeToApp rather than regenerating this
-	// on each renew in the ApplicationTunnelSvc
+	// TODO: AWS?
+	ws, err := client.CreateAppSession(ctx, types.CreateAppSessionRequest{
+		ClusterName: botIdentity.ClusterName,
+		Username:    botIdentity.X509Cert.Subject.CommonName,
+		PublicAddr:  app.GetPublicAddr(),
+	})
+	if err != nil {
+		return proto.RouteToApp{}, nil, trace.Wrap(err)
+	}
+
+	err = authclient.WaitForAppSession(ctx, ws.GetName(), ws.GetUser(), client)
+	if err != nil {
+		return proto.RouteToApp{}, nil, trace.Wrap(err)
+	}
+
 	routeToApp := proto.RouteToApp{
 		Name:        app.GetName(),
+		SessionID:   ws.GetName(),
 		PublicAddr:  app.GetPublicAddr(),
 		ClusterName: botIdentity.ClusterName,
 	}
-
 	return routeToApp, app, nil
 }
 

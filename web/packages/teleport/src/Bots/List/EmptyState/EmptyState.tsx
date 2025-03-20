@@ -16,11 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
 import styled, { useTheme } from 'styled-components';
-
-import { Box, ButtonPrimary, Flex, H1, Image, Text } from 'design';
+import { Link } from 'react-router-dom';
+import { GitHubIcon, SpaceliftIcon, AnsibleIcon } from 'design/SVGIcon';
 import { ResourceIcon } from 'design/ResourceIcon';
 import {
   Description,
@@ -31,15 +30,18 @@ import {
   FeatureSlider,
   Title,
 } from 'shared/components/EmptyState/EmptyState';
+import { Box, ButtonPrimary, Flex, Image, Text } from 'design';
 
-import { DisplayTile } from 'teleport/Bots/Add/AddBotsPicker';
 import cfg from 'teleport/config';
+import { DisplayTile } from 'teleport/Bots/Add/AddBotsPicker';
+
+import elimiateSecretsImage from './eliminate-secrets.svg';
+import elimiateSecretsLightImage from './eliminate-secrets-light.svg';
+
+import controlWorkflowsImage from './control-workflows.svg';
+import controlWorkflowsLightImage from './control-workflows-light.svg';
 
 import argoCD from './argocd.png';
-import controlWorkflowsLightImage from './control-workflows-light.svg';
-import controlWorkflowsImage from './control-workflows.svg';
-import elimiateSecretsLightImage from './eliminate-secrets-light.svg';
-import elimiateSecretsImage from './eliminate-secrets.svg';
 
 const maxWidth = '1204px';
 
@@ -64,7 +66,9 @@ export function EmptyState() {
   return (
     <Box mt={4} data-testid="bots-empty-state">
       <Box mb={3}>
-        <H1 mb={3}>What are Bots?</H1>
+        <Text typography="h5" mb={3} fontSize={7}>
+          What are Bots?
+        </Text>
         <Text css={{ maxWidth }}>
           Static keys and API keys in your automated workflows are the target of
           hackers and are one of the primary sources of security breaches.
@@ -188,15 +192,15 @@ const integrationsTop = [
 const integrationsBottom = [
   {
     title: 'GitHub',
-    icon: <ResourceIcon height={TILE_ICON_HEIGHT} name="github" />,
+    icon: <GitHubIcon size={TILE_ICON_HEIGHT} />,
   },
   {
     title: 'Ansible',
-    icon: <ResourceIcon height={TILE_ICON_HEIGHT} name="ansible" />,
+    icon: <AnsibleIcon size={TILE_ICON_HEIGHT} />,
   },
   {
     title: 'Spacelift',
-    icon: <ResourceIcon height={TILE_ICON_HEIGHT} name="spacelift" />,
+    icon: <SpaceliftIcon size={TILE_ICON_HEIGHT} />,
   },
 ];
 

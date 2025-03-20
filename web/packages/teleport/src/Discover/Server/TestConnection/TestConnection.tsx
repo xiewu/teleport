@@ -16,28 +16,30 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
+import { ButtonSecondary, Text, Box, LabelInput } from 'design';
+import Select from 'shared/components/Select';
 
-import { Box, ButtonSecondary, H3, LabelInput, Subtitle3 } from 'design';
-import Select, { type Option } from 'shared/components/Select';
-
-import ReAuthenticate from 'teleport/components/ReAuthenticate';
 import cfg from 'teleport/config';
-import {
-  ActionButtons,
-  ConnectionDiagnosticResult,
-  Header,
-  HeaderSubtitle,
-  StyledBox,
-  useConnectionDiagnostic,
-} from 'teleport/Discover/Shared';
+import ReAuthenticate from 'teleport/components/ReAuthenticate';
 import { openNewTab } from 'teleport/lib/util';
-import { MfaChallengeScope } from 'teleport/services/auth/auth';
-import type { MfaChallengeResponse } from 'teleport/services/mfa';
+import {
+  useConnectionDiagnostic,
+  Header,
+  ActionButtons,
+  HeaderSubtitle,
+  ConnectionDiagnosticResult,
+  StyledBox,
+} from 'teleport/Discover/Shared';
 import { sortNodeLogins } from 'teleport/services/nodes';
 
-import type { AgentStepProps } from '../../types';
+import { MfaChallengeScope } from 'teleport/services/auth/auth';
+
 import { NodeMeta } from '../../useDiscover';
+
+import type { Option } from 'shared/components/Select';
+import type { AgentStepProps } from '../../types';
+import type { MfaAuthnResponse } from 'teleport/services/mfa';
 
 export function TestConnection(props: AgentStepProps) {
   const {
@@ -63,7 +65,7 @@ export function TestConnection(props: AgentStepProps) {
     openNewTab(url);
   }
 
-  function testConnection(login: string, mfaResponse?: MfaChallengeResponse) {
+  function testConnection(login: string, mfaResponse?: MfaAuthnResponse) {
     runConnectionDiagnostic(
       {
         resourceKind: 'node',
@@ -82,10 +84,10 @@ export function TestConnection(props: AgentStepProps) {
   const [selectedOpt, setSelectedOpt] = useState(usernameOpts[0]);
 
   return (
-    <>
+    <Box>
       {showMfaDialog && (
         <ReAuthenticate
-          onMfaResponse={async res => testConnection(selectedOpt.value, res)}
+          onMfaResponse={res => testConnection(selectedOpt.value, res)}
           onClose={cancelMfaDialog}
           challengeScope={MfaChallengeScope.USER_SESSION}
         />
@@ -96,10 +98,10 @@ export function TestConnection(props: AgentStepProps) {
         just added.
       </HeaderSubtitle>
       <StyledBox mb={5}>
-        <header>
-          <H3>Step 1</H3>
-          <Subtitle3 mb={3}>Pick the OS user to test</Subtitle3>
-        </header>
+        <Text bold>Step 1</Text>
+        <Text typography="subtitle1" mb={3}>
+          Pick the OS user to test
+        </Text>
         <Box width="320px">
           <LabelInput>Select Login</LabelInput>
           <Select
@@ -119,10 +121,10 @@ export function TestConnection(props: AgentStepProps) {
         stepDescription="Verify that the server is accessible"
       />
       <StyledBox>
-        <header>
-          <H3>Step 3</H3>
-          <Subtitle3 mb={3}>Connect to the server</Subtitle3>
-        </header>
+        <Text bold>Step 3</Text>
+        <Text typography="subtitle1" mb={3}>
+          Connect to the server
+        </Text>
         <ButtonSecondary
           width="200px"
           onClick={() => startSshSession(selectedOpt.value)}
@@ -131,6 +133,6 @@ export function TestConnection(props: AgentStepProps) {
         </ButtonSecondary>
       </StyledBox>
       <ActionButtons onProceed={nextStep} lastStep={true} onPrev={prevStep} />
-    </>
+    </Box>
   );
 }

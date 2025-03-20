@@ -39,7 +39,7 @@ func TestNewV1(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		envVarValue string // value for the _DISABLE_FIPS environment variable
+		envVarValue string // value for the _DISABLE_STS_FIPS environment variable
 		want        endpoints.FIPSEndpointState
 	}{
 		{

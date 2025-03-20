@@ -21,10 +21,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -32,6 +30,7 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -89,8 +88,6 @@ type roundTripperConfig struct {
 	// auth.TeleportImpersonateUserHeader and auth.TeleportImpersonateIPHeader
 	// headers instead of relying on the certificate to transport it.
 	useIdentityForwarding bool
-	// log specifies the logger.
-	log *slog.Logger
 
 	proxier func(*http.Request) (*url.URL, error)
 }
@@ -209,7 +206,7 @@ func (s *SpdyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	copyImpersonationHeaders(header, s.originalHeaders)
 	header.Set(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
 	header.Set(httpstream.HeaderUpgrade, streamspdy.HeaderSpdy31)
-	if err := setupImpersonationHeaders(s.sess, header); err != nil {
+	if err := setupImpersonationHeaders(log.StandardLogger(), s.sess, header); err != nil {
 		return nil, trace.Wrap(err)
 	}
 
@@ -259,7 +256,23 @@ func (s *SpdyRoundTripper) NewConnection(resp *http.Response) (httpstream.Connec
 	connectionHeader := strings.ToLower(resp.Header.Get(httpstream.HeaderConnection))
 	upgradeHeader := strings.ToLower(resp.Header.Get(httpstream.HeaderUpgrade))
 	if (resp.StatusCode != http.StatusSwitchingProtocols) || !strings.Contains(connectionHeader, strings.ToLower(httpstream.HeaderUpgrade)) || !strings.Contains(upgradeHeader, strings.ToLower(streamspdy.HeaderSpdy31)) {
-		return nil, trace.Wrap(extractKubeAPIStatusFromReq(resp))
+		defer resp.Body.Close()
+		responseError := ""
+		responseErrorBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			responseError = "unable to read error from server response"
+		} else {
+			// TODO: I don't belong here, I should be abstracted from this class
+			if obj, _, err := statusCodecs.UniversalDecoder().Decode(responseErrorBytes, nil, &metav1.Status{}); err == nil {
+				if status, ok := obj.(*metav1.Status); ok {
+					return nil, &apierrors.StatusError{ErrStatus: *status}
+				}
+			}
+			responseError = string(responseErrorBytes)
+			responseError = strings.TrimSpace(responseError)
+		}
+
+		return nil, fmt.Errorf("unable to upgrade connection: %s", responseError)
 	}
 
 	return streamspdy.NewClientConnectionWithPings(s.conn, s.pingPeriod)
@@ -275,44 +288,4 @@ func init() {
 	statusScheme.AddUnversionedTypes(metav1.SchemeGroupVersion,
 		&metav1.Status{},
 	)
-}
-
-// extractKubeAPIStatusFromReq extracts the status from the response body and returns it as an error.
-func extractKubeAPIStatusFromReq(rsp *http.Response) error {
-	defer func() {
-		_ = rsp.Body.Close()
-	}()
-	responseError := ""
-	responseErrorBytes, err := io.ReadAll(rsp.Body)
-	if err != nil {
-		responseError = "unable to read error from server response"
-	} else {
-		if obj, _, err := statusCodecs.UniversalDecoder().Decode(responseErrorBytes, nil, &metav1.Status{}); err == nil {
-			if status, ok := obj.(*metav1.Status); ok {
-				return &upgradeFailureError{Cause: &apierrors.StatusError{ErrStatus: *status}}
-			}
-		}
-		responseError = string(responseErrorBytes)
-		responseError = strings.TrimSpace(responseError)
-	}
-	return &upgradeFailureError{Cause: fmt.Errorf("unable to upgrade connection: %s", responseError)}
-}
-
-// upgradeFailureError encapsulates the cause for why the streaming
-// upgrade request failed. Implements error interface.
-type upgradeFailureError struct {
-	Cause error
-}
-
-func (u *upgradeFailureError) Error() string {
-	return u.Cause.Error()
-}
-
-func (u *upgradeFailureError) Unwrap() error {
-	return u.Cause
-}
-
-func isTeleportUpgradeFailure(err error) bool {
-	var upgradeErr *upgradeFailureError
-	return errors.As(err, &upgradeErr)
 }

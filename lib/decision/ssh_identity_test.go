@@ -60,10 +60,9 @@ func TestSSHIdentityConversion(t *testing.T) {
 			Type:  types.CertExtensionType_SSH,
 			Mode:  types.CertExtensionMode_EXTENSION,
 		}},
-		Renewable:     true,
-		Generation:    3,
-		BotName:       "bot",
-		BotInstanceID: "instance",
+		Renewable:  true,
+		Generation: 3,
+		BotName:    "bot",
 		AllowedResourceIDs: []types.ResourceID{{
 			ClusterName:     "cluster",
 			Kind:            types.KindKubePod, // must use a kube resource kind for parsing of sub-resource to work correctly
@@ -75,8 +74,6 @@ func TestSSHIdentityConversion(t *testing.T) {
 		DeviceID:               "device",
 		DeviceAssetTag:         "asset",
 		DeviceCredentialID:     "cred",
-		GitHubUserID:           "github",
-		GitHubUsername:         "ghuser",
 	}
 
 	ignores := []string{

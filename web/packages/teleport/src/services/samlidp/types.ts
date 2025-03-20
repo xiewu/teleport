@@ -39,20 +39,18 @@ export type SamlIdpServiceProviderSpec = {
   attribute_mapping: AttributeMapping[];
   entity_descriptor: string;
   entity_id: string;
-  preset: SamlServiceProviderPreset;
+  preset: string;
   relay_state: string;
 };
 
 /**
  * AttributeMapping defines SAML service provider
- * attribute mapping fields. Field names are exactly
- * defined as they are avaiable in the SAMLAttributeMapping
- * proto in the backend.
+ * attribute mapping fields.
  */
 export type AttributeMapping = {
   name: string;
   value: string;
-  name_format?: string;
+  nameFormat?: string;
 };
 
 /**
@@ -71,25 +69,8 @@ export enum SamlServiceProviderPreset {
  * preserved throughout the flow.
  */
 export type SamlGcpWorkforce = {
+  isAutoConfig: boolean;
   orgId: string;
   poolName: string;
   poolProviderName: string;
-};
-
-/**
- * SamlAppToDelete is used to define the name of an
- * SAML app item to be deleted and its deletion state in the
- * backend. Intended to be used in the unified resource view.
- */
-export type SamlAppToDelete = {
-  /**
-   * name is the name of Saml app item to delete.
-   */
-  name: string;
-  // kind: string;
-  /**
-   * backendDeleted specifies if the item is deleted
-   * in the backend.
-   */
-  backendDeleted: boolean;
 };

@@ -3,7 +3,13 @@ run-name: Unit Tests (Helm) - ${{ github.run_id }} - @${{ github.actor }}
 
 on:
   pull_request:
+    paths:
+      - '.github/workflows/unit-tests-helm.yaml'
+      - 'examples/chart/**'
   merge_group:
+    paths:
+      - '.github/workflows/unit-tests-helm.yaml'
+      - 'examples/chart/**'
 
 jobs:
   changes:
@@ -39,7 +45,7 @@ jobs:
       contents: read
 
     container:
-      image: ghcr.io/gravitational/teleport-buildbox:teleport17
+      image: ghcr.io/gravitational/teleport-buildbox:teleport15
       env:
         # TODO(hugoShaka) remove the '-new' prefix when updating to teleport13 buildbox
         HELM_PLUGINS: /home/ci/.local/share/helm/plugins-new

@@ -19,10 +19,9 @@
 import LabelState, {
   StateDanger,
   StateInfo,
-  StateSuccess,
   StateWarning,
+  StateSuccess,
 } from './LabelState';
-
 export default LabelState;
 
 export { StateDanger, StateInfo, StateWarning, StateSuccess };

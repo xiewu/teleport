@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import { darken, lighten } from '../utils/colorManipulator';
 import {
   blue,
   green,
@@ -27,7 +28,7 @@ import {
   red,
   yellow,
 } from '../palette';
-import { darken, lighten } from '../utils/colorManipulator';
+
 import { sharedColors, sharedStyles } from './sharedStyles';
 import { DataVisualisationColors, Theme, ThemeColors } from './types';
 
@@ -89,34 +90,6 @@ const colors: ThemeColors = {
   brand: '#512FC9',
 
   interactive: {
-    solid: {
-      primary: {
-        default: '#512FC9',
-        hover: '#4126A1',
-        active: '#311C79',
-      },
-      success: {
-        default: '#007D6B',
-        hover: '#006456',
-        active: '#004B40',
-      },
-      accent: {
-        default: '#0073BA',
-        hover: '#005C95',
-        active: '#004570',
-      },
-      danger: {
-        default: '#CC372D',
-        hover: '#A32C24',
-        active: '#7A211B',
-      },
-      alert: {
-        default: '#FFAB00',
-        hover: '#CC8900',
-        active: '#996700',
-      },
-    },
-
     tonal: {
       primary: [
         'rgba(81,47,201, 0.1)',
@@ -143,7 +116,7 @@ const colors: ThemeColors = {
         'rgba(0, 115, 186, 0.18)',
         'rgba(0, 115, 186, 0.25)',
       ],
-      neutral: [neutralColors[0], neutralColors[1], neutralColors[2]],
+      neutral: neutralColors,
     },
   },
 
@@ -200,8 +173,7 @@ const colors: ThemeColors = {
   },
 
   tooltip: {
-    background: 'rgba(0, 0, 0, 0.80)',
-    inverseBackground: 'rgba(255, 255, 255, 0.5)',
+    background: '#F0F2F4',
   },
 
   progressBarColor: '#007D6B',
@@ -265,8 +237,6 @@ const colors: ThemeColors = {
     brightBlue: dataVisualisationColors.primary.picton,
     brightMagenta: dataVisualisationColors.primary.purple,
     brightCyan: dataVisualisationColors.primary.cyan,
-    searchMatch: '#FFD98C',
-    activeSearchMatch: '#FFAB00',
   },
 
   accessGraph: {
@@ -319,7 +289,7 @@ const colors: ThemeColors = {
         borderColor: purple[300],
         typeColor: purple[300],
         iconBackground: purple[300],
-        handleColor: purple[700],
+        handleColor: purple[704],
         highlightColor: purple[300],
         label: {
           background: purple[200],

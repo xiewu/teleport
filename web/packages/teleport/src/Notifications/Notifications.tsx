@@ -16,61 +16,58 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React, { useState, useEffect, useCallback } from 'react';
 import { isBefore } from 'date-fns';
-import { useCallback, useEffect, useState } from 'react';
 import styled from 'styled-components';
-
 import { Alert, Box, Flex, Indicator, Text } from 'design';
-import { BellRinging, Notification as NotificationIcon } from 'design/Icon';
-import { HoverTooltip } from 'design/Tooltip';
-import {
-  useInfiniteScroll,
-  useKeyBasedPagination,
-} from 'shared/hooks/useInfiniteScroll';
+
+import { Notification as NotificationIcon, BellRinging } from 'design/Icon';
 import { useRefClickOutside } from 'shared/hooks/useRefClickOutside';
+import { HoverTooltip } from 'shared/components/ToolTip';
+
+import { useInfiniteScroll } from 'shared/hooks';
+
+import { useKeyBasedPagination } from 'shared/hooks/useInfiniteScroll';
 import { IGNORE_CLICK_CLASSNAME } from 'shared/hooks/useRefClickOutside/useRefClickOutside';
-import Logger from 'shared/libs/logger';
 
 import { useTeleport } from 'teleport';
-import { Dropdown } from 'teleport/components/Dropdown';
-import { ButtonIconContainer } from 'teleport/TopBar/Shared';
 import useStickyClusterId from 'teleport/useStickyClusterId';
+import { Dropdown } from 'teleport/components/Dropdown';
+
+import { ButtonIconContainer } from 'teleport/TopBar/Shared';
 
 import { Notification } from './Notification';
 
 const PAGE_SIZE = 15;
-
-const logger = Logger.create('Notifications');
-
-const NOTIFICATION_DROPDOWN_ID = 'tb-notifications-dropdown';
+const START_KEY_SEPARATOR = ' ';
 
 export function Notifications({ iconSize = 24 }: { iconSize?: number }) {
   const ctx = useTeleport();
   const { clusterId } = useStickyClusterId();
-  const [userLastSeenNotification, setUserLastSeenNotification] =
-    useState<Date>();
 
-  const {
-    resources: notifications,
-    fetch,
-    attempt,
-    updateFetchedResources,
-  } = useKeyBasedPagination({
+  const { resources, fetch, attempt } = useKeyBasedPagination({
     fetchMoreSize: PAGE_SIZE,
     initialFetchSize: PAGE_SIZE,
     fetchFunc: useCallback(
       async paginationParams => {
+        // Separate the keys.
+        const startKeys = paginationParams.startKey.split(START_KEY_SEPARATOR);
         const response = await ctx.notificationService.fetchNotifications({
           clusterId,
-          startKey: paginationParams.startKey,
+          userNotificationsStartKey: startKeys[0],
+          globalNotificationsStartKey: startKeys[1],
           limit: paginationParams.limit,
         });
 
-        setUserLastSeenNotification(response.userLastSeenNotification);
-
+        // We can't pass notifications directly because we need the full
+        // response object to inspect `userLastSeenNotification`.
         return {
-          agents: response.notifications,
-          startKey: response.nextKey,
+          agents: response.notifications.length ? [response] : [],
+          startKey:
+            response.userNotificationsNextKey ||
+            response.globalNotificationsNextKey
+              ? `${response.userNotificationsNextKey}${START_KEY_SEPARATOR}${response.globalNotificationsNextKey}`
+              : undefined,
         };
       },
       [clusterId, ctx.notificationService]
@@ -82,6 +79,11 @@ export function Notifications({ iconSize = 24 }: { iconSize?: number }) {
     fetch();
   }, []);
 
+  // Extract the notifications out of the resources response.
+  const notifications = resources.flatMap(r => r.notifications);
+  // Set the most recent item as the userLastSeenNotification.
+  const userLastSeenNotification = resources.at(-1)?.userLastSeenNotification;
+
   const { setTrigger } = useInfiniteScroll({
     fetch,
   });
@@ -91,65 +93,23 @@ export function Notifications({ iconSize = 24 }: { iconSize?: number }) {
 
   const ref = useRefClickOutside<HTMLDivElement>({ open, setOpen });
 
-  function onIconClick() {
-    if (!open) {
-      setOpen(true);
-
-      if (notifications.length) {
-        const latestNotificationTime = notifications[0].createdDate;
-        // If the current userLastSeenNotification is already set to the most recent notification's time, don't do anything.
-        if (userLastSeenNotification === latestNotificationTime) {
-          return;
-        }
-
-        const previousLastSeenTime = userLastSeenNotification;
-
-        // Update the visual state right away for a snappier UX.
-        setUserLastSeenNotification(latestNotificationTime);
-
-        ctx.notificationService
-          .upsertLastSeenNotificationTime(clusterId, {
-            time: latestNotificationTime,
-          })
-          .then(res => setUserLastSeenNotification(res.time))
-          .catch(err => {
-            setUserLastSeenNotification(previousLastSeenTime);
-            logger.error(`Notification last seen time update failed.`, err);
-          });
-      }
-    } else {
-      setOpen(false);
-    }
-  }
-
   const unseenNotifsCount = notifications.filter(notif =>
     isBefore(userLastSeenNotification, notif.createdDate)
   ).length;
 
-  function removeNotification(notificationId: string) {
-    const notificationsCopy = [...notifications];
-    const index = notificationsCopy.findIndex(
-      notif => notif.id == notificationId
-    );
-    notificationsCopy.splice(index, 1);
-
-    updateFetchedResources(notificationsCopy);
-  }
-
-  function markNotificationAsClicked(notificationId: string) {
-    const newNotifications = notifications.map(notification => {
-      return notification.id === notificationId
-        ? { ...notification, clicked: true }
-        : notification;
-    });
-
-    updateFetchedResources(newNotifications);
-  }
+  const items = notifications
+    .filter(notif => {
+      if (view === 'All') {
+        return true;
+      }
+      return !notif.clicked;
+    })
+    .map(notif => <Notification notification={notif} key={notif.id} />);
 
   return (
     <NotificationButtonContainer
       ref={ref}
-      data-testid="tb-notifications"
+      data-testid="tb-note"
       className={IGNORE_CLICK_CLASSNAME}
     >
       <HoverTooltip
@@ -161,19 +121,12 @@ export function Notifications({ iconSize = 24 }: { iconSize?: number }) {
         `}
       >
         <ButtonIconContainer
-          onClick={onIconClick}
-          onKeyUp={e => (e.key === 'Enter' || e.key === ' ') && onIconClick()}
-          data-testid="tb-notifications-button"
+          onClick={() => setOpen(!open)}
+          data-testid="tb-note-button"
           open={open}
-          role="button"
-          tabIndex={0}
-          aria-label="Notifications"
-          aria-haspopup="menu"
-          aria-controls={NOTIFICATION_DROPDOWN_ID}
-          aria-expanded={open}
         >
           {unseenNotifsCount > 0 && (
-            <UnseenBadge data-testid="tb-notifications-badge">
+            <UnseenBadge>
               {unseenNotifsCount >= 9 ? '9+' : unseenNotifsCount}
             </UnseenBadge>
           )}
@@ -184,34 +137,17 @@ export function Notifications({ iconSize = 24 }: { iconSize?: number }) {
         </ButtonIconContainer>
       </HoverTooltip>
 
-      <NotificationsDropdown
-        open={open}
-        id={NOTIFICATION_DROPDOWN_ID}
-        data-testid={NOTIFICATION_DROPDOWN_ID}
-        role="menu"
-      >
+      <NotificationsDropdown open={open} data-testid="tb-note-dropdown">
         <Header view={view} setView={setView} />
         {attempt.status === 'failed' && (
           <Box px={3}>
             <Alert>Could not load notifications: {attempt.statusText}</Alert>
           </Box>
         )}
-        {attempt.status === 'success' && notifications.length === 0 && (
-          <EmptyState />
-        )}
+        {attempt.status === 'success' && items.length === 0 && <EmptyState />}
         <NotificationsList>
           <>
-            {!!notifications.length &&
-              notifications.map(notif => (
-                <Notification
-                  notification={notif}
-                  key={notif.id}
-                  view={view}
-                  closeNotificationsList={() => setOpen(false)}
-                  markNotificationAsClicked={markNotificationAsClicked}
-                  removeNotification={removeNotification}
-                />
-              ))}
+            {!!items.length && items}
             {open && <div ref={setTrigger} />}
             {attempt.status === 'processing' && (
               <Flex
@@ -296,7 +232,15 @@ function EmptyState() {
       >
         <BellRinging size={40} />
       </Flex>
-      <Text mt={4} typography="h2" textAlign="center">
+      <Text
+        mt={4}
+        css={`
+          font-weight: 500;
+          font-size: 18px;
+          line-height: 24px;
+          text-align: center;
+        `}
+      >
         You currently have no notifications.
       </Text>
     </Flex>
@@ -326,9 +270,9 @@ const ViewButton = styled.div<{ selected: boolean }>`
   border-radius: 36px;
   display: flex;
   width: fit-content;
-  padding: ${p => p.theme.space[1]}px ${p => p.theme.space[3]}px;
+  padding: ${p => p.theme.space[2]}px ${p => p.theme.space[3]}px;
   justify-content: space-around;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 300;
   color: ${props =>
     props.selected
@@ -344,9 +288,9 @@ const ViewButton = styled.div<{ selected: boolean }>`
   }
 `;
 
-export type View = 'All' | 'Unread';
+type View = 'All' | 'Unread';
 
-const NotificationsList = styled.div`
+const NotificationsList = styled.div<{ isScrollbarVisible: boolean }>`
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -356,7 +300,7 @@ const NotificationsList = styled.div`
   max-height: 100%;
   overflow-y: auto;
   padding: ${p => p.theme.space[3]}px;
-  padding-top: 2px;
+  padding-top: 0px;
   // Subtract the width of the scrollbar from the right padding.
   padding-right: ${p => `${p.theme.space[3] - 8}px`};
 

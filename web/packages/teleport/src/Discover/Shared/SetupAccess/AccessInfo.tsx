@@ -17,20 +17,19 @@
  */
 
 import React from 'react';
-
 import { Flex, Text } from 'design';
 import TextEditor from 'shared/components/TextEditor';
 
 import {
-  awsAppAccessRO,
-  awsAppAccessRW,
+  kubeAccessRW,
+  kubeAccessRO,
+  nodeAccessRO,
+  nodeAccessRW,
   connDiagRW,
   dbAccessRO,
   dbAccessRW,
-  kubeAccessRO,
-  kubeAccessRW,
-  nodeAccessRO,
-  nodeAccessRW,
+  awsAppAccessRO,
+  awsAppAccessRW,
 } from '../../yamlTemplates';
 
 export function AccessInfo({ accessKind, traitKind, traitDesc }: Props) {
@@ -160,7 +159,9 @@ export function YamlReader({
 }
 
 const Info = ({ children }: { children: React.ReactNode }) => (
-  <Text mt={4}>{children}</Text>
+  <Text mt={4} width="100px">
+    {children}
+  </Text>
 );
 
 const ReadOnlyYamlEditor = ({ content }: { content: string }) => {

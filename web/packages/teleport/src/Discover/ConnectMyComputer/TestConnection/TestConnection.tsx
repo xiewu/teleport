@@ -16,46 +16,45 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Box,
   ButtonPrimary,
   ButtonSecondary,
-  H3,
-  Indicator,
-  LabelInput,
-  Link,
-  Subtitle3,
   Text,
+  Box,
+  LabelInput,
+  Indicator,
+  Link,
 } from 'design';
-import * as Icons from 'design/Icon';
-import { P } from 'design/Text/Text';
-import Select, { type Option } from 'shared/components/Select';
-import * as connectMyComputer from 'shared/connectMyComputer';
+import Select from 'shared/components/Select';
 import { useAsync } from 'shared/hooks/useAsync';
+import * as Icons from 'design/Icon';
+import * as connectMyComputer from 'shared/connectMyComputer';
 
-import ReAuthenticate from 'teleport/components/ReAuthenticate';
 import cfg from 'teleport/config';
+import useTeleport from 'teleport/useTeleport';
+import ReAuthenticate from 'teleport/components/ReAuthenticate';
+import { openNewTab } from 'teleport/lib/util';
 import {
-  ActionButtons,
-  ConnectionDiagnosticResult,
+  useConnectionDiagnostic,
   Header,
+  ActionButtons,
   HeaderSubtitle,
+  ConnectionDiagnosticResult,
   StyledBox,
   TextIcon,
-  useConnectionDiagnostic,
 } from 'teleport/Discover/Shared';
-import { openNewTab } from 'teleport/lib/util';
-import type { ConnectionDiagnosticRequest } from 'teleport/services/agents';
-import { ApiError } from 'teleport/services/api/parseError';
-import { MfaChallengeScope } from 'teleport/services/auth/auth';
-import type { MfaChallengeResponse } from 'teleport/services/mfa';
 import { sortNodeLogins } from 'teleport/services/nodes';
-import useTeleport from 'teleport/useTeleport';
+import { ApiError } from 'teleport/services/api/parseError';
 
-import type { AgentStepProps } from '../../types';
+import { MfaChallengeScope } from 'teleport/services/auth/auth';
+
 import { NodeMeta } from '../../useDiscover';
+
+import type { Option } from 'shared/components/Select';
+import type { AgentStepProps } from '../../types';
+import type { MfaAuthnResponse } from 'teleport/services/mfa';
+import type { ConnectionDiagnosticRequest } from 'teleport/services/agents';
 
 export function TestConnection(props: AgentStepProps) {
   const { userService, storeUser } = useTeleport();
@@ -141,7 +140,7 @@ export function TestConnection(props: AgentStepProps) {
   function testConnection(args: {
     login: string;
     sshPrincipalSelectionMode: ConnectionDiagnosticRequest['sshPrincipalSelectionMode'];
-    mfaResponse?: MfaChallengeResponse;
+    mfaResponse?: MfaAuthnResponse;
   }) {
     return runConnectionDiagnostic(
       {
@@ -167,13 +166,13 @@ export function TestConnection(props: AgentStepProps) {
     <Box>
       {showMfaDialog && (
         <ReAuthenticate
-          onMfaResponse={async res => {
-            await testConnection({
+          onMfaResponse={res =>
+            testConnection({
               login: selectedLoginOpt.value,
               sshPrincipalSelectionMode,
               mfaResponse: res,
-            });
-          }}
+            })
+          }
           onClose={cancelMfaDialog}
           challengeScope={MfaChallengeScope.USER_SESSION}
         />
@@ -195,12 +194,11 @@ export function TestConnection(props: AgentStepProps) {
             buttonText="Refresh"
             buttonOnClick={() => window.location.reload()}
           >
-            <P>
-              For Connect My Computer to work, the role{' '}
-              {connectMyComputer.getRoleNameForUser(storeUser.getUsername())}{' '}
-              must be assigned to you.
-            </P>
-            <P>{$restartSetupInstructions}</P>
+            For Connect My Computer to work, the role{' '}
+            {connectMyComputer.getRoleNameForUser(storeUser.getUsername())} must
+            be assigned to you.
+            <br />
+            {$restartSetupInstructions}
           </FetchLoginsAttemptError>
         ) : (
           <FetchLoginsAttemptError
@@ -286,10 +284,9 @@ export function TestConnection(props: AgentStepProps) {
 
 const StepSkeletonPickUser = (props: { children: React.ReactNode }) => (
   <StyledBox mb={5}>
-    <header>
-      <H3>Step 1</H3>
-      <Subtitle3 mb={3}>Pick the OS user to test</Subtitle3>
-    </header>
+    <Text bold mb={3}>
+      Step 1: Pick the OS user to test
+    </Text>
     {props.children}
   </StyledBox>
 );

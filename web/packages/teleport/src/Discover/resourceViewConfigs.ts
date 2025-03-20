@@ -16,11 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import { ServerResource } from 'teleport/Discover/Server';
 import { AwsMangementConsole } from 'teleport/Discover/AwsMangementConsole';
-import { ConnectMyComputerResource } from 'teleport/Discover/ConnectMyComputer';
 import { DatabaseResource } from 'teleport/Discover/Database';
 import { KubernetesResource } from 'teleport/Discover/Kubernetes';
-import { ServerResource } from 'teleport/Discover/Server';
+import { DesktopResource } from 'teleport/Discover/Desktop';
+import { ConnectMyComputerResource } from 'teleport/Discover/ConnectMyComputer';
 
 import { ResourceViewConfig } from './flow';
 
@@ -29,5 +30,6 @@ export const viewConfigs: ResourceViewConfig[] = [
   ServerResource,
   DatabaseResource,
   KubernetesResource,
+  DesktopResource,
   ConnectMyComputerResource,
 ];

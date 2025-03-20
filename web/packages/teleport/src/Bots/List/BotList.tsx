@@ -16,14 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-
 import Table, { LabelCell } from 'design/DataTable';
 
+import React, { useState } from 'react';
+
+import { BotOptionsCell } from 'teleport/Bots/List/ActionCell';
+
+import { BotListProps } from 'teleport/Bots/types';
 import { DeleteBot } from 'teleport/Bots/DeleteBot';
 import { EditBot } from 'teleport/Bots/EditBot';
-import { BotOptionsCell } from 'teleport/Bots/List/ActionCell';
-import { BotListProps } from 'teleport/Bots/types';
 
 import { ViewBot } from '../ViewBot';
 
@@ -64,8 +65,8 @@ export function BotList({
             key: 'roles',
             headerText: 'Roles',
             isSortable: true,
-            onSort: (a, b) =>
-              a.roles.toString().localeCompare(b.roles.toString()),
+            onSort: (a: string[], b: string[]) =>
+              a.toString().localeCompare(b.toString()),
             render: ({ roles }) => <LabelCell data={roles} />,
           },
           {

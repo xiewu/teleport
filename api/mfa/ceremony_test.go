@@ -21,22 +21,17 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gravitational/trace"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/client/proto"
 	mfav1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/mfa/v1"
 	"github.com/gravitational/teleport/api/mfa"
 )
 
-func TestMFACeremony(t *testing.T) {
+func TestPerformMFACeremony(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	testMFAChallenge := &proto.MFAAuthenticateChallenge{
-		TOTP: &proto.TOTPChallenge{},
-	}
 	testMFAResponse := &proto.MFAAuthenticateResponse{
 		Response: &proto.MFAAuthenticateResponse_TOTP{
 			TOTP: &proto.TOTPResponse{
@@ -47,20 +42,13 @@ func TestMFACeremony(t *testing.T) {
 
 	for _, tt := range []struct {
 		name                   string
-		ceremony               *mfa.Ceremony
+		ceremonyClient         *fakeMFACeremonyClient
 		assertCeremonyResponse func(*testing.T, *proto.MFAAuthenticateResponse, error, ...interface{})
 	}{
 		{
-			name: "OK ceremony success prompt",
-			ceremony: &mfa.Ceremony{
-				CreateAuthenticateChallenge: func(ctx context.Context, req *proto.CreateAuthenticateChallengeRequest) (*proto.MFAAuthenticateChallenge, error) {
-					return testMFAChallenge, nil
-				},
-				PromptConstructor: func(po ...mfa.PromptOpt) mfa.Prompt {
-					return mfa.PromptFunc(func(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
-						return testMFAResponse, nil
-					})
-				},
+			name: "OK ceremony success",
+			ceremonyClient: &fakeMFACeremonyClient{
+				challengeResponse: testMFAResponse,
 			},
 			assertCeremonyResponse: func(t *testing.T, mr *proto.MFAAuthenticateResponse, err error, i ...interface{}) {
 				assert.NoError(t, err)
@@ -68,17 +56,9 @@ func TestMFACeremony(t *testing.T) {
 			},
 		}, {
 			name: "OK ceremony not required",
-			ceremony: &mfa.Ceremony{
-				CreateAuthenticateChallenge: func(ctx context.Context, req *proto.CreateAuthenticateChallengeRequest) (*proto.MFAAuthenticateChallenge, error) {
-					return &proto.MFAAuthenticateChallenge{
-						MFARequired: proto.MFARequired_MFA_REQUIRED_NO,
-					}, nil
-				},
-				PromptConstructor: func(opts ...mfa.PromptOpt) mfa.Prompt {
-					return mfa.PromptFunc(func(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
-						return nil, trace.BadParameter("expected mfa not required")
-					})
-				},
+			ceremonyClient: &fakeMFACeremonyClient{
+				challengeResponse: testMFAResponse,
+				mfaRequired:       proto.MFARequired_MFA_REQUIRED_NO,
 			},
 			assertCeremonyResponse: func(t *testing.T, mr *proto.MFAAuthenticateResponse, err error, i ...interface{}) {
 				assert.Error(t, err, mfa.ErrMFANotRequired)
@@ -86,15 +66,9 @@ func TestMFACeremony(t *testing.T) {
 			},
 		}, {
 			name: "NOK create challenge fail",
-			ceremony: &mfa.Ceremony{
-				CreateAuthenticateChallenge: func(ctx context.Context, req *proto.CreateAuthenticateChallengeRequest) (*proto.MFAAuthenticateChallenge, error) {
-					return nil, errors.New("create authenticate challenge failure")
-				},
-				PromptConstructor: func(opts ...mfa.PromptOpt) mfa.Prompt {
-					return mfa.PromptFunc(func(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
-						return nil, trace.BadParameter("expected challenge failure")
-					})
-				},
+			ceremonyClient: &fakeMFACeremonyClient{
+				challengeResponse:              testMFAResponse,
+				createAuthenticateChallengeErr: errors.New("create authenticate challenge failure"),
 			},
 			assertCeremonyResponse: func(t *testing.T, mr *proto.MFAAuthenticateResponse, err error, i ...interface{}) {
 				assert.ErrorContains(t, err, "create authenticate challenge failure")
@@ -102,15 +76,9 @@ func TestMFACeremony(t *testing.T) {
 			},
 		}, {
 			name: "NOK prompt mfa fail",
-			ceremony: &mfa.Ceremony{
-				CreateAuthenticateChallenge: func(ctx context.Context, req *proto.CreateAuthenticateChallengeRequest) (*proto.MFAAuthenticateChallenge, error) {
-					return testMFAChallenge, nil
-				},
-				PromptConstructor: func(po ...mfa.PromptOpt) mfa.Prompt {
-					return mfa.PromptFunc(func(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
-						return nil, errors.New("prompt mfa failure")
-					})
-				},
+			ceremonyClient: &fakeMFACeremonyClient{
+				challengeResponse: testMFAResponse,
+				promptMFAErr:      errors.New("prompt mfa failure"),
 			},
 			assertCeremonyResponse: func(t *testing.T, mr *proto.MFAAuthenticateResponse, err error, i ...interface{}) {
 				assert.ErrorContains(t, err, "prompt mfa failure")
@@ -119,7 +87,7 @@ func TestMFACeremony(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := tt.ceremony.Run(ctx, &proto.CreateAuthenticateChallengeRequest{
+			resp, err := mfa.PerformMFACeremony(ctx, tt.ceremonyClient, &proto.CreateAuthenticateChallengeRequest{
 				ChallengeExtensions: &mfav1.ChallengeExtensions{
 					Scope: mfav1.ChallengeScope_CHALLENGE_SCOPE_ADMIN_ACTION,
 				},
@@ -130,76 +98,33 @@ func TestMFACeremony(t *testing.T) {
 	}
 }
 
-func TestMFACeremony_SSO(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
+type fakeMFACeremonyClient struct {
+	createAuthenticateChallengeErr error
+	promptMFAErr                   error
+	mfaRequired                    proto.MFARequired
+	challengeResponse              *proto.MFAAuthenticateResponse
+}
 
-	testMFAChallenge := &proto.MFAAuthenticateChallenge{
-		SSOChallenge: &proto.SSOChallenge{
-			RedirectUrl: "redirect",
-			RequestId:   "request-id",
-		},
-	}
-	testMFAResponse := &proto.MFAAuthenticateResponse{
-		Response: &proto.MFAAuthenticateResponse_SSO{
-			SSO: &proto.SSOResponse{
-				Token:     "token",
-				RequestId: "request-id",
-			},
-		},
+func (c *fakeMFACeremonyClient) CreateAuthenticateChallenge(ctx context.Context, in *proto.CreateAuthenticateChallengeRequest) (*proto.MFAAuthenticateChallenge, error) {
+	if c.createAuthenticateChallengeErr != nil {
+		return nil, c.createAuthenticateChallengeErr
 	}
 
-	ssoMFACeremony := &mfa.Ceremony{
-		CreateAuthenticateChallenge: func(ctx context.Context, req *proto.CreateAuthenticateChallengeRequest) (*proto.MFAAuthenticateChallenge, error) {
-			return testMFAChallenge, nil
-		},
-		PromptConstructor: func(opts ...mfa.PromptOpt) mfa.Prompt {
-			cfg := new(mfa.PromptConfig)
-			for _, opt := range opts {
-				opt(cfg)
-			}
-
-			return mfa.PromptFunc(func(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
-				if cfg.SSOMFACeremony == nil {
-					return nil, trace.BadParameter("expected sso mfa ceremony")
-				}
-
-				return cfg.SSOMFACeremony.Run(ctx, chal)
-			})
-		},
-		SSOMFACeremonyConstructor: func(ctx context.Context) (mfa.SSOMFACeremony, error) {
-			return &mockSSOMFACeremony{
-				clientCallbackURL: "client-redirect",
-				prompt: func(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
-					return testMFAResponse, nil
-				},
-			}, nil
-		},
+	chal := &proto.MFAAuthenticateChallenge{
+		TOTP: &proto.TOTPChallenge{},
 	}
 
-	resp, err := ssoMFACeremony.Run(ctx, &proto.CreateAuthenticateChallengeRequest{
-		ChallengeExtensions: &mfav1.ChallengeExtensions{
-			Scope: mfav1.ChallengeScope_CHALLENGE_SCOPE_ADMIN_ACTION,
-		},
-		MFARequiredCheck: &proto.IsMFARequiredRequest{},
-	})
-	require.NoError(t, err)
-	require.Equal(t, testMFAResponse, resp)
+	if in.MFARequiredCheck != nil {
+		chal.MFARequired = c.mfaRequired
+	}
+
+	return chal, nil
 }
 
-type mockSSOMFACeremony struct {
-	clientCallbackURL string
-	prompt            mfa.PromptFunc
-}
+func (c *fakeMFACeremonyClient) PromptMFA(ctx context.Context, chal *proto.MFAAuthenticateChallenge, promptOpts ...mfa.PromptOpt) (*proto.MFAAuthenticateResponse, error) {
+	if c.promptMFAErr != nil {
+		return nil, c.promptMFAErr
+	}
 
-// GetClientCallbackURL returns the client callback URL.
-func (m *mockSSOMFACeremony) GetClientCallbackURL() string {
-	return m.clientCallbackURL
+	return c.challengeResponse, nil
 }
-
-// Run the SSO MFA ceremony.
-func (m *mockSSOMFACeremony) Run(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
-	return m.prompt(ctx, chal)
-}
-
-func (m *mockSSOMFACeremony) Close() {}

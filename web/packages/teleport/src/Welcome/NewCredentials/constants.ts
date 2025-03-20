@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { NewMfaDevice } from 'teleport/Welcome/NewCredentials/NewMfaDevice';
 import { NewPassword } from 'teleport/Welcome/NewCredentials/NewPassword';
+import { NewMfaDevice } from 'teleport/Welcome/NewCredentials/NewMfaDevice';
 import { NewPasswordlessDevice } from 'teleport/Welcome/NewCredentials/NewPasswordlessDevice';
 
 export const loginFlows = {

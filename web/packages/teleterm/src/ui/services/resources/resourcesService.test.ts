@@ -16,21 +16,22 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import type { TshdClient } from 'teleterm/services/tshd';
-import { MockedUnaryCall } from 'teleterm/services/tshd/cloneableClient';
 import {
-  makeApp,
   makeDatabase,
   makeKube,
   makeServer,
+  makeApp,
 } from 'teleterm/services/tshd/testHelpers';
-import type * as tsh from 'teleterm/services/tshd/types';
+import { MockedUnaryCall } from 'teleterm/services/tshd/cloneableClient';
 
 import {
   AmbiguousHostnameError,
   ResourceSearchError,
   ResourcesService,
 } from './resourcesService';
+
+import type { TshdClient } from 'teleterm/services/tshd';
+import type * as tsh from 'teleterm/services/tshd/types';
 
 describe('getServerByHostname', () => {
   const server: tsh.Server = makeServer();
@@ -138,7 +139,6 @@ describe('searchResources', () => {
       search: '',
       filters: [],
       limit: 10,
-      includeRequestable: true,
     });
     expect(searchResults).toHaveLength(4);
 
@@ -167,7 +167,6 @@ describe('searchResources', () => {
       search: '',
       filters: [],
       limit: 10,
-      includeRequestable: true,
     });
     await expect(searchResults).rejects.toThrow(
       new ResourceSearchError('/clusters/foo', expectedCause)

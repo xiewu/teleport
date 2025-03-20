@@ -17,8 +17,8 @@
  */
 
 import {
-  makeLeafCluster,
   makeRootCluster,
+  makeLeafCluster,
 } from 'teleterm/services/tshd/testHelpers';
 import { MockAppContextProvider } from 'teleterm/ui/fixtures/MockAppContextProvider';
 
@@ -39,9 +39,8 @@ export const WithWebauthn = () => (
   <MockAppContextProvider>
     <ReAuthenticate
       promptMfaRequest={{ ...promptMfaRequest, webauthn: true }}
-      onSsoContinue={() => {}}
       onCancel={() => {}}
-      onOtpSubmit={() => {
+      onSuccess={() => {
         window.alert(
           'You somehow submitted a form while only Webauthn was available.'
         );
@@ -57,53 +56,18 @@ export const WithTotp = () => (
   <MockAppContextProvider>
     <ReAuthenticate
       promptMfaRequest={{ ...promptMfaRequest, totp: true }}
-      onSsoContinue={() => {}}
       onCancel={() => {}}
-      onOtpSubmit={showToken}
+      onSuccess={showToken}
     />
   </MockAppContextProvider>
 );
 
-export const WithSso = () => (
+export const WithWebauthnAndTotp = () => (
   <MockAppContextProvider>
     <ReAuthenticate
-      promptMfaRequest={{
-        ...promptMfaRequest,
-        sso: {
-          connectorId: '',
-          connectorType: '',
-          displayName: 'Example SSO',
-          redirectUrl: '',
-        },
-      }}
-      onSsoContinue={() => {}}
+      promptMfaRequest={{ ...promptMfaRequest, webauthn: true, totp: true }}
       onCancel={() => {}}
-      onOtpSubmit={() => {
-        window.alert(
-          'You somehow submitted a form while only SSO was available.'
-        );
-      }}
-    />
-  </MockAppContextProvider>
-);
-
-export const WithWebauthnAndTotpAndSSO = () => (
-  <MockAppContextProvider>
-    <ReAuthenticate
-      promptMfaRequest={{
-        ...promptMfaRequest,
-        webauthn: true,
-        totp: true,
-        sso: {
-          connectorId: '',
-          connectorType: '',
-          displayName: 'Example SSO',
-          redirectUrl: '',
-        },
-      }}
-      onSsoContinue={() => {}}
-      onCancel={() => {}}
-      onOtpSubmit={showToken}
+      onSuccess={showToken}
     />
   </MockAppContextProvider>
 );
@@ -117,9 +81,8 @@ export const MultilineTitle = () => (
         totp: true,
         clusterUri: '/clusters/lorem.cloud.gravitational.io',
       }}
-      onSsoContinue={() => {}}
       onCancel={() => {}}
-      onOtpSubmit={showToken}
+      onSuccess={showToken}
     />
   </MockAppContextProvider>
 );
@@ -133,9 +96,8 @@ export const ForLeafCluster = () => (
         totp: true,
         clusterUri: makeLeafCluster().uri,
       }}
-      onSsoContinue={() => {}}
       onCancel={() => {}}
-      onOtpSubmit={showToken}
+      onSuccess={showToken}
     />
   </MockAppContextProvider>
 );

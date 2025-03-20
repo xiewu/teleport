@@ -21,9 +21,9 @@ package servicecfg
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +34,8 @@ import (
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sashabaranov/go-openai"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/gravitational/teleport"
@@ -42,7 +44,6 @@ import (
 	"github.com/gravitational/teleport/lib/auth/state"
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/backend/lite"
-	dbrepl "github.com/gravitational/teleport/lib/client/db/repl"
 	"github.com/gravitational/teleport/lib/cloud/imds"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/events"
@@ -51,6 +52,7 @@ import (
 	"github.com/gravitational/teleport/lib/sshca"
 	usagereporter "github.com/gravitational/teleport/lib/usagereporter/teleport"
 	"github.com/gravitational/teleport/lib/utils"
+	logutils "github.com/gravitational/teleport/lib/utils/log"
 )
 
 // Config contains the configuration for all services that Teleport can run.
@@ -132,6 +134,9 @@ type Config struct {
 	// a teleport cluster). It's automatically generated on 1st start
 	HostUUID string
 
+	// Console writer to speak to a user
+	Console io.Writer
+
 	// ReverseTunnels is a list of reverse tunnels to create on the
 	// first cluster start
 	ReverseTunnels []types.ReverseTunnel
@@ -163,7 +168,7 @@ type Config struct {
 	// UsageReporter is a service that reports usage events.
 	UsageReporter usagereporter.UsageReporter
 	// ClusterConfiguration is a service that provides cluster configuration
-	ClusterConfiguration services.ClusterConfigurationInternal
+	ClusterConfiguration services.ClusterConfiguration
 
 	// AutoUpdateService is a service that provides auto update configuration and version.
 	AutoUpdateService services.AutoUpdateService
@@ -218,10 +223,12 @@ type Config struct {
 	// Kube is a Kubernetes API gateway using Teleport client identities.
 	Kube KubeConfig
 
+	// Log optionally specifies the logger.
+	// Deprecated: use Logger instead.
+	Log utils.Logger
 	// Logger outputs messages using slog. The underlying handler respects
 	// the user supplied logging config.
 	Logger *slog.Logger
-
 	// LoggerLevel defines the Logger log level.
 	LoggerLevel *slog.LevelVar
 
@@ -256,10 +263,6 @@ type Config struct {
 
 	// AccessGraph represents AccessGraph server config
 	AccessGraph AccessGraphConfig
-
-	// DatabaseREPLRegistry is used to retrieve datatabase REPL given the
-	// protocol.
-	DatabaseREPLRegistry dbrepl.REPLRegistry
 
 	// MetricsRegistry is the prometheus metrics registry used by the Teleport process to register its metrics.
 	// As of today, not every Teleport metric is registered against this registry. Some Teleport services
@@ -311,9 +314,14 @@ type ConfigTesting struct {
 	// connections there.
 	KubeMultiplexerIgnoreSelfConnections bool
 
-	// HTTPTransport is an optional HTTP round tripper to used in tests
-	// to mock HTTP requests to the third party services like Okta integration
-	HTTPTransport http.RoundTripper
+	// OpenAIConfig contains the optional OpenAI client configuration used by
+	// auth and proxy. When it's not set (the default, we don't offer a way to
+	// set it when executing the regular Teleport binary) we use the default
+	// configuration with auth tokens passed from Auth.AssistAPIKey or
+	// Proxy.AssistAPIKey. We set this only when testing to avoid calls to reach
+	// the real OpenAI API.
+	// Note: When set, this overrides Auth and Proxy's AssistAPIKey settings.
+	OpenAIConfig *openai.ClientConfig
 }
 
 // AccessGraphConfig represents TAG server config
@@ -515,6 +523,10 @@ func ApplyDefaults(cfg *Config) {
 
 	cfg.Version = defaults.TeleportConfigVersionV1
 
+	if cfg.Log == nil {
+		cfg.Log = utils.NewLogger()
+	}
+
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -543,6 +555,7 @@ func ApplyDefaults(cfg *Config) {
 	// Global defaults.
 	cfg.Hostname = hostname
 	cfg.DataDir = defaults.DataDir
+	cfg.Console = os.Stdout
 	cfg.CipherSuites = utils.DefaultCipherSuites()
 	cfg.Ciphers = sc.Ciphers
 	cfg.KEXAlgorithms = kex
@@ -571,6 +584,7 @@ func ApplyDefaults(cfg *Config) {
 
 	// SSH service defaults.
 	cfg.SSH.Enabled = true
+	cfg.SSH.Shell = defaults.DefaultShell
 	defaults.ConfigureLimiter(&cfg.SSH.Limiter)
 	cfg.SSH.PAM = &PAMConfig{Enabled: false}
 	cfg.SSH.BPF = &BPFConfig{Enabled: false}
@@ -686,6 +700,14 @@ func applyDefaults(cfg *Config) {
 		cfg.Version = defaults.TeleportConfigVersionV1
 	}
 
+	if cfg.Console == nil {
+		cfg.Console = io.Discard
+	}
+
+	if cfg.Log == nil {
+		cfg.Log = logrus.StandardLogger()
+	}
+
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -783,6 +805,7 @@ func verifyEnabledService(cfg *Config) error {
 // If called after `config.ApplyFileConfig` or `config.Configure` it will also
 // change the global loggers.
 func (c *Config) SetLogLevel(level slog.Level) {
+	c.Log.SetLevel(logutils.SlogLevelToLogrusLevel(level))
 	c.LoggerLevel.Set(level)
 }
 

@@ -17,10 +17,7 @@
 package databaseobjectimportrule
 
 import (
-	"context"
-	"log/slog"
-
-	"google.golang.org/protobuf/proto"
+	log "github.com/sirupsen/logrus"
 
 	dbobjectimportrulev1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/dbobjectimportrule/v1"
 	"github.com/gravitational/teleport/api/types/label"
@@ -52,47 +49,8 @@ func NewPresetImportAllObjectsRule() *dbobjectimportrulev1pb.DatabaseObjectImpor
 	})
 
 	if err != nil {
-		slog.WarnContext(context.Background(), "failed to create import_all_objects database object import rule", "error", err)
+		log.WithError(err).Warn("failed to create import_all_objects database object import rule")
 		return nil
 	}
 	return rule
-}
-
-// IsOldImportAllObjectsRulePreset checks if the provided rule is the "old" preset.
-// TODO(greedy52) DELETE in 18.0
-func IsOldImportAllObjectsRulePreset(cur *dbobjectimportrulev1pb.DatabaseObjectImportRule) bool {
-	// Skip no-zero expires.
-	if cur.Metadata.Expires != nil && !cur.Metadata.Expires.AsTime().IsZero() {
-		return false
-	}
-
-	// Make the old preset from https://github.com/gravitational/teleport/pull/37808
-	old, err := NewDatabaseObjectImportRule("import_all_objects", &dbobjectimportrulev1pb.DatabaseObjectImportRuleSpec{
-		Priority:       0,
-		DatabaseLabels: label.FromMap(map[string][]string{"*": {"*"}}),
-		Mappings: []*dbobjectimportrulev1pb.DatabaseObjectImportRuleMapping{
-			{
-				Match:     &dbobjectimportrulev1pb.DatabaseObjectImportMatch{TableNames: []string{"*"}},
-				AddLabels: map[string]string{"kind": ObjectKindTable},
-			},
-			{
-				Match:     &dbobjectimportrulev1pb.DatabaseObjectImportMatch{ViewNames: []string{"*"}},
-				AddLabels: map[string]string{"kind": ObjectKindView},
-			},
-			{
-				Match:     &dbobjectimportrulev1pb.DatabaseObjectImportMatch{ProcedureNames: []string{"*"}},
-				AddLabels: map[string]string{"kind": ObjectKindProcedure},
-			},
-		},
-	})
-	if err != nil {
-		slog.WarnContext(context.Background(), "failed to create old import_all_objects database object import rule", "error", err)
-		return false
-	}
-
-	// Ignore these fields.
-	old.Metadata.Revision = cur.Metadata.Revision
-	old.Metadata.Namespace = cur.Metadata.Namespace
-	old.Metadata.Expires = cur.Metadata.Expires
-	return proto.Equal(old, cur)
 }

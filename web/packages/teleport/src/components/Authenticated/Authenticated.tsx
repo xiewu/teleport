@@ -17,18 +17,16 @@
  */
 
 import React, { PropsWithChildren, useEffect } from 'react';
-
-import { Box, Indicator } from 'design';
-import { TrustedDeviceRequirement } from 'gen-proto-ts/teleport/legacy/types/trusted_device_requirement_pb';
-import useAttempt from 'shared/hooks/useAttemptNext';
-import Logger from 'shared/libs/logger';
-import { getErrMessage } from 'shared/utils/errorType';
 import { throttle } from 'shared/utils/highbar';
+import Logger from 'shared/libs/logger';
+import useAttempt from 'shared/hooks/useAttemptNext';
+import { getErrMessage } from 'shared/utils/errorType';
+import { Box, Indicator } from 'design';
 
-import { StyledIndicator } from 'teleport/Main';
-import { ApiError } from 'teleport/services/api/parseError';
-import { storageService } from 'teleport/services/storageService';
 import session from 'teleport/services/websession';
+import { storageService } from 'teleport/services/storageService';
+import { ApiError } from 'teleport/services/api/parseError';
+import { StyledIndicator } from 'teleport/Main';
 
 import { ErrorDialog } from './ErrorDialogue';
 
@@ -60,14 +58,7 @@ const Authenticated: React.FC<PropsWithChildren> = ({ children }) => {
       }
 
       try {
-        const result = await session.validateCookieAndSession();
-        if (result.hasDeviceExtensions) {
-          session.setIsDeviceTrusted();
-        }
-        if (result.requiresDeviceTrust === TrustedDeviceRequirement.REQUIRED) {
-          session.setDeviceTrustRequired();
-        }
-        storageService.setLoginTimeOnce();
+        await session.validateCookieAndSession();
         setAttempt({ status: 'success' });
       } catch (e) {
         if (e instanceof ApiError && e.response?.status == 403) {

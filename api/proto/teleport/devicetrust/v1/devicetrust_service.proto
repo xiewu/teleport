@@ -23,10 +23,8 @@ import "google/rpc/status.proto";
 import "teleport/devicetrust/v1/authenticate_challenge.proto";
 import "teleport/devicetrust/v1/device.proto";
 import "teleport/devicetrust/v1/device_collected_data.proto";
-import "teleport/devicetrust/v1/device_confirmation_token.proto";
 import "teleport/devicetrust/v1/device_enroll_token.proto";
 import "teleport/devicetrust/v1/device_source.proto";
-import "teleport/devicetrust/v1/device_web_token.proto";
 import "teleport/devicetrust/v1/tpm.proto";
 import "teleport/devicetrust/v1/usage.proto";
 import "teleport/devicetrust/v1/user_certificates.proto";
@@ -98,9 +96,6 @@ service DeviceTrustService {
   // ListDevices lists all registered devices.
   rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
 
-  // ListDevicesByUser lists all devices owned by the user
-  rpc ListDevicesByUser(ListDevicesByUserRequest) returns (ListDevicesByUserResponse);
-
   // BulkCreateDevices is a bulk variant of CreateDevice.
   //
   // Unlike CreateDevice, it does not support creation of enrollment tokens, as
@@ -142,22 +137,6 @@ service DeviceTrustService {
   //
   // Only registered and enrolled devices may perform device authentication.
   rpc AuthenticateDevice(stream AuthenticateDeviceRequest) returns (stream AuthenticateDeviceResponse);
-
-  // ConfirmDeviceWebAuthentication finalizes the device web authentication
-  // ceremony started by the creation of a DeviceWebToken and subsequent
-  // AuthenticateDevice call.
-  //
-  // The DeviceConfirmationToken issued by AuthenticateDevice is spent in this
-  // method, which consequently augments the corresponding Web Session
-  // certificates with device extensions.
-  //
-  // This method must be called by the Teleport Proxy, and the Proxy itself must
-  // be called by the same browser that started the on-behalf-of authentication
-  // attempt. See the /webapi/device/webconfirm endpoint.
-  //
-  // See
-  // https://github.com/gravitational/teleport.e/blob/master/rfd/0009e-device-trust-web-support.md#device-web-authentication.
-  rpc ConfirmDeviceWebAuthentication(ConfirmDeviceWebAuthenticationRequest) returns (ConfirmDeviceWebAuthenticationResponse);
 
   // Syncs device inventory from a source exterior to Teleport, for example an
   // MDM.
@@ -262,31 +241,6 @@ message ListDevicesRequest {
 // Response for ListDevices.
 message ListDevicesResponse {
   // Devices that matched the search.
-  repeated Device devices = 1;
-
-  // Token to retrieve the next page of results, or empty if there are no
-  // more results in the list.
-  string next_page_token = 2;
-}
-
-// Request for ListDevicesByUser.
-//
-// Follows the pagination semantics of
-// https://cloud.google.com/apis/design/standard_methods#list.
-message ListDevicesByUserRequest {
-  reserved 3;
-  reserved "view";
-  // The maximum number of items to return.
-  // The server may impose a different page size at its discretion.
-  int32 page_size = 1;
-
-  // The next_page_token value returned from a previous List request, if any.
-  string page_token = 2;
-}
-
-// Response for ListDevicesByUser.
-message ListDevicesByUserResponse {
-  // Devices owned by the user.
   repeated Device devices = 1;
 
   // Token to retrieve the next page of results, or empty if there are no
@@ -507,7 +461,7 @@ message TPMEnrollChallengeResponse {
 // -> AuthenticateDeviceInit (client)
 // <- AuthenticateDeviceChallenge (server)
 // -> AuthenticateDeviceChallengeResponse
-// <- UserCertificates (regular authn) or ConfirmationToken (web authn)
+// <- UserCertificates
 message AuthenticateDeviceRequest {
   oneof payload {
     AuthenticateDeviceInit init = 1;
@@ -520,18 +474,8 @@ message AuthenticateDeviceRequest {
 message AuthenticateDeviceResponse {
   oneof payload {
     AuthenticateDeviceChallenge challenge = 1;
-
-    // User certificates are returned as the result of a successful device
-    // authentication attempt ("regular" or non-web authentication).
     UserCertificates user_certificates = 2;
-
     TPMAuthenticateDeviceChallenge tpm_challenge = 3;
-
-    // A confirmation token is returned as the result of a successful device web
-    // authentication.
-    //
-    // See AuthenticateDeviceInit.device_web_token.
-    DeviceConfirmationToken confirmation_token = 4;
   }
 }
 
@@ -541,11 +485,8 @@ message AuthenticateDeviceInit {
   // - The x509 certificate is acquired from the mTLS connection, thus the
   //   in-band certificate is ignored.
   // - All certificates must be valid and issued by the Teleport CA.
-  // - TLS and SSH certificates must match (same Teleport user, plus whatever
-  //   additional checks the backend sees fit).
-  // - TLS and SSH certificates must either have matching public keys, or
-  //   (TPM)AuthenticateDeviceChallengeResponse.SshSignature must be a valid
-  //   signature over the challenge by the SSH private key.
+  // - All certificates must match (same public key, same Teleport user, plus
+  //   whatever additional checks the backend sees fit).
   // - Augmented certificates have the same expiration as the original
   //   certificates.
   UserCertificates user_certificates = 1;
@@ -557,31 +498,7 @@ message AuthenticateDeviceInit {
   // Matched against the device registration information and any previously
   // collected data.
   DeviceCollectedData device_data = 3;
-
-  // If present, on-behalf-of device authentication is performed.
-  // The user_certificates input field is ignored and no certificate data is
-  // returned to the caller, instead a confirmation_token is returned in
-  // the last step.
-  //
-  // See ConfirmDeviceWebAuthentication.
-  DeviceWebToken device_web_token = 4;
 }
-
-// Request for ConfirmDeviceWebAuthentication.
-message ConfirmDeviceWebAuthenticationRequest {
-  // Confirmation token to be spent.
-  DeviceConfirmationToken confirmation_token = 1;
-
-  // Web Session identifier of the session that started this request, via
-  // Teleport Proxy.
-  //
-  // For the request to be successful the Web Session must match the session
-  // that started the authentication attempt.
-  string current_web_session_id = 2;
-}
-
-// Response for ConfirmDeviceWebAuthentication.
-message ConfirmDeviceWebAuthenticationResponse {}
 
 // Request for SyncInventory.
 //

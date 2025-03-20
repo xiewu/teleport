@@ -16,10 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { Flex } from 'design';
 import { Cog } from 'design/Icon';
 
-import { MenuButton, MenuIcon, MenuItem } from '.';
+import { MenuIcon, MenuButton, MenuItem } from '.';
 
 export default {
   title: 'Shared/MenuAction',

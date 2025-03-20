@@ -120,7 +120,3 @@ func (dm *DestinationMemory) MarshalYAML() (interface{}, error) {
 	type raw DestinationMemory
 	return withTypeHeader((*raw)(dm), DestinationMemoryType)
 }
-
-func (dm *DestinationMemory) IsPersistent() bool {
-	return false
-}

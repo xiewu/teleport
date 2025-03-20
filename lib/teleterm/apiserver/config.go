@@ -19,14 +19,11 @@
 package apiserver
 
 import (
-	"log/slog"
-
 	"github.com/gravitational/trace"
-	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 
 	"github.com/gravitational/teleport"
-	"github.com/gravitational/teleport/lib/teleterm/clusteridcache"
 	"github.com/gravitational/teleport/lib/teleterm/daemon"
 	"github.com/gravitational/teleport/lib/utils"
 )
@@ -34,16 +31,12 @@ import (
 // Config is the APIServer configuration
 type Config struct {
 	// HostAddr is the APIServer host address
-	HostAddr           string
-	InsecureSkipVerify bool
+	HostAddr string
 	// Daemon is the terminal daemon service
-	Daemon         *daemon.Service
-	ClusterIDCache *clusteridcache.Cache
-	InstallationID string
-	// Logger is a component logger
-	Logger          *slog.Logger
+	Daemon *daemon.Service
+	// Log is a component logger
+	Log             logrus.FieldLogger
 	TshdServerCreds grpc.ServerOption
-	Clock           clockwork.Clock
 	// ListeningC propagates the address on which the gRPC server listens. Mostly useful in tests, as
 	// the Electron app gets the server port from stdout.
 	ListeningC chan<- utils.NetAddr
@@ -67,20 +60,8 @@ func (c *Config) CheckAndSetDefaults() error {
 		return trace.BadParameter("missing TshdServerCreds")
 	}
 
-	if c.Logger == nil {
-		c.Logger = slog.With(teleport.ComponentKey, "conn:apiserver")
-	}
-
-	if c.InstallationID == "" {
-		return trace.BadParameter("missing installation ID")
-	}
-
-	if c.ClusterIDCache == nil {
-		c.ClusterIDCache = &clusteridcache.Cache{}
-	}
-
-	if c.Clock == nil {
-		c.Clock = clockwork.NewRealClock()
+	if c.Log == nil {
+		c.Log = logrus.WithField(teleport.ComponentKey, "conn:apiserver")
 	}
 
 	return nil

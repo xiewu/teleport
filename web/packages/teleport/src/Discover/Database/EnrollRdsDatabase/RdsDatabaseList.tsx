@@ -16,25 +16,26 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import Table from 'design/DataTable';
 import { FetchStatus } from 'design/DataTable/types';
 
 import {
   DisableableCell as Cell,
-  ItemStatus,
-  labelMatcher,
-  Labels,
-  RadioCell,
   StatusCell,
+  ItemStatus,
+  RadioCell,
+  Labels,
+  labelMatcher,
 } from 'teleport/Discover/Shared';
 
-import { CheckedAwsRdsDatabase } from './SingleEnrollment';
+import { CheckedAwsRdsDatabase } from './EnrollRdsDatabase';
 
 type Props = {
   items: CheckedAwsRdsDatabase[];
   fetchStatus: FetchStatus;
   fetchNextPage(): void;
-  onSelectDatabase?(item: CheckedAwsRdsDatabase): void;
+  onSelectDatabase(item: CheckedAwsRdsDatabase): void;
   selectedDatabase?: CheckedAwsRdsDatabase;
   wantAutoDiscover: boolean;
 };
@@ -51,30 +52,25 @@ export const DatabaseList = ({
     <Table
       data={items}
       columns={[
-        // Hide the selector when choosing to auto enroll
-        ...(!wantAutoDiscover
-          ? [
-              {
-                altKey: 'radio-select',
-                headerText: 'Select',
-                render: item => {
-                  const isChecked =
-                    item.name === selectedDatabase?.name &&
-                    item.engine === selectedDatabase?.engine;
-                  return (
-                    <RadioCell<CheckedAwsRdsDatabase>
-                      item={item}
-                      key={`${item.name}${item.resourceId}`}
-                      isChecked={isChecked}
-                      onChange={onSelectDatabase}
-                      value={item.name}
-                      {...disabledStates(item, wantAutoDiscover)}
-                    />
-                  );
-                },
-              },
-            ]
-          : []),
+        {
+          altKey: 'radio-select',
+          headerText: 'Select',
+          render: item => {
+            const isChecked =
+              item.name === selectedDatabase?.name &&
+              item.engine === selectedDatabase?.engine;
+            return (
+              <RadioCell<CheckedAwsRdsDatabase>
+                item={item}
+                key={`${item.name}${item.resourceId}`}
+                isChecked={isChecked}
+                onChange={onSelectDatabase}
+                value={item.name}
+                {...disabledStates(item, wantAutoDiscover)}
+              />
+            );
+          },
+        },
         {
           key: 'name',
           headerText: 'Name',
@@ -139,10 +135,13 @@ function disabledStates(
   const disabled =
     item.status === 'failed' ||
     item.status === 'deleting' ||
-    (!wantAutoDiscover && item.dbServerExists);
+    wantAutoDiscover ||
+    item.dbServerExists;
 
   let disabledText = `This RDS database is already enrolled and is a part of this cluster`;
-  if (item.status === 'failed') {
+  if (wantAutoDiscover) {
+    disabledText = 'All RDS databases will be enrolled automatically';
+  } else if (item.status === 'failed') {
     disabledText = 'Not available, try refreshing the list';
   } else if (item.status === 'deleting') {
     disabledText = 'Not available';

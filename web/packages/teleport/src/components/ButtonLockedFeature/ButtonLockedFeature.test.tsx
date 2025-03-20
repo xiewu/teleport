@@ -17,13 +17,14 @@
  */
 
 import React from 'react';
-
 import { render, screen, userEvent } from 'design/utils/testing';
 
 import cfg from 'teleport/config';
-import { createTeleportContext } from 'teleport/mocks/contexts';
-import { CtaEvent, userEventService } from 'teleport/services/userEvent';
+
 import TeleportContextProvider from 'teleport/TeleportContextProvider';
+import { createTeleportContext } from 'teleport/mocks/contexts';
+
+import { CtaEvent, userEventService } from 'teleport/services/userEvent';
 
 import { ButtonLockedFeature } from './ButtonLockedFeature';
 

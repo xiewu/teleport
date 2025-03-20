@@ -16,17 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-
+import React, { useState } from 'react';
 import { ButtonPrimary } from 'design/Button';
 import { NotificationItem } from 'shared/components/Notification';
 
 import { TdpClient, TdpClientEvent } from 'teleport/lib/tdp';
 import { BitmapFrame } from 'teleport/lib/tdp/client';
-import { makeDefaultMfaState } from 'teleport/lib/useMfa';
 
-import { DesktopSession } from './DesktopSession';
 import { State } from './useDesktopSession';
+import { DesktopSession } from './DesktopSession';
 
 export default {
   title: 'Teleport/DesktopSession',
@@ -72,7 +70,13 @@ const props: State = {
   canvasOnFocusOut: () => {},
   clientOnClipboardData: async () => {},
   setTdpConnection: () => {},
-  mfa: makeDefaultMfaState(),
+  webauthn: {
+    errorText: '',
+    requested: false,
+    authenticate: () => {},
+    setState: () => {},
+    addMfaToScpUrls: false,
+  },
   showAnotherSessionActiveDialog: false,
   setShowAnotherSessionActiveDialog: () => {},
   alerts: [],
@@ -244,18 +248,12 @@ export const WebAuthnPrompt = () => (
       writeState: 'granted',
     }}
     wsConnection={{ status: 'open' }}
-    mfa={{
-      ...makeDefaultMfaState(),
-      attempt: {
-        status: 'processing',
-        statusText: '',
-        data: null,
-      },
-      challenge: {
-        webauthnPublicKey: {
-          challenge: new ArrayBuffer(1),
-        },
-      },
+    webauthn={{
+      errorText: '',
+      requested: true,
+      authenticate: () => {},
+      setState: () => {},
+      addMfaToScpUrls: false,
     }}
   />
 );
@@ -299,47 +297,34 @@ export const ClipboardSharingDisabledBrowserPermissions = () => (
   />
 );
 
-export const Alerts = () => {
+export const Warnings = () => {
   const client = fakeClient();
   client.connect = async () => {
     emitGrayFrame(client);
   };
 
-  const [alerts, setAlerts] = useState<NotificationItem[]>([]);
+  const [warnings, setWarnings] = useState<NotificationItem[]>([]);
 
   const addWarning = () => {
-    setAlerts(prevItems => [
+    setWarnings(prevItems => [
       ...prevItems,
       {
         id: crypto.randomUUID(),
         severity: 'warn',
-        content: `This is a warning message at ${new Date().toLocaleTimeString()}`,
+        content:
+          "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s.",
       },
     ]);
   };
 
-  const addInfo = () => {
-    setAlerts(prevItems => [
-      ...prevItems,
-      {
-        id: crypto.randomUUID(),
-        severity: 'info',
-        content: `This is an info message at ${new Date().toLocaleTimeString()}`,
-      },
-    ]);
-  };
-
-  const removeAlert = (id: string) => {
-    setAlerts(prevState => prevState.filter(warning => warning.id !== id));
+  const removeWarning = (id: string) => {
+    setWarnings(prevState => prevState.filter(warning => warning.id !== id));
   };
 
   return (
     <>
-      <ButtonPrimary onClick={addWarning} mb={1} mr={1}>
+      <ButtonPrimary onClick={addWarning} mb={1}>
         Add Warning
-      </ButtonPrimary>
-      <ButtonPrimary onClick={addInfo} mb={1}>
-        Add Info
       </ButtonPrimary>
       <DesktopSession
         {...props}
@@ -358,8 +343,8 @@ export const Alerts = () => {
           browserSupported: true,
           directorySelected: true,
         }}
-        alerts={alerts}
-        onRemoveAlert={removeAlert}
+        alerts={warnings}
+        onRemoveAlert={removeWarning}
       />
     </>
   );

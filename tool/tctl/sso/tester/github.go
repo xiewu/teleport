@@ -45,14 +45,10 @@ func githubTest(c *authclient.Client, connector types.GithubConnector) (*AuthReq
 	requestInfo := &AuthRequestInfo{}
 
 	makeRequest := func(req client.SSOLoginConsoleReq) (*client.SSOLoginConsoleResponse, error) {
-		if err := req.CheckAndSetDefaults(); err != nil {
-			return nil, trace.Wrap(err)
-		}
 		ghRequest := types.GithubAuthRequest{
 			ConnectorID:       req.ConnectorID + "-" + connector.GetName(),
 			Type:              constants.Github,
-			SshPublicKey:      req.SSHPubKey,
-			TlsPublicKey:      req.TLSPubKey,
+			PublicKey:         req.PublicKey,
 			CertTTL:           defaults.GithubAuthRequestTTL,
 			CreateWebSession:  false,
 			ClientRedirectURL: req.RedirectURL,
@@ -75,7 +71,7 @@ func githubTest(c *authclient.Client, connector types.GithubConnector) (*AuthReq
 		return &client.SSOLoginConsoleResponse{RedirectURL: request.RedirectURL}, nil
 	}
 
-	requestInfo.SSOLoginConsoleRequestFn = makeRequest
+	requestInfo.Config = &client.RedirectorConfig{SSOLoginConsoleRequestFn: makeRequest}
 	return requestInfo, nil
 }
 

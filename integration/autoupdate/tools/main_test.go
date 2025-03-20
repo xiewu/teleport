@@ -60,8 +60,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	modules.SetInsecureTestMode(true)
-	modules.SetModules(&modules.TestModules{TestBuildType: modules.BuildCommunity})
+	modules.SetModules(&modules.TestModules{TestBuildType: "CLI"})
 	ctx := context.Background()
 	tmp, err := os.MkdirTemp(os.TempDir(), testBinaryName)
 	if err != nil {

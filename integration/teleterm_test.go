@@ -20,7 +20,6 @@ package integration
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"os/user"
@@ -43,7 +42,6 @@ import (
 	"github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/utils"
-	"github.com/gravitational/teleport/api/utils/keys"
 	api "github.com/gravitational/teleport/gen/proto/go/teleport/lib/teleterm/v1"
 	dbhelpers "github.com/gravitational/teleport/integration/db"
 	"github.com/gravitational/teleport/integration/helpers"
@@ -59,7 +57,6 @@ import (
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/teleterm/api/uri"
 	"github.com/gravitational/teleport/lib/teleterm/apiserver/handler"
-	"github.com/gravitational/teleport/lib/teleterm/clusteridcache"
 	"github.com/gravitational/teleport/lib/teleterm/clusters"
 	"github.com/gravitational/teleport/lib/teleterm/daemon"
 	"github.com/gravitational/teleport/lib/tlsca"
@@ -102,7 +99,7 @@ func TestTeleterm(t *testing.T) {
 		testGetClusterReturnsPropertiesFromAuthServer(t, pack)
 	})
 
-	t.Run("headless watcher", func(t *testing.T) {
+	t.Run("Test headless watcher", func(t *testing.T) {
 		t.Parallel()
 
 		testHeadlessWatcher(t, pack, creds)
@@ -128,7 +125,7 @@ func TestTeleterm(t *testing.T) {
 		testDeleteConnectMyComputerNode(t, pack)
 	})
 
-	t.Run("client cache", func(t *testing.T) {
+	t.Run("TestClientCache", func(t *testing.T) {
 		t.Parallel()
 
 		testClientCache(t, pack, creds)
@@ -258,9 +255,6 @@ func testAddingRootCluster(t *testing.T, pack *dbhelpers.DatabasePack, creds *he
 	storage, err := clusters.NewStorage(clusters.Config{
 		Dir:                t.TempDir(),
 		InsecureSkipVerify: true,
-		HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-			return nil
-		},
 	})
 	require.NoError(t, err)
 
@@ -293,9 +287,6 @@ func testListRootClustersReturnsLoggedInUser(t *testing.T, pack *dbhelpers.Datab
 	storage, err := clusters.NewStorage(clusters.Config{
 		Dir:                tc.KeysDir,
 		InsecureSkipVerify: tc.InsecureSkipVerify,
-		HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-			return nil
-		},
 	})
 	require.NoError(t, err)
 
@@ -378,19 +369,13 @@ func testGetClusterReturnsPropertiesFromAuthServer(t *testing.T, pack *dbhelpers
 	storage, err := clusters.NewStorage(clusters.Config{
 		Dir:                tc.KeysDir,
 		InsecureSkipVerify: tc.InsecureSkipVerify,
-		HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-			return nil
-		},
 	})
 	require.NoError(t, err)
-
-	clusterIDCache := clusteridcache.Cache{}
 
 	daemonService, err := daemon.New(daemon.Config{
 		Storage:        storage,
 		KubeconfigsDir: t.TempDir(),
 		AgentsDir:      t.TempDir(),
-		ClusterIDCache: &clusterIDCache,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -406,22 +391,15 @@ func testGetClusterReturnsPropertiesFromAuthServer(t *testing.T, pack *dbhelpers
 
 	rootClusterName, _, err := net.SplitHostPort(pack.Root.Cluster.Web)
 	require.NoError(t, err)
-	clusterURI := uri.NewClusterURI(rootClusterName)
 
 	response, err := handler.GetCluster(context.Background(), &api.GetClusterRequest{
-		ClusterUri: clusterURI.String(),
+		ClusterUri: uri.NewClusterURI(rootClusterName).String(),
 	})
 	require.NoError(t, err)
 
 	require.Equal(t, userName, response.LoggedInUser.Name)
 	require.ElementsMatch(t, []string{requestableRoleName}, response.LoggedInUser.RequestableRoles)
 	require.ElementsMatch(t, []string{suggestedReviewer}, response.LoggedInUser.SuggestedReviewers)
-
-	// Verify that cluster ID cache gets updated.
-	clusterIDFromCache, ok := clusterIDCache.Load(clusterURI)
-	require.True(t, ok, "ID for cluster %q was not found in the cache", clusterURI)
-	require.NotEmpty(t, clusterIDFromCache)
-	require.Equal(t, response.AuthClusterId, clusterIDFromCache)
 }
 
 func testHeadlessWatcher(t *testing.T, pack *dbhelpers.DatabasePack, creds *helpers.UserCreds) {
@@ -433,9 +411,6 @@ func testHeadlessWatcher(t *testing.T, pack *dbhelpers.DatabasePack, creds *help
 	storage, err := clusters.NewStorage(clusters.Config{
 		Dir:                tc.KeysDir,
 		InsecureSkipVerify: tc.InsecureSkipVerify,
-		HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-			return nil
-		},
 	})
 	require.NoError(t, err)
 
@@ -463,9 +438,6 @@ func testHeadlessWatcher(t *testing.T, pack *dbhelpers.DatabasePack, creds *help
 	// Start the tshd event service and connect the daemon to it.
 	tshdEventsService, addr := newMockTSHDEventsServiceServer(t)
 	err = daemonService.UpdateAndDialTshdEventsServerAddress(addr)
-	require.NoError(t, err)
-
-	err = daemonService.StartHeadlessWatcher(cluster.URI.String(), false /* waitInit */)
 	require.NoError(t, err)
 
 	// Stop and restart the watcher twice to simulate logout + login + relogin. Ensure the watcher catches events.
@@ -504,9 +476,6 @@ func testClientCache(t *testing.T, pack *dbhelpers.DatabasePack, creds *helpers.
 		Dir:                tc.KeysDir,
 		Clock:              storageFakeClock,
 		InsecureSkipVerify: tc.InsecureSkipVerify,
-		HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-			return nil
-		},
 	})
 	require.NoError(t, err)
 
@@ -530,7 +499,7 @@ func testClientCache(t *testing.T, pack *dbhelpers.DatabasePack, creds *helpers.
 	eg, egCtx := errgroup.WithContext(ctx)
 	blocker := make(chan struct{})
 	const concurrentCalls = 5
-	concurrentCallsForClient := make([]*client.ClusterClient, concurrentCalls)
+	concurrentCallsForClient := make([]*client.ProxyClient, concurrentCalls)
 	for i := range concurrentCallsForClient {
 		client := &concurrentCallsForClient[i]
 		eg.Go(func() error {
@@ -558,6 +527,21 @@ func testClientCache(t *testing.T, pack *dbhelpers.DatabasePack, creds *helpers.
 	thirdCallForClient, err := daemonService.GetCachedClient(ctx, cluster.URI)
 	require.NoError(t, err)
 	require.NotEqual(t, secondCallForClient, thirdCallForClient)
+
+	// After closing the client (from our or a remote side)
+	// it will be removed from the cache.
+	// The call to GetCachedClient will connect to proxy and return a new client.
+	err = thirdCallForClient.Close()
+	require.NoError(t, err)
+
+	// TODO(gzdunek): Re-enable this test.
+	// This part is flaky, there is no guarantee that the goroutine waiting
+	// for the client to close will be able to remove it from the cache
+	// before we try to get a new client.
+
+	//fourthCallForClient, err := daemonService.GetCachedClient(ctx, cluster.URI)
+	//require.NoError(t, err)
+	//require.NotEqual(t, thirdCallForClient, fourthCallForClient)
 }
 
 func testCreateConnectMyComputerRole(t *testing.T, pack *dbhelpers.DatabasePack) {
@@ -766,9 +750,6 @@ func testCreateConnectMyComputerRole(t *testing.T, pack *dbhelpers.DatabasePack)
 			storage, err := clusters.NewStorage(clusters.Config{
 				Dir:                t.TempDir(),
 				InsecureSkipVerify: true,
-				HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-					return nil
-				},
 			})
 			require.NoError(t, err)
 
@@ -885,9 +866,6 @@ func testCreateConnectMyComputerToken(t *testing.T, pack *dbhelpers.DatabasePack
 		InsecureSkipVerify: tc.InsecureSkipVerify,
 		Clock:              fakeClock,
 		WebauthnLogin:      webauthnLogin,
-		HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-			return nil
-		},
 	})
 	require.NoError(t, err)
 
@@ -948,9 +926,6 @@ func testWaitForConnectMyComputerNodeJoin(t *testing.T, pack *dbhelpers.Database
 	storage, err := clusters.NewStorage(clusters.Config{
 		Dir:                tc.KeysDir,
 		InsecureSkipVerify: tc.InsecureSkipVerify,
-		HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-			return nil
-		},
 	})
 	require.NoError(t, err)
 
@@ -985,10 +960,9 @@ func testWaitForConnectMyComputerNodeJoin(t *testing.T, pack *dbhelpers.Database
 	}()
 
 	// Start the new node.
-	nodeConfig := newNodeConfig(t, "token", types.JoinMethodToken)
-	nodeConfig.SetAuthServerAddress(pack.Root.Cluster.Config.Auth.ListenAddr)
+	nodeConfig := newNodeConfig(t, pack.Root.Cluster.Config.Auth.ListenAddr, "token", types.JoinMethodToken)
 	nodeConfig.DataDir = filepath.Join(agentsDir, profileName, "data")
-	nodeConfig.Logger = libutils.NewSlogLoggerForTests()
+	nodeConfig.Log = libutils.NewLoggerForTests()
 	nodeSvc, err := service.NewTeleport(nodeConfig)
 	require.NoError(t, err)
 	require.NoError(t, nodeSvc.Start())
@@ -1035,9 +1009,6 @@ func testDeleteConnectMyComputerNode(t *testing.T, pack *dbhelpers.DatabasePack)
 	storage, err := clusters.NewStorage(clusters.Config{
 		Dir:                tc.KeysDir,
 		InsecureSkipVerify: tc.InsecureSkipVerify,
-		HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-			return nil
-		},
 	})
 	require.NoError(t, err)
 
@@ -1063,10 +1034,9 @@ func testDeleteConnectMyComputerNode(t *testing.T, pack *dbhelpers.DatabasePack)
 	require.NoError(t, err)
 
 	// Start the new node.
-	nodeConfig := newNodeConfig(t, "token", types.JoinMethodToken)
-	nodeConfig.SetAuthServerAddress(pack.Root.Cluster.Config.Auth.ListenAddr)
+	nodeConfig := newNodeConfig(t, pack.Root.Cluster.Config.Auth.ListenAddr, "token", types.JoinMethodToken)
 	nodeConfig.DataDir = filepath.Join(agentsDir, profileName, "data")
-	nodeConfig.Logger = libutils.NewSlogLoggerForTests()
+	nodeConfig.Log = libutils.NewLoggerForTests()
 	nodeSvc, err := service.NewTeleport(nodeConfig)
 	require.NoError(t, err)
 	require.NoError(t, nodeSvc.Start())
@@ -1265,9 +1235,6 @@ func testListDatabaseUsers(t *testing.T, pack *dbhelpers.DatabasePack) {
 			storage, err := clusters.NewStorage(clusters.Config{
 				Dir:                tc.KeysDir,
 				InsecureSkipVerify: tc.InsecureSkipVerify,
-				HardwareKeyPromptConstructor: func(rootClusterURI uri.ResourceURI) keys.HardwareKeyPrompt {
-					return nil
-				},
 			})
 			require.NoError(t, err)
 
@@ -1355,7 +1322,7 @@ func newMockTSHDEventsServiceServer(t *testing.T) (service *mockTSHDEventsServic
 		// before grpcServer.Serve is called and grpcServer.Serve will return
 		// grpc.ErrServerStopped.
 		err := <-serveErr
-		if !errors.Is(err, grpc.ErrServerStopped) {
+		if err != grpc.ErrServerStopped {
 			assert.NoError(t, err)
 		}
 	})

@@ -17,37 +17,23 @@
  */
 
 import React, { useState } from 'react';
-import { GitServer } from 'web/packages/teleport/src/services/gitServers';
-
-import { ButtonBorder, ButtonWithMenu, MenuItem } from 'design';
+import { ButtonBorder } from 'design';
+import { LoginItem, MenuLogin } from 'shared/components/MenuLogin';
 import { AwsLaunchButton } from 'shared/components/AwsLaunchButton';
-import {
-  LoginItem,
-  MenuInputType,
-  MenuLogin,
-} from 'shared/components/MenuLogin';
-import { AwsRole } from 'shared/services/apps';
 
-import { TcpAppConnectDialog } from 'teleport/Apps/TcpAppConnectDialog';
-import cfg from 'teleport/config';
-import DbConnectDialog from 'teleport/Databases/ConnectDialog';
-import { SelectResourceSpec } from 'teleport/Discover/SelectResource/resources';
-import { ResourceKind } from 'teleport/Discover/Shared';
-import { ConnectDialog as GitServerConnectDialog } from 'teleport/GitServers';
-import KubeConnectDialog from 'teleport/Kubes/ConnectDialog';
-import { openNewTab } from 'teleport/lib/util';
-import { useSamlAppAction } from 'teleport/SamlApplications/useSamlAppActions';
 import { UnifiedResource } from 'teleport/services/agents';
-import { App, AppSubKind } from 'teleport/services/apps';
-import { Database } from 'teleport/services/databases';
-import { Desktop } from 'teleport/services/desktops';
-import { Kube } from 'teleport/services/kube';
-import { Node, sortNodeLogins } from 'teleport/services/nodes';
-import { SamlServiceProviderPreset } from 'teleport/services/samlidp/types';
-import { DiscoverEventResource } from 'teleport/services/userEvent';
-import { DiscoverGuideId } from 'teleport/services/userPreferences/discoverPreference';
-import useStickyClusterId from 'teleport/useStickyClusterId';
+import cfg from 'teleport/config';
+
 import useTeleport from 'teleport/useTeleport';
+import { Database } from 'teleport/services/databases';
+import { openNewTab } from 'teleport/lib/util';
+import { Kube } from 'teleport/services/kube';
+import { Desktop } from 'teleport/services/desktops';
+import DbConnectDialog from 'teleport/Databases/ConnectDialog';
+import KubeConnectDialog from 'teleport/Kubes/ConnectDialog';
+import useStickyClusterId from 'teleport/useStickyClusterId';
+import { Node, sortNodeLogins } from 'teleport/services/nodes';
+import { App } from 'teleport/services/apps';
 
 type Props = {
   resource: UnifiedResource;
@@ -65,8 +51,6 @@ export const ResourceActionButton = ({ resource }: Props) => {
       return <KubeConnect kube={resource} />;
     case 'windows_desktop':
       return <DesktopConnect desktop={resource} />;
-    case 'git_server':
-      return <GitServerConnect gitServer={resource} />;
     default:
       return null;
   }
@@ -95,8 +79,7 @@ const NodeConnect = ({ node }: { node: Node }) => {
 
   return (
     <MenuLogin
-      width="123px"
-      inputType={MenuInputType.FILTER}
+      width="90px"
       textTransform={'none'}
       alignButtonWidthToMenu
       getLoginItems={handleOnOpen}
@@ -136,8 +119,7 @@ const DesktopConnect = ({ desktop }: { desktop: Desktop }) => {
 
   return (
     <MenuLogin
-      width="123px"
-      inputType={MenuInputType.FILTER}
+      width="90px"
       textTransform="none"
       alignButtonWidthToMenu
       getLoginItems={handleOnOpen}
@@ -154,148 +136,65 @@ const DesktopConnect = ({ desktop }: { desktop: Desktop }) => {
   );
 };
 
-type AppLaunchProps = {
-  app: App;
-};
-const AppLaunch = ({ app }: AppLaunchProps) => {
+const AppLaunch = ({ app }: { app: App }) => {
   const {
-    name,
     launchUrl,
     awsConsole,
     awsRoles,
     fqdn,
     clusterId,
     publicAddr,
-    isCloud,
-    isTcp,
+    isCloudOrTcpEndpoint,
     samlApp,
     samlAppSsoUrl,
-    samlAppPreset,
-    subKind,
-    permissionSets,
   } = app;
-  const { actions, userSamlIdPPerm } = useSamlAppAction();
-
-  const isAwsIdentityCenterApp = subKind === AppSubKind.AwsIcAccount;
-  if (awsConsole || isAwsIdentityCenterApp) {
-    let awsConsoleOrIdentityCenterRoles: AwsRole[] = awsRoles;
-    if (isAwsIdentityCenterApp) {
-      awsConsoleOrIdentityCenterRoles = permissionSets.map(
-        (ps): AwsRole => ({
-          name: ps.name,
-          arn: ps.name,
-          display: ps.name,
-          accountId: name,
-        })
-      );
-    }
-    function getAwsLaunchUrl(arnOrPermSetName: string) {
-      if (isAwsIdentityCenterApp) {
-        return `${publicAddr}&role_name=${arnOrPermSetName}`;
-      } else {
-        return cfg.getAppLauncherRoute({
-          fqdn,
-          clusterId,
-          publicAddr,
-          arn: arnOrPermSetName,
-        });
-      }
-    }
-
+  if (awsConsole) {
     return (
       <AwsLaunchButton
-        width="123px"
-        awsRoles={awsConsoleOrIdentityCenterRoles}
-        getLaunchUrl={getAwsLaunchUrl}
-        isAwsIdentityCenterApp={isAwsIdentityCenterApp}
+        awsRoles={awsRoles}
+        getLaunchUrl={arn =>
+          cfg.getAppLauncherRoute({
+            fqdn,
+            clusterId,
+            publicAddr,
+            arn,
+          })
+        }
       />
     );
   }
-  if (isCloud) {
+  if (isCloudOrTcpEndpoint) {
     return (
       <ButtonBorder
         disabled
-        width="123px"
+        width="90px"
         size="small"
-        title="Cloud apps cannot be launched by the browser"
+        title="Cloud or TCP applications cannot be launched by the browser"
         textTransform="none"
       >
         Launch
       </ButtonBorder>
     );
   }
-  if (isTcp) {
-    return <TcpAppConnect app={app} />;
-  }
   if (samlApp) {
-    if (actions.showActions) {
-      let guideId: DiscoverGuideId;
-      switch (samlAppPreset) {
-        case SamlServiceProviderPreset.Grafana:
-          guideId = DiscoverGuideId.ApplicationSamlGrafana;
-          break;
-        case SamlServiceProviderPreset.GcpWorkforce:
-          guideId = DiscoverGuideId.ApplicationSamlWorkforceIdentityFederation;
-          break;
-        default:
-          guideId = DiscoverGuideId.ApplicationSamlGeneric;
-      }
-      const currentSamlAppSpec: SelectResourceSpec = {
-        id: guideId,
-        name: name,
-        event: DiscoverEventResource.SamlApplication,
-        kind: ResourceKind.SamlApplication,
-        samlMeta: { preset: samlAppPreset },
-        icon: 'application',
-        keywords: ['saml'],
-      };
-      return (
-        <ButtonWithMenu
-          text="Log In"
-          width="123px"
-          size="small"
-          target="_blank"
-          href={samlAppSsoUrl}
-          rel="noreferrer"
-          textTransform="none"
-          forwardedAs="a"
-          title="Log in to SAML application"
-        >
-          <MenuItem
-            onClick={() => actions.startEdit(currentSamlAppSpec)}
-            disabled={!userSamlIdPPerm.edit} // disable props does not disable onClick
-          >
-            Edit
-          </MenuItem>
-          <MenuItem
-            onClick={() => actions.startDelete(currentSamlAppSpec)}
-            disabled={!userSamlIdPPerm.remove} // disable props does not disable onClick
-          >
-            Delete
-          </MenuItem>
-        </ButtonWithMenu>
-      );
-    } else {
-      return (
-        <ButtonBorder
-          as="a"
-          width="123px"
-          size="small"
-          target="_blank"
-          href={samlAppSsoUrl}
-          rel="noreferrer"
-          textTransform="none"
-          title="Log in to SAML application"
-        >
-          Log In
-        </ButtonBorder>
-      );
-    }
+    return (
+      <ButtonBorder
+        as="a"
+        width="90px"
+        size="small"
+        target="_blank"
+        href={samlAppSsoUrl}
+        rel="noreferrer"
+        textTransform="none"
+      >
+        Login
+      </ButtonBorder>
+    );
   }
   return (
     <ButtonBorder
       as="a"
-      width="123px"
+      width="90px"
       size="small"
       target="_blank"
       href={launchUrl}
@@ -308,7 +207,7 @@ const AppLaunch = ({ app }: AppLaunchProps) => {
 };
 
 function DatabaseConnect({ database }: { database: Database }) {
-  const { name, protocol, supportsInteractive } = database;
+  const { name, protocol } = database;
   const ctx = useTeleport();
   const { clusterId } = useStickyClusterId();
   const [open, setOpen] = useState(false);
@@ -319,7 +218,7 @@ function DatabaseConnect({ database }: { database: Database }) {
     <>
       <ButtonBorder
         textTransform="none"
-        width="123px"
+        width="90px"
         size="small"
         onClick={() => {
           setOpen(true);
@@ -336,7 +235,6 @@ function DatabaseConnect({ database }: { database: Database }) {
           onClose={() => setOpen(false)}
           authType={authType}
           accessRequestId={accessRequestId}
-          supportsInteractive={supportsInteractive}
         />
       )}
     </>
@@ -353,7 +251,7 @@ const KubeConnect = ({ kube }: { kube: Kube }) => {
   return (
     <>
       <ButtonBorder
-        width="123px"
+        width="90px"
         textTransform="none"
         size="small"
         onClick={() => setOpen(true)}
@@ -373,58 +271,6 @@ const KubeConnect = ({ kube }: { kube: Kube }) => {
     </>
   );
 };
-
-function GitServerConnect({ gitServer }: { gitServer: GitServer }) {
-  const ctx = useTeleport();
-  const { clusterId } = useStickyClusterId();
-  const [open, setOpen] = useState(false);
-  const organization = gitServer.github.organization;
-  const username = ctx.storeUser.state.username;
-  const authType = ctx.storeUser.state.authType;
-  const accessRequestId = ctx.storeUser.getAccessRequestId();
-  return (
-    <>
-      <ButtonBorder
-        textTransform="none"
-        width="123px"
-        size="small"
-        onClick={() => {
-          setOpen(true);
-        }}
-      >
-        Connect
-      </ButtonBorder>
-      {open && (
-        <GitServerConnectDialog
-          username={username}
-          clusterId={clusterId}
-          organization={organization}
-          onClose={() => setOpen(false)}
-          authType={authType}
-          accessRequestId={accessRequestId}
-        />
-      )}
-    </>
-  );
-}
-
-function TcpAppConnect({ app }: { app: App }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <>
-      <ButtonBorder
-        textTransform="none"
-        width="123px"
-        size="small"
-        onClick={() => setOpen(true)}
-      >
-        Connect
-      </ButtonBorder>
-      {open && <TcpAppConnectDialog app={app} onClose={() => setOpen(false)} />}
-    </>
-  );
-}
 
 const makeNodeOptions = (clusterId: string, node: Node | undefined) => {
   const nodeLogins = node?.sshLogins || [];

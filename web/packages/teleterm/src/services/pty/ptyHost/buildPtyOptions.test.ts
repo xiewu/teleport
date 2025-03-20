@@ -16,25 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import Logger, { NullService } from 'teleterm/logger';
 import { makeRuntimeSettings } from 'teleterm/mainProcess/fixtures/mocks';
 
 import {
-  GatewayCliClientCommand,
-  PtyProcessCreationStatus,
   ShellCommand,
-  SshOptions,
   TshLoginCommand,
+  GatewayCliClientCommand,
+  SshOptions,
 } from '../types';
-import { buildPtyOptions, getPtyProcessOptions } from './buildPtyOptions';
 
-beforeAll(() => {
-  Logger.init(new NullService());
-});
-
-jest.mock('./resolveShellEnv', () => ({
-  resolveShellEnvCached: () => Promise.resolve({}),
-}));
+import { getPtyProcessOptions } from './buildPtyOptions';
 
 const makeSshOptions = (options: Partial<SshOptions> = {}): SshOptions => ({
   noResume: false,
@@ -61,17 +52,12 @@ describe('getPtyProcessOptions', () => {
         },
       };
 
-      const { env } = getPtyProcessOptions({
-        settings: makeRuntimeSettings(),
-        options: {
-          customShellPath: '',
-          ssh: makeSshOptions(),
-          windowsPty: { useConpty: true },
-        },
-        cmd: cmd,
-        env: processEnv,
-        shellBinPath: '/bin/zsh',
-      });
+      const { env } = getPtyProcessOptions(
+        makeRuntimeSettings(),
+        { ssh: makeSshOptions(), windowsPty: { useConpty: true } },
+        cmd,
+        processEnv
+      );
 
       expect(env.processExclusive).toBe('process');
       expect(env.cmdExclusive).toBe('cmd');
@@ -89,24 +75,18 @@ describe('getPtyProcessOptions', () => {
         kind: 'pty.shell',
         clusterName: 'bar',
         proxyHost: 'baz',
-        shellId: 'zsh',
         env: {
           cmdExclusive: 'cmd',
           shared: 'fromCmd',
         },
       };
 
-      const { env } = getPtyProcessOptions({
-        settings: makeRuntimeSettings(),
-        options: {
-          customShellPath: '',
-          ssh: makeSshOptions(),
-          windowsPty: { useConpty: true },
-        },
-        cmd: cmd,
-        env: processEnv,
-        shellBinPath: '/bin/zsh',
-      });
+      const { env } = getPtyProcessOptions(
+        makeRuntimeSettings(),
+        { ssh: makeSshOptions(), windowsPty: { useConpty: true } },
+        cmd,
+        processEnv
+      );
 
       expect(env.processExclusive).toBe('process');
       expect(env.cmdExclusive).toBe('cmd');
@@ -128,17 +108,15 @@ describe('getPtyProcessOptions', () => {
         leafClusterId: undefined,
       };
 
-      const { args } = getPtyProcessOptions({
-        settings: makeRuntimeSettings(),
-        options: {
-          customShellPath: '',
+      const { args } = getPtyProcessOptions(
+        makeRuntimeSettings(),
+        {
           ssh: makeSshOptions({ noResume: true }),
           windowsPty: { useConpty: true },
         },
-        cmd: cmd,
-        env: processEnv,
-        shellBinPath: '/bin/zsh',
-      });
+        cmd,
+        processEnv
+      );
 
       expect(args).toContain('--no-resume');
     });
@@ -158,17 +136,15 @@ describe('getPtyProcessOptions', () => {
         leafClusterId: undefined,
       };
 
-      const { args } = getPtyProcessOptions({
-        settings: makeRuntimeSettings(),
-        options: {
-          customShellPath: '',
+      const { args } = getPtyProcessOptions(
+        makeRuntimeSettings(),
+        {
           ssh: makeSshOptions({ forwardAgent: true }),
           windowsPty: { useConpty: true },
         },
-        cmd: cmd,
-        env: processEnv,
-        shellBinPath: '/bin/zsh',
-      });
+        cmd,
+        processEnv
+      );
 
       expect(args).toContain('--forward-agent');
     });
@@ -188,148 +164,17 @@ describe('getPtyProcessOptions', () => {
         leafClusterId: undefined,
       };
 
-      const { args } = getPtyProcessOptions({
-        settings: makeRuntimeSettings(),
-        options: {
-          customShellPath: '',
+      const { args } = getPtyProcessOptions(
+        makeRuntimeSettings(),
+        {
           ssh: makeSshOptions({ forwardAgent: false }),
           windowsPty: { useConpty: true },
         },
-        cmd: cmd,
-        env: processEnv,
-        shellBinPath: '/bin/zsh',
-      });
+        cmd,
+        processEnv
+      );
 
       expect(args).not.toContain('--forward-agent');
     });
-  });
-});
-
-describe('buildPtyOptions', () => {
-  it('shellId is resolved to the shell object', async () => {
-    const cmd: ShellCommand = {
-      kind: 'pty.shell',
-      clusterName: 'bar',
-      proxyHost: 'baz',
-      shellId: 'bash',
-    };
-
-    const { shell, creationStatus } = await buildPtyOptions({
-      settings: makeRuntimeSettings({
-        availableShells: [
-          {
-            id: 'bash',
-            friendlyName: 'bash',
-            binPath: '/bin/bash',
-            binName: 'bash',
-          },
-        ],
-      }),
-      options: {
-        customShellPath: '',
-        ssh: makeSshOptions(),
-        windowsPty: { useConpty: true },
-      },
-      cmd,
-    });
-
-    expect(shell).toEqual({
-      id: 'bash',
-      binPath: '/bin/bash',
-      binName: 'bash',
-      friendlyName: 'bash',
-    });
-    expect(creationStatus).toBe(PtyProcessCreationStatus.Ok);
-  });
-
-  it("custom shell path is resolved to the shell object when shellId is 'custom''", async () => {
-    const cmd: ShellCommand = {
-      kind: 'pty.shell',
-      clusterName: 'bar',
-      proxyHost: 'baz',
-      shellId: 'custom',
-    };
-
-    const { shell, creationStatus } = await buildPtyOptions({
-      settings: makeRuntimeSettings(),
-      options: {
-        customShellPath: '/custom/shell/path/better-shell',
-        ssh: makeSshOptions(),
-        windowsPty: { useConpty: true },
-      },
-      cmd,
-    });
-
-    expect(shell).toEqual({
-      id: 'custom',
-      binPath: '/custom/shell/path/better-shell',
-      binName: 'better-shell',
-      friendlyName: 'better-shell',
-    });
-    expect(creationStatus).toBe(PtyProcessCreationStatus.Ok);
-  });
-
-  it('if the provided shellId is not available, an OS default is returned', async () => {
-    const cmd: ShellCommand = {
-      kind: 'pty.shell',
-      clusterName: 'bar',
-      proxyHost: 'baz',
-      shellId: 'no-such-shell',
-    };
-
-    const { shell, creationStatus } = await buildPtyOptions({
-      settings: makeRuntimeSettings(),
-      options: {
-        customShellPath: '',
-        ssh: makeSshOptions(),
-        windowsPty: { useConpty: true },
-      },
-      cmd,
-    });
-
-    expect(shell).toEqual({
-      id: 'zsh',
-      binPath: '/bin/zsh',
-      binName: 'zsh',
-      friendlyName: 'zsh',
-    });
-    expect(creationStatus).toBe(PtyProcessCreationStatus.ShellNotResolved);
-  });
-
-  it("Teleport Connect env variables are prepended to the user's WSLENV for wsl.exe", async () => {
-    const cmd: ShellCommand = {
-      kind: 'pty.shell',
-      clusterName: 'bar',
-      proxyHost: 'baz',
-      shellId: 'wsl.exe',
-    };
-
-    const { processOptions } = await buildPtyOptions({
-      settings: makeRuntimeSettings({
-        platform: 'win32',
-        availableShells: [
-          {
-            id: 'wsl.exe',
-            binName: 'wsl.exe',
-            friendlyName: '',
-            binPath: '',
-          },
-        ],
-      }),
-      options: {
-        customShellPath: '',
-        ssh: makeSshOptions(),
-        windowsPty: { useConpty: true },
-      },
-      cmd,
-      processEnv: {
-        // Simulate the user defined WSLENV var.
-        WSLENV: 'CUSTOM_VAR',
-      },
-    });
-
-    expect(processOptions.env.WSLENV).toBe(
-      'CUSTOM_VAR:KUBECONFIG/p:TERM_PROGRAM:TERM_PROGRAM_VERSION:TELEPORT_CLUSTER:TELEPORT_PROXY:TELEPORT_HOME/p:TELEPORT_TOOLS_VERSION'
-    );
   });
 });

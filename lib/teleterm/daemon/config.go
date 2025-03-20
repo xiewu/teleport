@@ -20,18 +20,17 @@ package daemon
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/lib/client"
-	"github.com/gravitational/teleport/lib/client/clientcache"
 	"github.com/gravitational/teleport/lib/teleterm/api/uri"
-	"github.com/gravitational/teleport/lib/teleterm/clusteridcache"
 	"github.com/gravitational/teleport/lib/teleterm/clusters"
+	"github.com/gravitational/teleport/lib/teleterm/services/clientcache"
 	"github.com/gravitational/teleport/lib/teleterm/services/connectmycomputer"
 )
 
@@ -39,8 +38,7 @@ import (
 type Storage interface {
 	clusters.Resolver
 
-	ListProfileNames() ([]string, error)
-	ListRootClusters() ([]*clusters.Cluster, error)
+	ReadAll() ([]*clusters.Cluster, error)
 	Add(ctx context.Context, webProxyAddress string) (*clusters.Cluster, *client.TeleportClient, error)
 	Remove(ctx context.Context, profileName string) error
 	GetByResourceURI(resourceURI uri.ResourceURI) (*clusters.Cluster, *client.TeleportClient, error)
@@ -52,8 +50,8 @@ type Config struct {
 	Clock clockwork.Clock
 	// Storage is a storage service that reads/writes to tsh profiles
 	Storage Storage
-	// Logger is a component logger
-	Logger *slog.Logger
+	// Log is a component logger
+	Log *logrus.Entry
 	// PrehogAddr is the URL where prehog events should be submitted.
 	PrehogAddr string
 	// KubeconfigsDir is the directory containing kubeconfigs for Kubernetes
@@ -74,11 +72,7 @@ type Config struct {
 	ConnectMyComputerNodeDelete       *connectmycomputer.NodeDelete
 	ConnectMyComputerNodeName         *connectmycomputer.NodeName
 
-	CreateClientCacheFunc func(resolver clientcache.NewClientFunc) (ClientCache, error)
-	// ClusterIDCache gets updated whenever daemon.Service.ResolveClusterWithDetails gets called.
-	// Since that method is called by the Electron app only for root clusters and typically only once
-	// after a successful login, this cache doesn't have to be cleared.
-	ClusterIDCache *clusteridcache.Cache
+	CreateClientCacheFunc func(resolver ResolveClusterFunc) ClientCache
 }
 
 // ResolveClusterFunc returns a cluster by URI.
@@ -89,10 +83,10 @@ type ClientCache interface {
 	// Get returns a client from the cache if there is one,
 	// otherwise it dials the remote server.
 	// The caller should not close the returned client.
-	Get(ctx context.Context, profileName, leafClusterName string) (*client.ClusterClient, error)
+	Get(ctx context.Context, clusterURI uri.ResourceURI) (*client.ProxyClient, error)
 	// ClearForRoot closes and removes clients from the cache
 	// for the root cluster and its leaf clusters.
-	ClearForRoot(profileName string) error
+	ClearForRoot(clusterURI uri.ResourceURI) error
 	// Clear closes and removes all clients.
 	Clear() error
 }
@@ -121,8 +115,8 @@ func (c *Config) CheckAndSetDefaults() error {
 		c.GatewayCreator = clusters.NewGatewayCreator(c.Storage)
 	}
 
-	if c.Logger == nil {
-		c.Logger = slog.With(teleport.ComponentKey, "daemon")
+	if c.Log == nil {
+		c.Log = logrus.NewEntry(logrus.StandardLogger()).WithField(teleport.ComponentKey, "daemon")
 	}
 
 	if c.ConnectMyComputerRoleSetup == nil {
@@ -167,20 +161,12 @@ func (c *Config) CheckAndSetDefaults() error {
 	}
 
 	if c.CreateClientCacheFunc == nil {
-		c.CreateClientCacheFunc = func(newClientFunc clientcache.NewClientFunc) (ClientCache, error) {
-			retryWithRelogin := func(ctx context.Context, tc *client.TeleportClient, fn func() error, opts ...client.RetryWithReloginOption) error {
-				return clusters.AddMetadataToRetryableError(ctx, fn)
-			}
+		c.CreateClientCacheFunc = func(resolver ResolveClusterFunc) ClientCache {
 			return clientcache.New(clientcache.Config{
-				Logger:               c.Logger,
-				NewClientFunc:        newClientFunc,
-				RetryWithReloginFunc: clientcache.RetryWithReloginFunc(retryWithRelogin),
+				Log:                c.Log,
+				ResolveClusterFunc: clientcache.ResolveClusterFunc(resolver),
 			})
 		}
-	}
-
-	if c.ClusterIDCache == nil {
-		c.ClusterIDCache = &clusteridcache.Cache{}
 	}
 
 	return nil

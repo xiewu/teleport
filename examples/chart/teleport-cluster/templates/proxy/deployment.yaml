@@ -224,10 +224,9 @@ spec:
           httpGet:
             path: /readyz
             port: diag
-          initialDelaySeconds: {{ $proxy.readinessProbe.initialDelaySeconds }}
-          periodSeconds: {{ $proxy.readinessProbe.periodSeconds }}
-          failureThreshold: {{$proxy.readinessProbe.failureThreshold}}
-          successThreshold: {{$proxy.readinessProbe.successThreshold}}
+          initialDelaySeconds: 5 # wait 5s for agent to register
+          periodSeconds: 5 # poll health every 5s
+          failureThreshold: 12 # consider agent unhealthy after 60s (12 * 5s)
           timeoutSeconds: {{ $proxy.probeTimeoutSeconds }}
         lifecycle:
           # waiting during preStop ensures no new request will hit the Terminating pod

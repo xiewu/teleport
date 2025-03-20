@@ -15,7 +15,7 @@ spec:
       {{- include "slack.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with coalesce .Values.annotations.pod .Values.podAnnotations }}
+      {{- with or .Values.annotations.pod .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -72,7 +72,7 @@ spec:
             defaultMode: 0600
         - name: teleport-identity
           secret:
-            secretName: {{ include "slack.identitySecretName" . | quote }}
+            secretName: "{{ .Values.teleport.identitySecretName }}"
             defaultMode: 0600
         - name: {{ .Values.secretVolumeName }}
           secret:

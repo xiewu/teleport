@@ -34,14 +34,11 @@ import (
 	kyaml "k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/gravitational/teleport"
-	"github.com/gravitational/teleport/api/mfa"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/utils"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 // EditCommand implements the `tctl edit` command for modifying
@@ -58,7 +55,7 @@ type EditCommand struct {
 	Editor func(filename string) error
 }
 
-func (e *EditCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, config *servicecfg.Config) {
+func (e *EditCommand) Initialize(app *kingpin.Application, config *servicecfg.Config) {
 	e.app = app
 	e.config = config
 	e.cmd = app.Command("edit", "Edit a Teleport resource.")
@@ -71,16 +68,12 @@ func (e *EditCommand) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIF
 	e.cmd.Flag("confirm", "Confirm an unsafe or temporary resource update").Hidden().BoolVar(&e.confirm)
 }
 
-func (e *EditCommand) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (bool, error) {
+func (e *EditCommand) TryRun(ctx context.Context, cmd string, client *authclient.Client) (bool, error) {
 	if cmd != e.cmd.FullCommand() {
 		return false, nil
 	}
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	defer closeFn(ctx)
-	err = e.editResource(ctx, client)
+
+	err := e.editResource(ctx, client)
 	return true, trace.Wrap(err)
 }
 
@@ -126,15 +119,7 @@ func (e *EditCommand) editResource(ctx context.Context, client *authclient.Clien
 		withSecrets: true,
 		confirm:     e.confirm,
 	}
-	rc.Initialize(e.app, nil, e.config)
-
-	// Prompt for admin action MFA if required, before getting any
-	// resources with secrets and before the update/editor below.
-	if mfaResponse, err := mfa.PerformAdminActionMFACeremony(ctx, client.PerformMFACeremony, true /*allowReuse*/); err == nil {
-		ctx = mfa.ContextWithMFAResponse(ctx, mfaResponse)
-	} else if !errors.Is(err, &mfa.ErrMFANotRequired) && !errors.Is(err, &mfa.ErrMFANotSupported) {
-		return trace.Wrap(err)
-	}
+	rc.Initialize(e.app, e.config)
 
 	err = rc.Get(ctx, client)
 	if closeErr := f.Close(); closeErr != nil {

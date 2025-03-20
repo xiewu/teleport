@@ -39,14 +39,8 @@ type PluginStaticCredentials interface {
 	// GetPluginStaticCredentialsByLabels will get a list of plugin static credentials resource by matching labels.
 	GetPluginStaticCredentialsByLabels(ctx context.Context, labels map[string]string) ([]types.PluginStaticCredentials, error)
 
-	// UpdatePluginStaticCredentials will update a plugin static credentials' resource.
-	UpdatePluginStaticCredentials(ctx context.Context, pluginStaticCredentials types.PluginStaticCredentials) (types.PluginStaticCredentials, error)
-
 	// DeletePluginStaticCredentials will delete a plugin static credentials resource.
 	DeletePluginStaticCredentials(ctx context.Context, name string) error
-
-	// GetAllPluginStaticCredentials will get all plugin static credentials.
-	GetAllPluginStaticCredentials(ctx context.Context) ([]types.PluginStaticCredentials, error)
 }
 
 // MarshalPluginStaticCredentials marshals PluginStaticCredentials resource to JSON.
@@ -61,7 +55,7 @@ func MarshalPluginStaticCredentials(pluginStaticCredentials types.PluginStaticCr
 			return nil, trace.Wrap(err)
 		}
 
-		data, err := protojson.Marshal(protoadapt.MessageV2Of(maybeResetProtoRevision(cfg.PreserveRevision, pluginStaticCredentials)))
+		data, err := protojson.Marshal(protoadapt.MessageV2Of(maybeResetProtoResourceID(cfg.PreserveResourceID, pluginStaticCredentials)))
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -82,16 +76,19 @@ func UnmarshalPluginStaticCredentials(data []byte, opts ...MarshalOption) (types
 	}
 	h, err := unmarshalHeaderWithProtoJSON(data)
 	if err != nil {
-		return nil, trace.BadParameter("%s", err)
+		return nil, trace.BadParameter(err.Error())
 	}
 	switch h.Version {
 	case types.V1:
 		var pluginStaticCredentials types.PluginStaticCredentialsV1
 		if err := protojson.Unmarshal(data, protoadapt.MessageV2Of(&pluginStaticCredentials)); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 		if err := pluginStaticCredentials.CheckAndSetDefaults(); err != nil {
 			return nil, trace.Wrap(err)
+		}
+		if cfg.ID != 0 {
+			pluginStaticCredentials.SetResourceID(cfg.ID)
 		}
 		if cfg.Revision != "" {
 			pluginStaticCredentials.SetRevision(cfg.Revision)

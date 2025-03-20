@@ -19,19 +19,16 @@
 package services
 
 import (
-	"cmp"
 	"context"
-	"fmt"
-	"log/slog"
 	"net"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport/api/constants"
-	decisionpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/decision/v1alpha1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/wrappers"
 	apiutils "github.com/gravitational/teleport/api/utils"
@@ -40,7 +37,6 @@ import (
 	"github.com/gravitational/teleport/lib/sshca"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
-	logutils "github.com/gravitational/teleport/lib/utils/log"
 )
 
 // AccessChecker interface checks access to resources based on roles, traits,
@@ -87,7 +83,7 @@ type AccessChecker interface {
 	// CheckAccessToSAMLIdP checks access to the SAML IdP.
 	//
 	//nolint:revive // Because we want this to be IdP.
-	CheckAccessToSAMLIdP(readonly.AuthPreference, AccessState) error
+	CheckAccessToSAMLIdP(readonly.AuthPreference) error
 
 	// AdjustSessionTTL will reduce the requested ttl to lowest max allowed TTL
 	// for this role set, otherwise it returns ttl unchanged
@@ -112,9 +108,6 @@ type AccessChecker interface {
 
 	// CanPortForward returns true if this RoleSet can forward ports.
 	CanPortForward() bool
-
-	// SSHPortForwardMode returns the SSHPortForwardMode that the RoleSet allows.
-	SSHPortForwardMode() decisionpb.SSHPortForwardMode
 
 	// DesktopClipboard returns true if the role set has enabled shared
 	// clipboard for desktop sessions. Clipboard sharing is disabled if
@@ -187,11 +180,7 @@ type AccessChecker interface {
 	CertificateExtensions() []*types.CertExtension
 
 	// GetAllowedSearchAsRoles returns all of the allowed SearchAsRoles.
-	GetAllowedSearchAsRoles(allowFilters ...SearchAsRolesOption) []string
-
-	// GetAllowedSearchAsRolesForKubeResourceKind returns all of the allowed SearchAsRoles
-	// that allowed requesting to the requested Kubernetes resource kind.
-	GetAllowedSearchAsRolesForKubeResourceKind(requestedKubeResourceKind string) []string
+	GetAllowedSearchAsRoles() []string
 
 	// GetAllowedPreviewAsRoles returns all of the allowed PreviewAsRoles.
 	GetAllowedPreviewAsRoles() []string
@@ -269,8 +258,8 @@ type AccessChecker interface {
 	// Supports the following resource types:
 	//
 	// - types.Server with GetKind() == types.KindNode
+	//
 	// - types.KindWindowsDesktop
-	// - types.KindApp with IsAWSConsole() == true
 	GetAllowedLoginsForResource(resource AccessCheckable) ([]string, error)
 
 	// CheckSPIFFESVID checks if the role set has access to generating the
@@ -408,11 +397,10 @@ func (a *accessChecker) checkAllowedResources(r AccessCheckable) error {
 		return nil
 	}
 
-	// Note: logging in this function only happens in trace mode. This is because
+	// Note: logging in this function only happens in debug mode. This is because
 	// adding logging to this function (which is called on every resource returned
 	// by the backend) can slow down this function by 50x for large clusters!
-	ctx := context.Background()
-	isLoggingEnabled := rbacLogger.Enabled(ctx, logutils.TraceLevel)
+	isDebugEnabled, debugf := rbacDebugLogger()
 
 	for _, resourceID := range a.info.AllowedResourceIDs {
 		if resourceID.ClusterName == a.localCluster &&
@@ -424,33 +412,23 @@ func (a *accessChecker) checkAllowedResources(r AccessCheckable) error {
 			(resourceID.Kind == r.GetKind() || (slices.Contains(types.KubernetesResourcesKinds, resourceID.Kind) && r.GetKind() == types.KindKubernetesCluster)) &&
 			resourceID.Name == r.GetName() {
 			// Allowed to access this resource by resource ID, move on to role checks.
-
-			if isLoggingEnabled {
-				rbacLogger.LogAttrs(ctx, logutils.TraceLevel, "Matched allowed resource ID",
-					slog.String("resource_id", types.ResourceIDToString(resourceID)),
-				)
+			if isDebugEnabled {
+				debugf("Matched allowed resource ID %q", types.ResourceIDToString(resourceID))
 			}
-
 			return nil
 		}
 	}
 
-	if isLoggingEnabled {
+	if isDebugEnabled {
 		allowedResources, err := types.ResourceIDsToString(a.info.AllowedResourceIDs)
 		if err != nil {
 			return trace.Wrap(err)
 		}
-
-		slog.LogAttrs(ctx, logutils.TraceLevel, "Access to resource denied, not in allowed resource IDs",
-			slog.String("resource_kind", r.GetKind()),
-			slog.String("resource_name", r.GetName()),
-			slog.Any("allowed_resources", allowedResources),
-		)
-
-		return trace.AccessDenied("access to %v denied, %q not in allowed resource IDs %s",
+		err = trace.AccessDenied("access to %v denied, %q not in allowed resource IDs %s",
 			r.GetKind(), r.GetName(), allowedResources)
+		debugf("Access denied: %v", err)
+		return err
 	}
-
 	return trace.AccessDenied("access to %v denied, not in allowed resource IDs", r.GetKind())
 }
 
@@ -460,18 +438,6 @@ func (a *accessChecker) CheckAccess(r AccessCheckable, state AccessState, matche
 	if err := a.checkAllowedResources(r); err != nil {
 		return trace.Wrap(err)
 	}
-
-	switch rr := r.(type) {
-	case types.Resource153Unwrapper:
-		switch urr := rr.Unwrap().(type) {
-		case IdentityCenterAccount:
-			matchers = append(matchers, NewIdentityCenterAccountMatcher(urr))
-
-		case IdentityCenterAccountAssignment:
-			matchers = append(matchers, NewIdentityCenterAccountAssignmentMatcher(urr))
-		}
-	}
-
 	return trace.Wrap(a.RoleSet.checkAccess(r, a.info.Traits, state, matchers...))
 }
 
@@ -800,8 +766,8 @@ func (a *accessChecker) EnumerateEntities(resource AccessCheckable, listFn roleE
 // Supports the following resource types:
 //
 // - types.Server with GetKind() == types.KindNode
+//
 // - types.KindWindowsDesktop
-// - types.KindApp with IsAWSConsole() == true
 func (a *accessChecker) GetAllowedLoginsForResource(resource AccessCheckable) ([]string, error) {
 	// Create a map indexed by all logins in the RoleSet,
 	// mapped to false if any role has it in its deny section,
@@ -888,11 +854,10 @@ func (a *accessChecker) CheckAccessToRemoteCluster(rc types.RemoteCluster) error
 		return trace.AccessDenied("access to cluster denied")
 	}
 
-	// Note: logging in this function only happens in trace mode, this is because
+	// Note: logging in this function only happens in debug mode, this is because
 	// adding logging to this function (which is called on every server returned
 	// by GetRemoteClusters) can slow down this function by 50x for large clusters!
-	ctx := context.Background()
-	isLoggingEnabled := rbacLogger.Enabled(ctx, logutils.TraceLevel)
+	isDebugEnabled, debugf := rbacDebugLogger()
 
 	rcLabels := rc.GetMetadata().Labels
 
@@ -912,10 +877,8 @@ func (a *accessChecker) CheckAccessToRemoteCluster(rc types.RemoteCluster) error
 	}
 
 	if !usesLabels && len(rcLabels) == 0 {
-		rbacLogger.LogAttrs(ctx, logutils.TraceLevel, "Grant access to cluster - no role uses cluster labels and the cluster is not labeled",
-			slog.String("cluster_name", rc.GetName()),
-			slog.Any("roles", a.RoleNames()),
-		)
+		debugf("Grant access to cluster %v - no role in %v uses cluster labels and the cluster is not labeled.",
+			rc.GetName(), a.RoleNames())
 		return nil
 	}
 
@@ -923,24 +886,21 @@ func (a *accessChecker) CheckAccessToRemoteCluster(rc types.RemoteCluster) error
 	// the deny role set prohibits access.
 	var errs []error
 	for _, role := range a.RoleSet {
-		matchLabels, labelsMessage, err := checkRoleLabelsMatch(types.Deny, role, a.info.Traits, rc, isLoggingEnabled)
+		matchLabels, labelsMessage, err := checkRoleLabelsMatch(types.Deny, role, a.info.Traits, rc, isDebugEnabled)
 		if err != nil {
 			return trace.Wrap(err)
 		}
 		if matchLabels {
 			// This condition avoids formatting calls on large scale.
-			rbacLogger.LogAttrs(ctx, logutils.TraceLevel, "Access to cluster denied, deny rule matched",
-				slog.String("cluster", rc.GetName()),
-				slog.String("role", role.GetName()),
-				slog.String("label_message", labelsMessage),
-			)
+			debugf("Access to cluster %v denied, deny rule in %v matched; match(%s)",
+				rc.GetName(), role.GetName(), labelsMessage)
 			return trace.AccessDenied("access to cluster denied")
 		}
 	}
 
 	// Check allow rules: label has to match in any role in the role set to be granted access.
 	for _, role := range a.RoleSet {
-		matchLabels, labelsMessage, err := checkRoleLabelsMatch(types.Allow, role, a.info.Traits, rc, isLoggingEnabled)
+		matchLabels, labelsMessage, err := checkRoleLabelsMatch(types.Allow, role, a.info.Traits, rc, isDebugEnabled)
 		if err != nil {
 			return trace.Wrap(err)
 		}
@@ -948,32 +908,22 @@ func (a *accessChecker) CheckAccessToRemoteCluster(rc types.RemoteCluster) error
 		if err != nil {
 			return trace.Wrap(err)
 		}
-		rbacLogger.LogAttrs(ctx, logutils.TraceLevel, "Check access to role",
-			slog.String("role", role.GetName()),
-			slog.String("cluster", rc.GetName()),
-			slog.Any("cluster_labels", rcLabels),
-			slog.Any("match_labels", matchLabels),
-			slog.String("labels_message", labelsMessage),
-			slog.Any("error", err),
-			slog.Any("allow", labelMatchers),
-		)
+		debugf("Check access to role(%v) rc(%v, labels=%v) matchLabels=%v, msg=%v, err=%v allow=%v rcLabels=%v",
+			role.GetName(), rc.GetName(), rcLabels, matchLabels, labelsMessage, err, labelMatchers, rcLabels)
 		if err != nil {
 			return trace.Wrap(err)
 		}
 		if matchLabels {
 			return nil
 		}
-		if isLoggingEnabled {
+		if isDebugEnabled {
 			deniedError := trace.AccessDenied("role=%v, match(%s)",
 				role.GetName(), labelsMessage)
 			errs = append(errs, deniedError)
 		}
 	}
 
-	rbacLogger.LogAttrs(ctx, logutils.TraceLevel, "Access to cluster denied, no allow rule matched",
-		slog.String("cluster", rc.GetName()),
-		slog.Any("error", errs),
-	)
+	debugf("Access to cluster %v denied, no allow rule matched; %v", rc.GetName(), errs)
 	return trace.AccessDenied("access to cluster denied")
 }
 
@@ -1015,34 +965,6 @@ func (a *accessChecker) DesktopGroups(s types.WindowsDesktop) ([]string, error) 
 	return utils.StringsSliceFromSet(groups), nil
 }
 
-// HostUserMode determines how host users should be created.
-type HostUserMode int
-
-const (
-	// HostUserModeUndefined is the default mode, for when the mode couldn't be
-	// determined from a types.CreateHostUserMode.
-	HostUserModeUndefined HostUserMode = iota
-	// HostUserModeKeep creates a home directory and persists after a session ends.
-	HostUserModeKeep
-	// HostUserModeDrop does not create a home directory, and it is removed after
-	// a session ends.
-	HostUserModeDrop
-	// HostUserModeStatic creates a home directory and exists independently of a
-	// session.
-	HostUserModeStatic
-)
-
-func convertHostUserMode(mode types.CreateHostUserMode) HostUserMode {
-	switch mode {
-	case types.CreateHostUserMode_HOST_USER_MODE_KEEP:
-		return HostUserModeKeep
-	case types.CreateHostUserMode_HOST_USER_MODE_INSECURE_DROP:
-		return HostUserModeDrop
-	default:
-		return HostUserModeUndefined
-	}
-}
-
 // HostUsersInfo keeps information about groups and sudoers entries
 // for a particular host user
 type HostUsersInfo struct {
@@ -1050,26 +972,17 @@ type HostUsersInfo struct {
 	Groups []string
 	// Mode determines if a host user should be deleted after a session
 	// ends or not.
-	Mode HostUserMode
+	Mode types.CreateHostUserMode
 	// UID is the UID that the host user will be created with
 	UID string
 	// GID is the GID that the host user will be created with
 	GID string
-	// Shell is the default login shell for a host user
-	Shell string
-	// TakeOwnership determines whether or not an existing user should be
-	// taken over by teleport. This currently only applies to 'static' mode
-	// users, 'keep' mode users still need to assign 'teleport-keep' in the
-	// Groups slice in order to take ownership.
-	TakeOwnership bool
 }
 
 // HostUsers returns host user information matching a server or nil if
 // a role disallows host user creation
 func (a *accessChecker) HostUsers(s types.Server) (*HostUsersInfo, error) {
 	groups := make(map[string]struct{})
-	shellToRoles := make(map[string][]string)
-	var shell string
 	var mode types.CreateHostUserMode
 
 	for _, role := range a.RoleSet {
@@ -1107,27 +1020,9 @@ func (a *accessChecker) HostUsers(s types.Server) (*HostUsersInfo, error) {
 			mode = types.CreateHostUserMode_HOST_USER_MODE_KEEP
 		}
 
-		hostUserShell := role.GetOptions().CreateHostUserDefaultShell
-		shell = cmp.Or(shell, hostUserShell)
-		if hostUserShell != "" {
-			shellToRoles[hostUserShell] = append(shellToRoles[hostUserShell], role.GetName())
-		}
-
 		for _, group := range role.GetHostGroups(types.Allow) {
 			groups[group] = struct{}{}
 		}
-	}
-
-	if len(shellToRoles) > 1 {
-		b := &strings.Builder{}
-		for shell, roles := range shellToRoles {
-			fmt.Fprintf(b, "%s=%v ", shell, roles)
-		}
-
-		slog.WarnContext(context.Background(), "Host user shell resolution is ambiguous due to conflicting roles, consider unifying roles around a single shell",
-			"selected_shell", shell,
-			"shell_assignments", b,
-		)
 	}
 
 	for _, role := range a.RoleSet {
@@ -1157,10 +1052,9 @@ func (a *accessChecker) HostUsers(s types.Server) (*HostUsersInfo, error) {
 
 	return &HostUsersInfo{
 		Groups: utils.StringsSliceFromSet(groups),
-		Mode:   convertHostUserMode(mode),
+		Mode:   mode,
 		UID:    uid,
 		GID:    gid,
-		Shell:  shell,
 	}, nil
 }
 
@@ -1257,11 +1151,8 @@ func AccessInfoFromRemoteSSHIdentity(unmappedIdentity *sshca.Identity, roleMap t
 	if len(roles) == 0 {
 		return nil, trace.AccessDenied("no roles mapped for user with remote roles %v", unmappedIdentity.Roles)
 	}
-	slog.DebugContext(context.Background(), "Mapped remote roles to local roles and traits",
-		"remote_roles", unmappedIdentity.Roles,
-		"local_roles", roles,
-		"traits", traits,
-	)
+	log.Debugf("Mapped remote roles %v to local roles %v and traits %v.",
+		unmappedIdentity.Roles, roles, traits)
 
 	return &AccessInfo{
 		Username:           unmappedIdentity.Username,
@@ -1288,10 +1179,10 @@ func AccessInfoFromLocalTLSIdentity(identity tlsca.Identity, access UserGetter) 
 			return nil, trace.Wrap(err)
 		}
 
-		const msg = "Failed to find roles in x509 identity. Fetching " +
-			"from backend. If the identity provider allows username changes, this can " +
-			"potentially allow an attacker to change the role of the existing user."
-		slog.WarnContext(context.Background(), msg, "username", identity.Username)
+		log.Warnf("Failed to find roles in x509 identity for %v. Fetching "+
+			"from backend. If the identity provider allows username changes, this can "+
+			"potentially allow an attacker to change the role of the existing user.",
+			identity.Username)
 		roles = u.GetRoles()
 		traits = u.GetTraits()
 	}
@@ -1309,15 +1200,14 @@ func AccessInfoFromLocalTLSIdentity(identity tlsca.Identity, access UserGetter) 
 // local roles based on the given roleMap.
 func AccessInfoFromRemoteTLSIdentity(identity tlsca.Identity, roleMap types.RoleMap) (*AccessInfo, error) {
 	// Set internal traits for the remote user. This allows Teleport to work by
-	// passing exact logins, Kubernetes users/groups, database users/names, and
-	// AWS Role ARNs to the remote cluster.
+	// passing exact logins, Kubernetes users/groups and database users/names
+	// to the remote cluster.
 	traits := map[string][]string{
-		constants.TraitLogins:      identity.Principals,
-		constants.TraitKubeGroups:  identity.KubernetesGroups,
-		constants.TraitKubeUsers:   identity.KubernetesUsers,
-		constants.TraitDBNames:     identity.DatabaseNames,
-		constants.TraitDBUsers:     identity.DatabaseUsers,
-		constants.TraitAWSRoleARNs: identity.AWSRoleARNs,
+		constants.TraitLogins:     identity.Principals,
+		constants.TraitKubeGroups: identity.KubernetesGroups,
+		constants.TraitKubeUsers:  identity.KubernetesUsers,
+		constants.TraitDBNames:    identity.DatabaseNames,
+		constants.TraitDBUsers:    identity.DatabaseUsers,
 	}
 	// Prior to Teleport 6.2 no user traits were passed to remote clusters
 	// except for the internal ones specified above.
@@ -1342,12 +1232,8 @@ func AccessInfoFromRemoteTLSIdentity(identity tlsca.Identity, roleMap types.Role
 	if len(roles) == 0 {
 		return nil, trace.AccessDenied("no roles mapped for remote user %q from cluster %q with remote roles %v", identity.Username, identity.TeleportCluster, unmappedRoles)
 	}
-	slog.DebugContext(context.Background(), "Mapped roles of remote user to local roles and traits",
-		"remote_roles", unmappedRoles,
-		"user", identity.Username,
-		"local_roles", roles,
-		"traits", traits,
-	)
+	log.Debugf("Mapped roles %v of remote user %q to local roles %v and traits %v.",
+		unmappedRoles, identity.Username, roles, traits)
 
 	return &AccessInfo{
 		Username:           identity.Username,
@@ -1373,9 +1259,6 @@ type UserState interface {
 
 	// IsBot returns true if the user belongs to a bot.
 	IsBot() bool
-
-	// GetGithubIdentities returns a list of connected GitHub identities
-	GetGithubIdentities() []types.ExternalIdentity
 }
 
 // AccessInfoFromUser return a new AccessInfo populated from the roles and

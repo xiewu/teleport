@@ -16,30 +16,25 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { MemoryRouter } from 'react-router';
+import { render, screen } from 'design/utils/testing';
 
-import { ListThin } from 'design/Icon';
-import { fireEvent, render, screen } from 'design/utils/testing';
-
+import { getOSSFeatures } from 'teleport/features';
 import { Context, ContextProvider } from 'teleport';
-import { apps } from 'teleport/Apps/fixtures';
 import { events } from 'teleport/Audit/fixtures';
 import { clusters } from 'teleport/Clusters/fixtures';
-import { InfoGuideWrapper } from 'teleport/components/SlidingSidePanel/InfoGuideSidePanel/InfoGuideSidePanel';
-import { databases } from 'teleport/Databases/fixtures';
-import { desktops } from 'teleport/Desktops/fixtures';
-import { getOSSFeatures } from 'teleport/features';
-import { kubes } from 'teleport/Kubes/fixtures';
-import { userContext } from 'teleport/Main/fixtures';
-import { LayoutContextProvider } from 'teleport/Main/LayoutContext';
-import { createTeleportContext } from 'teleport/mocks/contexts';
-import { NavigationCategory } from 'teleport/Navigation';
 import { nodes } from 'teleport/Nodes/fixtures';
 import { sessions } from 'teleport/Sessions/fixtures';
-import TeleportContext from 'teleport/teleportContext';
-import { TeleportFeature } from 'teleport/types';
-import { makeTestUserContext } from 'teleport/User/testHelpers/makeTestUserContext';
+import { apps } from 'teleport/Apps/fixtures';
+import { kubes } from 'teleport/Kubes/fixtures';
+import { databases } from 'teleport/Databases/fixtures';
+import { desktops } from 'teleport/Desktops/fixtures';
+import { userContext } from 'teleport/Main/fixtures';
+import { LayoutContextProvider } from 'teleport/Main/LayoutContext';
 import { mockUserContextProviderWith } from 'teleport/User/testHelpers/mockUserContextWith';
+import { makeTestUserContext } from 'teleport/User/testHelpers/makeTestUserContext';
+import TeleportContext from 'teleport/teleportContext';
 
 import { Main, MainProps } from './Main';
 
@@ -62,12 +57,13 @@ const setupContext = (): TeleportContext => {
   return ctx;
 };
 
-test('renders', () => {
+test('displays questionnaire if present', () => {
   mockUserContextProviderWith(makeTestUserContext());
   const ctx = setupContext();
 
   const props: MainProps = {
     features: getOSSFeatures(),
+    Questionnaire: () => <div>Passed Component!</div>,
   };
 
   render(
@@ -80,44 +76,29 @@ test('renders', () => {
     </MemoryRouter>
   );
 
-  expect(screen.getByTestId('teleport-logo')).toBeInTheDocument();
+  expect(screen.getByText('Passed Component!')).toBeInTheDocument();
 });
 
-test('toggle rendering of info guide panel', async () => {
+test('renders without questionnaire prop', () => {
   mockUserContextProviderWith(makeTestUserContext());
-  const ctx = createTeleportContext();
+  const ctx = setupContext();
 
   const props: MainProps = {
-    features: [...getOSSFeatures(), new FeatureTestInfoGuide()],
+    features: getOSSFeatures(),
   };
+  expect(props.Questionnaire).toBeUndefined();
 
   render(
     <MemoryRouter>
-      <ContextProvider ctx={ctx}>
-        <LayoutContextProvider>
+      <LayoutContextProvider>
+        <ContextProvider ctx={ctx}>
           <Main {...props} />
-        </LayoutContextProvider>
-      </ContextProvider>
+        </ContextProvider>
+      </LayoutContextProvider>
     </MemoryRouter>
   );
 
   expect(screen.getByTestId('teleport-logo')).toBeInTheDocument();
-
-  expect(screen.queryByText(/i am the guide/i)).not.toBeInTheDocument();
-  expect(screen.queryByText(/info guide title/i)).not.toBeInTheDocument();
-
-  // render the component that has the guide info button
-  fireEvent.click(screen.queryAllByText('Zero Trust Access')[0]);
-  fireEvent.click(screen.getByText(/test info guide/i));
-  expect(screen.getByText(/info guide title/i)).toBeInTheDocument();
-
-  // test opening of panel
-  fireEvent.click(screen.getByTestId('info-guide-btn-open'));
-  expect(screen.getByText(/i am the guide/i)).toBeInTheDocument();
-
-  // test closing of panel by clicking on explicit close button
-  fireEvent.click(screen.getByTestId('info-guide-btn-close'));
-  expect(screen.queryByText(/i am the guide/i)).not.toBeInTheDocument();
 });
 
 test('displays invite collaborators feedback if present', () => {
@@ -163,36 +144,3 @@ test('renders without invite collaborators feedback enabled', () => {
 
   expect(screen.getByTestId('teleport-logo')).toBeInTheDocument();
 });
-
-const TestInfoGuide = () => {
-  return (
-    <div>
-      <InfoGuideWrapper guide={<div>I am the guide</div>}>
-        Info Guide Title
-      </InfoGuideWrapper>
-    </div>
-  );
-};
-
-class FeatureTestInfoGuide implements TeleportFeature {
-  category = NavigationCategory.Audit;
-
-  route = {
-    title: 'Test Info Guide',
-    path: '/web/testinfoguide',
-    component: TestInfoGuide,
-  };
-
-  navigationItem = {
-    title: 'Test Info Guide' as any,
-    icon: ListThin,
-    getLink() {
-      return '/web/testinfoguide';
-    },
-    searchableTags: ['test info guide'],
-  };
-
-  hasAccess() {
-    return true;
-  }
-}

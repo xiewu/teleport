@@ -17,12 +17,11 @@ limitations under the License.
 package events
 
 import (
-	"context"
 	"encoding/json"
-	"log/slog"
 	"reflect"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 )
 
 // MustToOneOf converts audit event to OneOf
@@ -135,10 +134,6 @@ func ToOneOf(in AuditEvent) (*OneOf, error) {
 	case *AccessRequestCreate:
 		out.Event = &OneOf_AccessRequestCreate{
 			AccessRequestCreate: e,
-		}
-	case *AccessRequestExpire:
-		out.Event = &OneOf_AccessRequestExpire{
-			AccessRequestExpire: e,
 		}
 	case *AccessRequestResourceSearch:
 		out.Event = &OneOf_AccessRequestResourceSearch{
@@ -608,10 +603,6 @@ func ToOneOf(in AuditEvent) (*OneOf, error) {
 		out.Event = &OneOf_AccessListMemberDeleteAllForAccessList{
 			AccessListMemberDeleteAllForAccessList: e,
 		}
-	case *UserLoginAccessListInvalid:
-		out.Event = &OneOf_UserLoginAccessListInvalid{
-			UserLoginAccessListInvalid: e,
-		}
 	case *AuditQueryRun:
 		out.Event = &OneOf_AuditQueryRun{
 			AuditQueryRun: e,
@@ -639,10 +630,6 @@ func ToOneOf(in AuditEvent) (*OneOf, error) {
 	case *OktaAccessListSync:
 		out.Event = &OneOf_OktaAccessListSync{
 			OktaAccessListSync: e,
-		}
-	case *OktaUserSync:
-		out.Event = &OneOf_OktaUserSync{
-			OktaUserSync: e,
 		}
 	case *SPIFFESVIDIssued:
 		out.Event = &OneOf_SPIFFESVIDIssued{
@@ -680,10 +667,6 @@ func ToOneOf(in AuditEvent) (*OneOf, error) {
 		out.Event = &OneOf_SpannerRPC{
 			SpannerRPC: e,
 		}
-	case *DatabaseSessionCommandResult:
-		out.Event = &OneOf_DatabaseSessionCommandResult{
-			DatabaseSessionCommandResult: e,
-		}
 	case *DiscoveryConfigCreate:
 		out.Event = &OneOf_DiscoveryConfigCreate{
 			DiscoveryConfigCreate: e,
@@ -720,7 +703,6 @@ func ToOneOf(in AuditEvent) (*OneOf, error) {
 		out.Event = &OneOf_SPIFFEFederationDelete{
 			SPIFFEFederationDelete: e,
 		}
-
 	case *PluginCreate:
 		out.Event = &OneOf_PluginCreate{
 			PluginCreate: e,
@@ -733,18 +715,6 @@ func ToOneOf(in AuditEvent) (*OneOf, error) {
 		out.Event = &OneOf_PluginDelete{
 			PluginDelete: e,
 		}
-	case *StaticHostUserCreate:
-		out.Event = &OneOf_StaticHostUserCreate{
-			StaticHostUserCreate: e,
-		}
-	case *StaticHostUserUpdate:
-		out.Event = &OneOf_StaticHostUserUpdate{
-			StaticHostUserUpdate: e,
-		}
-	case *StaticHostUserDelete:
-		out.Event = &OneOf_StaticHostUserDelete{
-			StaticHostUserDelete: e,
-		}
 	case *CrownJewelCreate:
 		out.Event = &OneOf_CrownJewelCreate{
 			CrownJewelCreate: e,
@@ -756,22 +726,6 @@ func ToOneOf(in AuditEvent) (*OneOf, error) {
 	case *CrownJewelDelete:
 		out.Event = &OneOf_CrownJewelDelete{
 			CrownJewelDelete: e,
-		}
-	case *UserTaskCreate:
-		out.Event = &OneOf_UserTaskCreate{
-			UserTaskCreate: e,
-		}
-	case *UserTaskUpdate:
-		out.Event = &OneOf_UserTaskUpdate{
-			UserTaskUpdate: e,
-		}
-	case *UserTaskDelete:
-		out.Event = &OneOf_UserTaskDelete{
-			UserTaskDelete: e,
-		}
-	case *SFTPSummary:
-		out.Event = &OneOf_SFTPSummary{
-			SFTPSummary: e,
 		}
 	case *AutoUpdateConfigCreate:
 		out.Event = &OneOf_AutoUpdateConfigCreate{
@@ -798,53 +752,8 @@ func ToOneOf(in AuditEvent) (*OneOf, error) {
 		out.Event = &OneOf_AutoUpdateVersionDelete{
 			AutoUpdateVersionDelete: e,
 		}
-	case *ContactCreate:
-		out.Event = &OneOf_ContactCreate{
-			ContactCreate: e,
-		}
-	case *ContactDelete:
-		out.Event = &OneOf_ContactDelete{
-			ContactDelete: e,
-		}
-
-	case *WorkloadIdentityCreate:
-		out.Event = &OneOf_WorkloadIdentityCreate{
-			WorkloadIdentityCreate: e,
-		}
-	case *WorkloadIdentityUpdate:
-		out.Event = &OneOf_WorkloadIdentityUpdate{
-			WorkloadIdentityUpdate: e,
-		}
-	case *WorkloadIdentityDelete:
-		out.Event = &OneOf_WorkloadIdentityDelete{
-			WorkloadIdentityDelete: e,
-		}
-	case *GitCommand:
-		out.Event = &OneOf_GitCommand{
-			GitCommand: e,
-		}
-	case *StableUNIXUserCreate:
-		out.Event = &OneOf_StableUNIXUserCreate{
-			StableUNIXUserCreate: e,
-		}
-	case *WorkloadIdentityX509RevocationCreate:
-		out.Event = &OneOf_WorkloadIdentityX509RevocationCreate{
-			WorkloadIdentityX509RevocationCreate: e,
-		}
-	case *WorkloadIdentityX509RevocationDelete:
-		out.Event = &OneOf_WorkloadIdentityX509RevocationDelete{
-			WorkloadIdentityX509RevocationDelete: e,
-		}
-	case *WorkloadIdentityX509RevocationUpdate:
-		out.Event = &OneOf_WorkloadIdentityX509RevocationUpdate{
-			WorkloadIdentityX509RevocationUpdate: e,
-		}
-	case *AWSICResourceSync:
-		out.Event = &OneOf_AWSICResourceSync{
-			AWSICResourceSync: e,
-		}
 	default:
-		slog.ErrorContext(context.Background(), "Attempted to convert dynamic event of unknown type into protobuf event.", "event_type", in.GetType())
+		log.Errorf("Attempted to convert dynamic event of unknown type \"%v\" into protobuf event.", in.GetType())
 		unknown := &Unknown{}
 		unknown.Type = UnknownEvent
 		unknown.Code = UnknownCode

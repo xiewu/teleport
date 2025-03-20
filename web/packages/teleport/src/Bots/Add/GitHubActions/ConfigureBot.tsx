@@ -16,23 +16,29 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
 
-import { H2, Text } from 'design';
-import { Alert } from 'design/Alert';
 import Box from 'design/Box';
-import FieldInput from 'shared/components/FieldInput';
-import Validation, { Validator } from 'shared/components/Validation';
-import { requiredField } from 'shared/components/Validation/rules';
 import useAttempt from 'shared/hooks/useAttemptNext';
+import Validation, { Validator } from 'shared/components/Validation';
 
-import { LabelsInput } from 'teleport/components/LabelsInput';
+import Text from 'design/Text';
+
+import FieldInput from 'shared/components/FieldInput';
+import { requiredField } from 'shared/components/Validation/rules';
+
+import Alert from 'design/Alert';
+
 import { getBot } from 'teleport/services/bot';
+
 import useTeleport from 'teleport/useTeleport';
 
-import { FlowButtons } from '../Shared/FlowButtons';
 import { FlowStepProps } from '../Shared/GuidedFlow';
+import { FlowButtons } from '../Shared/FlowButtons';
+
+import { LabelsInput } from '../Shared/LabelsInput';
+
 import { useGitHubFlow } from './useGitHubFlow';
 
 export function ConfigureBot({ nextStep, prevStep }: FlowStepProps) {
@@ -99,7 +105,9 @@ export function ConfigureBot({ nextStep, prevStep }: FlowStepProps) {
         GitHub Actions runners as well as GitHub Enterprise Server.
       </Text>
 
-      <H2 mb="2">Step 1: Scope the Permissions for Your Bot</H2>
+      <Text bold fontSize={4} mb="2">
+        Step 1: Scope the Permissions for Your Bot
+      </Text>
       <Validation>
         {({ validator }) => (
           <>
@@ -145,12 +153,6 @@ export function ConfigureBot({ nextStep, prevStep }: FlowStepProps) {
                   setCreateBotRequest({ ...createBotRequest, labels: labels })
                 }
                 disableBtns={isLoading}
-                inputWidth={350}
-                required={true}
-                labelKey={{
-                  fieldName: 'Label for Resources the User Can Access',
-                  placeholder: 'label key',
-                }}
               />
             </Box>
             <FormItem>

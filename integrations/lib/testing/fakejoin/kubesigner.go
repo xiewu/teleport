@@ -19,6 +19,8 @@
 package fakejoin
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -29,14 +31,14 @@ import (
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
 
-	"github.com/gravitational/teleport/lib/cryptosuites"
-	kubetoken "github.com/gravitational/teleport/lib/kube/token"
+	"github.com/gravitational/teleport/lib/kubernetestoken"
 )
 
 // KubernetesSigner is a JWT signer that mimicks the Kubernetes one. The signer mock Kubernetes and
 // allows us to do Kube joining locally. This is useful in tests as this is currently the easiest
 // delegated join method we can use without having to rely on external infrastructure/providers.
 type KubernetesSigner struct {
+	key    *rsa.PrivateKey
 	signer jose.Signer
 	jwks   *jose.JSONWebKeySet
 	clock  clockwork.Clock
@@ -46,12 +48,12 @@ const fakeKeyID = "foo"
 
 // NewKubernetesSigner generates a keypair and creates a new KubernetesSigner.
 func NewKubernetesSigner(clock clockwork.Clock) (*KubernetesSigner, error) {
-	key, err := cryptosuites.GenerateKeyWithAlgorithm(cryptosuites.ECDSAP256)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, trace.Wrap(err, "generating key")
 	}
 	signer, err := jose.NewSigner(
-		jose.SigningKey{Algorithm: jose.ES256, Key: key},
+		jose.SigningKey{Algorithm: jose.RS256, Key: key},
 		(&jose.SignerOptions{}).
 			WithType("JWT").
 			WithHeader("kid", fakeKeyID),
@@ -63,11 +65,12 @@ func NewKubernetesSigner(clock clockwork.Clock) (*KubernetesSigner, error) {
 		{
 			Key:       key.Public(),
 			Use:       "sig",
-			Algorithm: string(jose.ES256),
+			Algorithm: string(jose.RS256),
 			KeyID:     fakeKeyID,
 		},
 	}}
 	return &KubernetesSigner{
+		key:    key,
 		signer: signer,
 		jwks:   jwks,
 		clock:  clock,
@@ -87,7 +90,7 @@ func (s *KubernetesSigner) GetMarshaledJWKS() (string, error) {
 // This token has the Teleport cluster name in its audience as required by the Kubernetes JWKS join method.
 func (s *KubernetesSigner) SignServiceAccountJWT(pod, namespace, serviceAccount, clusterName string) (string, error) {
 	now := s.clock.Now()
-	claims := kubetoken.ServiceAccountClaims{
+	claims := kubernetestoken.ServiceAccountClaims{
 		Claims: jwt.Claims{
 			Subject:  fmt.Sprintf("system:serviceaccount:%s:%s", namespace, serviceAccount),
 			Audience: jwt.Audience{clusterName},
@@ -97,13 +100,13 @@ func (s *KubernetesSigner) SignServiceAccountJWT(pod, namespace, serviceAccount,
 			// The Kubernetes JWKS join method rejects tokens valid more than 30 minutes.
 			Expiry: jwt.NewNumericDate(now.Add(29 * time.Minute)),
 		},
-		Kubernetes: &kubetoken.KubernetesSubClaim{
+		Kubernetes: &kubernetestoken.KubernetesSubClaim{
 			Namespace: namespace,
-			ServiceAccount: &kubetoken.ServiceAccountSubClaim{
+			ServiceAccount: &kubernetestoken.ServiceAccountSubClaim{
 				Name: serviceAccount,
 				UID:  uuid.New().String(),
 			},
-			Pod: &kubetoken.PodSubClaim{
+			Pod: &kubernetestoken.PodSubClaim{
 				Name: pod,
 				UID:  uuid.New().String(),
 			},

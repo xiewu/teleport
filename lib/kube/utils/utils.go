@@ -22,8 +22,8 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"strings"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/gravitational/trace"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -32,6 +32,7 @@ import (
 	"github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/lib/automaticupgrades"
 	"github.com/gravitational/teleport/lib/automaticupgrades/version"
 )
 
@@ -105,7 +106,7 @@ func GetKubeConfig(configPath string, allConfigEntries bool, clusterName string)
 	case configPath == "" && clusterName != "":
 		cfg, err := rest.InClusterConfig()
 		if err != nil {
-			if errors.Is(err, rest.ErrNotInCluster) {
+			if err == rest.ErrNotInCluster {
 				return nil, trace.NotFound("not running inside of a Kubernetes pod")
 			}
 			return nil, trace.Wrap(err)
@@ -183,32 +184,21 @@ type Pinger interface {
 
 // GetKubeAgentVersion returns a version of the Kube agent appropriate for this Teleport cluster. Used for example when deciding version
 // for enrolling EKS clusters.
-func GetKubeAgentVersion(ctx context.Context, pinger Pinger, clusterFeatures proto.Features, versionGetter version.Getter) (*semver.Version, error) {
+func GetKubeAgentVersion(ctx context.Context, pinger Pinger, clusterFeatures proto.Features, releaseChannels automaticupgrades.Channels) (string, error) {
 	pingResponse, err := pinger.Ping(ctx)
 	if err != nil {
-		return nil, trace.Wrap(err)
+		return "", trace.Wrap(err)
 	}
+	agentVersion := pingResponse.ServerVersion
 
-	var agentVersion *semver.Version
-
-	// TODO(hugoShaka) remove the conditional check, we always use the cluster version
 	if clusterFeatures.GetAutomaticUpgrades() && clusterFeatures.GetCloud() {
-		defaultVersion, err := versionGetter.GetVersion(ctx)
+		defaultVersion, err := releaseChannels.DefaultVersion(ctx)
 		if err == nil {
 			agentVersion = defaultVersion
 		} else if !errors.Is(err, &version.NoNewVersionError{}) {
-			return nil, trace.Wrap(err)
+			return "", trace.Wrap(err)
 		}
 	}
 
-	if agentVersion == nil {
-		clusterVersion, err := version.EnsureSemver(pingResponse.ServerVersion)
-		if err != nil {
-			return nil, trace.Wrap(err, "failed to parse cluster version")
-		} else {
-			agentVersion = clusterVersion
-		}
-	}
-
-	return agentVersion, nil
+	return strings.TrimPrefix(agentVersion, "v"), nil
 }

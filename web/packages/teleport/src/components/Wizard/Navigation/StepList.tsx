@@ -16,7 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
+
 import { BaseView } from '../flow';
+
 import { StepItem } from './StepItem';
 
 interface StepListProps<T> {

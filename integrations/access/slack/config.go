@@ -139,6 +139,7 @@ func (c *Config) NewBot(clusterName, webProxyAddr string) (common.MessagingBot, 
 			return nil
 		}).
 		OnAfterResponse(onAfterResponseSlack(c.StatusSink))
+
 	return Bot{
 		client:      client,
 		clock:       c.Clock,

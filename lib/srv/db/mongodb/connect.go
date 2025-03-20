@@ -75,7 +75,7 @@ func (e *Engine) connect(ctx context.Context, sessionCtx *common.Session) (drive
 	if err != nil {
 		return nil, nil, trace.Wrap(err)
 	}
-	e.Log.DebugContext(e.Context, "Connecting to cluster.", "topology", top, "server", server)
+	e.Log.Debugf("Cluster topology: %v, selected server %v.", top, server)
 	conn, err := server.Connection(ctx)
 	if err != nil {
 		return nil, nil, trace.Wrap(err)
@@ -83,10 +83,10 @@ func (e *Engine) connect(ctx context.Context, sessionCtx *common.Session) (drive
 
 	closeFn := func() {
 		if err := top.Disconnect(ctx); err != nil {
-			e.Log.WarnContext(e.Context, "Failed to close topology", "error", err)
+			e.Log.WithError(err).Warn("Failed to close topology")
 		}
 		if err := conn.Close(); err != nil {
-			e.Log.ErrorContext(e.Context, "Failed to close server connection.", "error", err)
+			e.Log.WithError(err).Error("Failed to close server connection.")
 		}
 	}
 	return conn, closeFn, nil
@@ -132,7 +132,7 @@ func (e *Engine) getServerOptions(ctx context.Context, sessionCtx *common.Sessio
 
 // getConnectionOptions constructs connection options for connecting to a MongoDB server.
 func (e *Engine) getConnectionOptions(ctx context.Context, sessionCtx *common.Session, clientCfg *options.ClientOptions) ([]topology.ConnectionOption, error) {
-	tlsConfig, err := e.Auth.GetTLSConfig(ctx, sessionCtx.GetExpiry(), sessionCtx.Database, sessionCtx.DatabaseUser)
+	tlsConfig, err := e.Auth.GetTLSConfig(ctx, sessionCtx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -163,8 +163,7 @@ func (e *Engine) getConnectionOptions(ctx context.Context, sessionCtx *common.Se
 }
 
 func (e *Engine) getAuthenticator(ctx context.Context, sessionCtx *common.Session) (auth.Authenticator, error) {
-	dbType := sessionCtx.Database.GetType()
-	isAtlasDB := dbType == types.DatabaseTypeMongoAtlas
+	isAtlasDB := sessionCtx.Database.GetType() == types.DatabaseTypeMongoAtlas
 
 	// Currently, the MongoDB Atlas IAM Authentication doesn't work with IAM
 	// users. Here we provide a better error message to the users.
@@ -175,11 +174,8 @@ func (e *Engine) getAuthenticator(ctx context.Context, sessionCtx *common.Sessio
 	switch {
 	case isAtlasDB && awsutils.IsRoleARN(sessionCtx.DatabaseUser):
 		return e.getAWSAuthenticator(ctx, sessionCtx)
-	case dbType == types.DatabaseTypeDocumentDB:
-		// DocumentDB uses the same the IAM authenticator as MongoDB Atlas.
-		return e.getAWSAuthenticator(ctx, sessionCtx)
 	default:
-		e.Log.DebugContext(e.Context, "Authenticating to database using certificates.")
+		e.Log.Debug("Authenticating to database using certificates.")
 		authenticator, err := auth.CreateAuthenticator(auth.MongoDBX509, &auth.Cred{
 			Username: x509Username(sessionCtx),
 		})
@@ -194,9 +190,9 @@ func (e *Engine) getAuthenticator(ctx context.Context, sessionCtx *common.Sessio
 // getAWSAuthenticator fetches the AWS credentials and initializes the MongoDB
 // authenticator.
 func (e *Engine) getAWSAuthenticator(ctx context.Context, sessionCtx *common.Session) (auth.Authenticator, error) {
-	e.Log.DebugContext(e.Context, "Authenticating to database using AWS IAM authentication.")
+	e.Log.Debug("Authenticating to database using AWS IAM authentication.")
 
-	username, password, sessToken, err := e.Auth.GetAWSIAMCreds(ctx, sessionCtx.Database, sessionCtx.DatabaseUser)
+	username, password, sessToken, err := e.Auth.GetAWSIAMCreds(ctx, sessionCtx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

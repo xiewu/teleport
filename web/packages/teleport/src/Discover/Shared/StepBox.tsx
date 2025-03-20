@@ -17,7 +17,6 @@
  */
 
 import styled from 'styled-components';
-
 import { Box } from 'design';
 
 export const StepBox = styled(Box)`

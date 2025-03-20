@@ -17,14 +17,13 @@
  */
 
 import { createGlobalStyle } from 'styled-components';
-
 import './../assets/ubuntu/style.css';
 
 const GlobalStyle = createGlobalStyle`
 
   html {
     font-family: ${props => props.theme.font};
-    ${props => props.theme.typography.body2};
+    ${props => props.theme.typography.body1};
   }
 
   body {
@@ -41,7 +40,7 @@ const GlobalStyle = createGlobalStyle`
   input {
     accent-color: ${props => props.theme.colors.brand};
 
-    &::placeholder {
+    ::placeholder {
       color: ${props => props.theme.colors.text.muted};
     }
   }

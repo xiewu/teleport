@@ -36,9 +36,8 @@ export enum TermEvent {
   SESSION = 'terminal.new_session',
   DATA = 'terminal.data',
   CONN_CLOSE = 'connection.close',
-  MFA_CHALLENGE = 'terminal.webauthn',
+  WEBAUTHN_CHALLENGE = 'terminal.webauthn',
   LATENCY = 'terminal.latency',
-  KUBE_EXEC = 'terminal.kube_exec',
 }
 
 // Websocket connection close codes.

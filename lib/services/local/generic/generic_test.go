@@ -109,10 +109,13 @@ func unmarshalResource(data []byte, opts ...services.MarshalOption) (*testResour
 
 	var r testResource
 	if err := utils.FastUnmarshal(data, &r); err != nil {
-		return nil, trace.BadParameter("%s", err)
+		return nil, trace.BadParameter(err.Error())
 	}
 	if err := r.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
+	}
+	if cfg.ID != 0 {
+		r.SetResourceID(cfg.ID)
 	}
 	if cfg.Revision != "" {
 		r.SetRevision(cfg.Revision)
@@ -137,7 +140,7 @@ func TestGenericCRUD(t *testing.T) {
 		Backend:       memBackend,
 		ResourceKind:  "generic resource",
 		PageLimit:     200,
-		BackendPrefix: backend.NewKey("generic_prefix"),
+		BackendPrefix: "generic_prefix",
 		UnmarshalFunc: unmarshalResource,
 		MarshalFunc:   marshalResource,
 	})
@@ -168,7 +171,7 @@ func TestGenericCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, nextToken)
 	require.Empty(t, cmp.Diff([]*testResource{r1, r2}, out,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 
 	// Fetch a paginated list of resources.
@@ -187,7 +190,7 @@ func TestGenericCRUD(t *testing.T) {
 
 	require.Equal(t, 2, numPages)
 	require.Empty(t, cmp.Diff([]*testResource{r1, r2}, paginatedOut,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 
 	// Count all resources.
@@ -199,14 +202,14 @@ func TestGenericCRUD(t *testing.T) {
 	allResources, err := service.GetResources(ctx)
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff(paginatedOut, allResources,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 
 	// Fetch a specific service provider.
 	r, err := service.GetResource(ctx, r2.GetName())
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff(r2, r,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 
 	// Try to fetch a resource that doesn't exist.
@@ -224,7 +227,7 @@ func TestGenericCRUD(t *testing.T) {
 	r, err = service.GetResource(ctx, r1.GetName())
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff(r1, r,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 
 	// Update a resource that doesn't exist.
@@ -239,7 +242,7 @@ func TestGenericCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, nextToken)
 	require.Empty(t, cmp.Diff([]*testResource{r2}, out,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 
 	// Make sure count is updated.
@@ -254,7 +257,7 @@ func TestGenericCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, nextToken)
 	require.Empty(t, cmp.Diff([]*testResource{r1, r2}, out,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 
 	// Upsert a resource (update).
@@ -265,7 +268,7 @@ func TestGenericCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, nextToken)
 	require.Empty(t, cmp.Diff([]*testResource{r1, r2}, out,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 
 	// Update and swap a value
@@ -279,7 +282,7 @@ func TestGenericCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, nextToken)
 	require.Empty(t, cmp.Diff([]*testResource{r1, r2}, out,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 
 	// Try to delete a resource that doesn't exist.
@@ -287,14 +290,14 @@ func TestGenericCRUD(t *testing.T) {
 	require.ErrorIs(t, err, trace.NotFound(`generic resource "doesnotexist" doesn't exist`))
 
 	// Test running while locked.
-	err = service.RunWhileLocked(ctx, []string{"test-lock"}, time.Second*5, func(ctx context.Context, b backend.Backend) error {
-		item, err := b.Get(ctx, service.MakeKey(backend.NewKey(r1.GetName())))
+	err = service.RunWhileLocked(ctx, []string{"test-lock"}, time.Second*5, func(ctx context.Context, backend backend.Backend) error {
+		item, err := backend.Get(ctx, service.MakeKey(r1.GetName()))
 		require.NoError(t, err)
 
 		r, err = unmarshalResource(item.Value, services.WithRevision(item.Revision))
 		require.NoError(t, err)
 		require.Empty(t, cmp.Diff(r1, r,
-			cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+			cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 		))
 
 		return nil
@@ -328,7 +331,7 @@ func TestGenericListResourcesReturnNextResource(t *testing.T) {
 		Backend:       memBackend,
 		ResourceKind:  "generic resource",
 		PageLimit:     200,
-		BackendPrefix: backend.NewKey("generic_prefix"),
+		BackendPrefix: "generic_prefix",
 		UnmarshalFunc: unmarshalResource,
 		MarshalFunc:   marshalResource,
 	})
@@ -346,14 +349,14 @@ func TestGenericListResourcesReturnNextResource(t *testing.T) {
 	page, next, err := service.ListResourcesReturnNextResource(ctx, 1, "")
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff([]*testResource{r1}, page,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 	require.NotNil(t, next)
 
 	page, next, err = service.ListResourcesReturnNextResource(ctx, 1, "another-unique-prefix"+string(backend.Separator)+backend.GetPaginationKey(*next))
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff([]*testResource{r2}, page,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "ID"),
 	))
 	require.Nil(t, next)
 }
@@ -371,7 +374,7 @@ func TestGenericListResourcesWithMultiplePrefixes(t *testing.T) {
 		Backend:       memBackend,
 		ResourceKind:  "generic resource",
 		PageLimit:     200,
-		BackendPrefix: backend.NewKey("generic_prefix"),
+		BackendPrefix: "generic_prefix",
 		UnmarshalFunc: unmarshalResource,
 		MarshalFunc:   marshalResource,
 	})
@@ -389,14 +392,14 @@ func TestGenericListResourcesWithMultiplePrefixes(t *testing.T) {
 	page, next, err := service.ListResources(ctx, 1, "")
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff([]*testResource{r1}, page,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID"),
 	))
 	require.Equal(t, next, "another-unique-prefix"+string(backend.Separator)+r2.GetName())
 
 	page, next, err = service.ListResources(ctx, 1, next)
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff([]*testResource{r2}, page,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID"),
 	))
 	require.Empty(t, next)
 
@@ -405,14 +408,14 @@ func TestGenericListResourcesWithMultiplePrefixes(t *testing.T) {
 	page, next, err = service.WithPrefix("a-unique-prefix").ListResources(ctx, 1, "")
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff([]*testResource{r1}, page,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID"),
 	))
 	require.Equal(t, next, r2.GetName())
 
 	page, next, err = service.WithPrefix("a-unique-prefix").ListResources(ctx, 1, next)
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff([]*testResource{r2}, page,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID"),
 	))
 	require.Empty(t, next)
 }
@@ -430,7 +433,7 @@ func TestGenericListResourcesWithFilter(t *testing.T) {
 		Backend:       memBackend,
 		ResourceKind:  "generic resource",
 		PageLimit:     200,
-		BackendPrefix: backend.NewKey("generic_prefix"),
+		BackendPrefix: "generic_prefix",
 		UnmarshalFunc: unmarshalResource,
 		MarshalFunc:   marshalResource,
 	})
@@ -450,7 +453,7 @@ func TestGenericListResourcesWithFilter(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff([]*testResource{r1}, page,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID"),
 	))
 	require.Equal(t, "", nextKey)
 
@@ -459,7 +462,7 @@ func TestGenericListResourcesWithFilter(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Empty(t, cmp.Diff([]*testResource{r2}, page,
-		cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
+		cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID"),
 	))
 	require.Equal(t, "", nextKey)
 }
@@ -477,7 +480,7 @@ func TestGenericListResourcesWithFilterForScale(t *testing.T) {
 		Backend:       memBackend,
 		ResourceKind:  "generic resource",
 		PageLimit:     200,
-		BackendPrefix: backend.NewKey("my-prefix"),
+		BackendPrefix: "my-prefix",
 		UnmarshalFunc: unmarshalResource,
 		MarshalFunc:   marshalResource,
 	})
@@ -540,6 +543,7 @@ func TestGenericListResourcesWithFilterForScale(t *testing.T) {
 }
 
 func TestGenericValidation(t *testing.T) {
+
 	ctx := context.Background()
 
 	memBackend, err := memory.New(memory.Config{
@@ -553,7 +557,7 @@ func TestGenericValidation(t *testing.T) {
 		Backend:       memBackend,
 		ResourceKind:  "generic resource",
 		PageLimit:     200,
-		BackendPrefix: backend.NewKey("generic_prefix"),
+		BackendPrefix: "generic_prefix",
 		UnmarshalFunc: unmarshalResource,
 		MarshalFunc:   marshalResource,
 		ValidateFunc:  func(tr *testResource) error { return validationErr },
@@ -570,27 +574,25 @@ func TestGenericValidation(t *testing.T) {
 
 	_, err = service.UpsertResource(ctx, r1)
 	require.ErrorIs(t, err, validationErr)
+
 }
 
 func TestGenericKeyOverride(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	ctx := context.Background()
 	memBackend, err := memory.New(memory.Config{
 		Context: ctx,
 		Clock:   clockwork.NewFakeClock(),
 	})
 	require.NoError(t, err)
-	defer memBackend.Close()
 
 	service, err := NewService(&ServiceConfig[*testResource]{
 		Backend:       memBackend,
 		ResourceKind:  "generic resource",
 		PageLimit:     200,
-		BackendPrefix: backend.NewKey("generic_prefix"),
+		BackendPrefix: "generic_prefix",
 		UnmarshalFunc: unmarshalResource,
 		MarshalFunc:   marshalResource,
-		NameKeyFunc:   func(string) string { return "llama" },
+		KeyFunc:       func(tr *testResource) string { return "llama" },
 	})
 	require.NoError(t, err)
 
@@ -599,7 +601,7 @@ func TestGenericKeyOverride(t *testing.T) {
 	// Create the test resource
 	created, err := service.CreateResource(ctx, r1)
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(r1, created, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(r1, created, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID")))
 
 	// Validate that the resource is stored under the custom key
 	item, err := memBackend.Get(ctx, backend.NewKey("generic_prefix", "llama"))
@@ -614,7 +616,7 @@ func TestGenericKeyOverride(t *testing.T) {
 	// Update the test resource
 	updated, err := service.UpdateResource(ctx, created)
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(r1, updated, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(r1, updated, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID")))
 
 	// Validate that the resource is stored under the custom key
 	item, err = memBackend.Get(ctx, backend.NewKey("generic_prefix", "llama"))
@@ -629,7 +631,7 @@ func TestGenericKeyOverride(t *testing.T) {
 	// Upsert the test resource
 	upserted, err := service.UpsertResource(ctx, updated)
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(r1, upserted, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(r1, upserted, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID")))
 
 	// Validate that the resource is stored under the custom key
 	item, err = memBackend.Get(ctx, backend.NewKey("generic_prefix", "llama"))
@@ -644,7 +646,7 @@ func TestGenericKeyOverride(t *testing.T) {
 	// Compare and swap the resource
 	swapped, err := service.UpdateAndSwapResource(ctx, "llama", func(tr *testResource) error { return nil })
 	require.NoError(t, err)
-	require.Empty(t, cmp.Diff(r1, swapped, cmpopts.IgnoreFields(types.Metadata{}, "Revision")))
+	require.Empty(t, cmp.Diff(r1, swapped, cmpopts.IgnoreFields(types.Metadata{}, "Revision", "ID")))
 
 	// Validate that the resource is stored under the custom key
 	item, err = memBackend.Get(ctx, backend.NewKey("generic_prefix", "llama"))
@@ -655,18 +657,4 @@ func TestGenericKeyOverride(t *testing.T) {
 	item, err = memBackend.Get(ctx, backend.NewKey("generic_prefix", r1.GetName()))
 	require.Error(t, err)
 	require.Nil(t, item)
-
-	// Validate that getting the resource through the service uses the overridden name
-	_, err = service.GetResource(ctx, r1.GetName())
-	require.NoError(t, err)
-	_, err = service.GetResource(ctx, "llama")
-	require.NoError(t, err)
-	_, err = service.GetResource(ctx, "notllama")
-	require.NoError(t, err)
-
-	// Validate that deleting the resource also uses the overridden name
-	err = service.DeleteResource(ctx, "notllama")
-	require.NoError(t, err)
-	_, err = memBackend.Get(ctx, backend.NewKey("generic_prefix", "llama"))
-	require.ErrorAs(t, err, new(*trace.NotFoundError))
 }

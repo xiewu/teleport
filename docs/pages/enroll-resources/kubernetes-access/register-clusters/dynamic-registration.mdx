@@ -68,15 +68,18 @@ Install the Teleport Kubernetes Service on your Linux host:
 
 On the host where you will run the Teleport Kubernetes Service, run the
 following command to create a base configuration for your Teleport instance,
-assigning <Var name="example.teleport.sh:443" /> to the host and port of your
-Teleport Proxy Service or Teleport Cloud tenant and <Var name="join-token" /> to
-the join token we created earlier:
+assigning `PROXY_SERVICE` to the host and port of your Teleport Proxy Service or
+Teleport Cloud tenant and `TOKEN` to the join token we created earlier:
 
 ```code
+# e.g., teleport.example.com:443
+$ PROXY_SERVICE=<Var name="proxy-addr"/>
+# e.g., (=presets.tokens.first=);
+$ TOKEN=<Var name="join-token"/>;
 $ sudo teleport configure \
---proxy=<Var name="example.teleport.sh:443" /> \
+--proxy=${PROXY_SERVICE?} \
 --roles=kube \
---token=<Var name="join-token" /> \
+--token=${TOKEN?} \
 -o file
 ```
 
@@ -199,8 +202,6 @@ Create the role:
 ```code
 $ tctl create -f kube-manager.yaml
 ```
-
-(!docs/pages/includes/create-role-using-web.mdx!)
 
 (!docs/pages/includes/add-role-to-user.mdx role="kube-manager"!)
 
@@ -391,14 +392,13 @@ $ tctl get kube_clusters
 ### Update a Kubernetes cluster resource
 
 To update the `kube_cluster` resource you created earlier, execute the following
-command to open the resource as it exists on the Auth Service's backend in your
-text editor:
+command to retrieve the resource as it exists on the Auth Service's backend:
 
 ```code
-$ tctl edit kube_clusters/mycluster
+$ tctl get kube_clusters/mycluster > kube_cluster.yaml
 ```
 
-Edit the resource to add a label to your `kube_cluster`:
+Edit the `kube_cluster.yaml` file to add a label to your `kube_cluster`:
 
 ```diff
   kind: kube_cluster
@@ -415,7 +415,12 @@ Edit the resource to add a label to your `kube_cluster`:
   version: v3
 ```
 
-Save and close the file in your editor to apply your changes.
+Update the resource:
+
+```code
+$ tctl create -f kube_cluster.yaml
+kubernetes cluster "mycluster" has been updated
+```
 
 You should now see the updated labels:
 
@@ -461,5 +466,6 @@ clusters via Teleport, check out the following guides:
 - [Connect a Kubernetes Cluster to Teleport](../getting-started.mdx): How to use
   the `teleport-kube-agent` Helm chart to register a Kubernetes cluster with
   Teleport.
-- [Enroll a Kubernetes Cluster with a Static kubeconfig](./static-kubeconfig.mdx): How to use the Teleport Kubernetes
+- [Kubernetes Access from a Standalone Teleport
+  Cluster](./static-kubeconfig.mdx): How to use the Teleport Kubernetes
   Service's configuration file to register a Kubernetes cluster with Teleport.

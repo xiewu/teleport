@@ -16,28 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { TeleportProviderBasic } from 'teleport/mocks/providers';
+import React from 'react';
+
+import { MemoryRouter } from 'react-router';
 
 import { Users } from './Users';
 
 export default {
   title: 'Teleport/Users',
-};
-
-export const Loaded = () => {
-  return (
-    <TeleportProviderBasic>
-      <Users {...sample} />
-    </TeleportProviderBasic>
-  );
-};
-
-export const UsersNotEqualMauNotice = () => {
-  return (
-    <TeleportProviderBasic>
-      <Users {...sample} showMauInfo={true} />
-    </TeleportProviderBasic>
-  );
 };
 
 export const Processing = () => {
@@ -47,10 +33,18 @@ export const Processing = () => {
     isSuccess: false,
     message: '',
   };
+  return <Users {...sample} attempt={attempt} />;
+};
+
+export const Loaded = () => {
+  return <Users {...sample} />;
+};
+
+export const UsersNotEqualMauNotice = () => {
   return (
-    <TeleportProviderBasic>
-      <Users {...sample} attempt={attempt} />
-    </TeleportProviderBasic>
+    <MemoryRouter>
+      <Users {...sample} showMauInfo={true} />
+    </MemoryRouter>
   );
 };
 
@@ -61,11 +55,7 @@ export const Failed = () => {
     isSuccess: false,
     message: 'some error message',
   };
-  return (
-    <TeleportProviderBasic>
-      <Users {...sample} attempt={attempt} />
-    </TeleportProviderBasic>
-  );
+  return <Users {...sample} attempt={attempt} />;
 };
 
 const users = [
@@ -148,12 +138,4 @@ const sample = {
   EmailPasswordReset: null,
   showMauInfo: false,
   onDismissUsersMauNotice: () => null,
-  canEditUsers: true,
-  usersAcl: {
-    read: true,
-    edit: false,
-    remove: true,
-    list: true,
-    create: true,
-  },
 };

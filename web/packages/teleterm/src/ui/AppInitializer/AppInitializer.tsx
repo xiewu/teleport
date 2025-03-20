@@ -16,15 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import styled from 'styled-components';
-
 import { Indicator } from 'design';
 
-import { useAppContext } from 'teleterm/ui/appContextProvider';
 import { useLogger } from 'teleterm/ui/hooks/useLogger';
-import { LayoutManager } from 'teleterm/ui/LayoutManager';
+import { useAppContext } from 'teleterm/ui/appContextProvider';
 import ModalsHost from 'teleterm/ui/ModalsHost';
+import { LayoutManager } from 'teleterm/ui/LayoutManager';
 
 import { showStartupModalsAndNotifications } from './showStartupModalsAndNotifications';
 
@@ -39,13 +38,6 @@ export const AppInitializer = () => {
       await appContext.pullInitialState();
       setShouldShowUi(true);
       await showStartupModalsAndNotifications(appContext);
-      // If there's a workspace that was active before closing the app,
-      // activate it.
-      const rootClusterUri =
-        appContext.workspacesService.getRestoredState()?.rootClusterUri;
-      if (rootClusterUri) {
-        void appContext.workspacesService.setActiveWorkspace(rootClusterUri);
-      }
       appContext.mainProcessClient.signalUserInterfaceReadiness({
         success: true,
       });

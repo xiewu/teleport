@@ -16,70 +16,52 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {
-  encodeUrlQueryParams,
-  EncodeUrlQueryParamsProps,
-} from './encodeUrlQueryParams';
+import { encodeUrlQueryParams } from './encodeUrlQueryParams';
 
-const testCases: {
-  title: string;
-  args: EncodeUrlQueryParamsProps;
-  expected: string;
-}[] = [
+test.each([
   {
     title: 'No query params',
-    args: { pathname: '/foo' },
-    expected: '/foo?pinnedOnly=false',
+    args: ['/foo', '', null, null, false],
+    expected: '/foo',
   },
   {
     title: 'Search string',
-    args: { pathname: '/test', searchString: 'something' },
-    expected: '/test?search=something&pinnedOnly=false',
+    args: ['/test', 'something', null, null, false],
+    expected: '/test?search=something',
   },
   {
     title: 'Search string, encoded',
-    args: { pathname: '/test', searchString: 'a$b$c' },
-    expected: '/test?search=a%24b%24c&pinnedOnly=false',
+    args: ['/test', 'a$b$c', null, null, false],
+    expected: '/test?search=a%24b%24c',
   },
   {
     title: 'Advanced search',
-    args: {
-      pathname: '/test',
-      searchString: 'foo=="bar"',
-      isAdvancedSearch: true,
-    },
-    expected: '/test?query=foo%3D%3D%22bar%22&pinnedOnly=false',
+    args: ['/test', 'foo=="bar"', null, null, true],
+    expected: '/test?query=foo%3D%3D%22bar%22',
   },
   {
     title: 'Search and sort',
-    args: {
-      pathname: '/test',
-      searchString: 'foobar',
-      sort: { fieldName: 'name', dir: 'ASC' },
-    },
-    expected: '/test?search=foobar&sort=name%3Aasc&pinnedOnly=false',
+    args: ['/test', 'foobar', { fieldName: 'name', dir: 'ASC' }, null, false],
+    expected: '/test?search=foobar&sort=name%3Aasc',
   },
   {
     title: 'Sort only',
-    args: {
-      pathname: '/test',
-      sort: { fieldName: 'name', dir: 'ASC' },
-    },
-    expected: '/test?sort=name%3Aasc&pinnedOnly=false',
+    args: ['/test', '', { fieldName: 'name', dir: 'ASC' }, null, false],
+    expected: '/test?sort=name%3Aasc',
   },
   {
     title: 'Search, sort, and filter by kind',
-    args: {
-      pathname: '/test',
-      searchString: 'foo',
-      sort: { fieldName: 'name', dir: 'DESC' },
-      kinds: ['db', 'node'],
-    },
-    expected:
-      '/test?search=foo&sort=name%3Adesc&pinnedOnly=false&kinds=db&kinds=node',
+    args: [
+      '/test',
+      'foo',
+      { fieldName: 'name', dir: 'DESC' },
+      ['db', 'node'],
+      false,
+    ],
+    expected: '/test?search=foo&sort=name%3Adesc&kinds=db&kinds=node',
   },
-];
-
-test.each(testCases)('$title', ({ args, expected }) => {
-  expect(encodeUrlQueryParams(args)).toBe(expected);
+])('$title', ({ args, expected }) => {
+  expect(
+    encodeUrlQueryParams(...(args as Parameters<typeof encodeUrlQueryParams>))
+  ).toBe(expected);
 });

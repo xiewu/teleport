@@ -69,7 +69,7 @@ Operator by following:
 - the ["Registering Agentless OpenSSH Servers with IaC" guide](managing-resources/agentless-ssh-servers.mdx)
 
 For more information on Teleport roles, including the `internal.logins`
-trait we use in these example roles, see the [Access
+trait we use in these example roles, see the [Teleport Access
 Controls Reference](../../reference/access-controls/roles.mdx).
 
 ### YAML documents with `tctl`
@@ -174,7 +174,6 @@ static configuration file:
 |---|---|
 |`spec.type`|`auth_service.authentication.type`|
 |`spec.second_factor`|`auth_service.authentication.second_factor`|
-|`spec.second_factors`|`auth_service.authentication.second_factors`|
 |`spec.connector_name`|`auth_service.authentication.connector_name`
 |`spec.u2f`|`auth_service.authentication.u2f`|
 |`spec.disconnect_expired_cert`|`auth_service.disconnect_expired_cert`|
@@ -206,10 +205,9 @@ static configuration file:
 
 #### `ui_config`
 
-| Dynamic resource field  | Static configuration field          |
-| ----------------------- | ----------------------------------- |
-| `spec.scrollback_lines` | `proxy_service.ui.scrollback_lines` |
-| `spec.show_resources`   | `proxy_service.ui.show_resources`   |
+|Dynamic resource field|Static configuration field|
+|---|---|
+|`spec.scrollback_lines`|`proxy_service.ui.scrollback_lines`|
 
 ### Origin labels
 

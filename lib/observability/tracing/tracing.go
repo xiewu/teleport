@@ -21,19 +21,20 @@ package tracing
 import (
 	"context"
 	"crypto/tls"
-	"log/slog"
 	"net"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/gravitational/trace"
+	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.22.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/embedded"
 
@@ -73,7 +74,7 @@ type Config struct {
 	// DialTimeout is the timeout for dialing the exporter.
 	DialTimeout time.Duration
 	// Logger is the logger to use.
-	Logger *slog.Logger
+	Logger logrus.FieldLogger
 	// Client is the client to use to export traces. This takes precedence over creating a
 	// new client with the ExporterURL. Ownership of the client is transferred to the
 	// tracing provider. It should **NOT** be closed by the caller.
@@ -99,7 +100,7 @@ func (c *Config) CheckAndSetDefaults() error {
 	}
 
 	if c.Logger == nil {
-		c.Logger = slog.With(teleport.ComponentKey, teleport.ComponentTracing)
+		c.Logger = logrus.WithField(teleport.ComponentKey, teleport.ComponentTracing)
 	}
 
 	if c.Client != nil {
@@ -215,10 +216,16 @@ func NewTraceProvider(ctx context.Context, cfg Config) (*Provider, error) {
 	// set global propagator, the default is no-op.
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 
+	// Set the global metric provider to a no-op so that any metrics created from otelgrpc interceptors
+	// are disabled to prevent memory leaks.
+	// See https://github.com/gravitational/teleport/issues/30759
+	// See https://github.com/open-telemetry/opentelemetry-go-contrib/issues/4226
+	otel.SetMeterProvider(metricnoop.MeterProvider{})
+
 	// override the global logging handled with one that uses the
 	// configured logger instead
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
-		cfg.Logger.WarnContext(ctx, "Failed to export traces", "error", err)
+		cfg.Logger.WithError(err).Warnf("failed to export traces.")
 	}))
 
 	// set global provider to our provider wrapper to have all tracers use the common TracerOptions

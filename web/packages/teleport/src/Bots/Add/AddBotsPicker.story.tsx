@@ -16,7 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { TeleportProviderBasic } from 'teleport/mocks/providers';
+import React from 'react';
+import { MemoryRouter } from 'react-router';
 
 import { AddBotsPicker } from './AddBotsPicker';
 
@@ -24,8 +25,10 @@ export default {
   title: 'Teleport/Bots/Add/AddBotsPicker',
 };
 
-export const Picker = () => (
-  <TeleportProviderBasic>
-    <AddBotsPicker />
-  </TeleportProviderBasic>
-);
+export const Picker = () => {
+  return (
+    <MemoryRouter>
+      <AddBotsPicker />
+    </MemoryRouter>
+  );
+};

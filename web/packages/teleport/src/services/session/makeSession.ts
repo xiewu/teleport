@@ -18,7 +18,7 @@
 
 import { formatDistanceStrict } from 'date-fns';
 
-import { Participant, Session, SessionKind } from './types';
+import { Session, SessionKind, Participant } from './types';
 
 const nameField: { [kind in SessionKind]: string } = {
   ssh: 'server_hostname',

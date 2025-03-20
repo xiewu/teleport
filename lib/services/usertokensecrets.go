@@ -33,7 +33,7 @@ func UnmarshalUserTokenSecrets(bytes []byte, opts ...MarshalOption) (types.UserT
 
 	var secrets types.UserTokenSecretsV3
 	if err := utils.FastUnmarshal(bytes, &secrets); err != nil {
-		return nil, trace.BadParameter("%s", err)
+		return nil, trace.BadParameter(err.Error())
 	}
 	if err := secrets.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
@@ -55,8 +55,9 @@ func MarshalUserTokenSecrets(secrets types.UserTokenSecrets, opts ...MarshalOpti
 			return nil, trace.Wrap(err)
 		}
 
-		if !cfg.PreserveRevision {
+		if !cfg.PreserveResourceID {
 			copy := *t
+			copy.SetResourceID(0)
 			copy.SetRevision("")
 			t = &copy
 		}

@@ -17,10 +17,11 @@
  */
 
 import { Flex } from 'design';
+import React from 'react';
 
 import { DisableableCell as Cell } from 'teleport/Discover/Shared';
 
-import { ItemStatus, StatusLight } from '../StatusLight';
+import { StatusLight, ItemStatus } from '../StatusLight';
 
 export const StatusCell = ({
   status,

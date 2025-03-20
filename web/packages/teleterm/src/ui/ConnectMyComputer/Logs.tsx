@@ -17,6 +17,7 @@
  */
 
 import { Flex, Text } from 'design';
+import React from 'react';
 
 interface LogsProps {
   logs: string;

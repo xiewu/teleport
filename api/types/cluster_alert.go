@@ -32,9 +32,6 @@ var matchAlertLabelKey = regexp.MustCompile(`^[a-z0-9\.\-\/]+$`).MatchString
 // matchAlertLabelVal is a slightly more permissive matcher for label values.
 var matchAlertLabelVal = regexp.MustCompile(`^[a-z0-9\.\-_\/:|]+$`).MatchString
 
-// matchAlertLabelLinkTextVal only allows alphanumeric characters and spaces.
-var matchAlertLabelLinkTextVal = regexp.MustCompile(`^[a-zA-Z0-9 ]+$`).MatchString
-
 const validLinkDestination = "goteleport.com"
 
 type alertOptions struct {
@@ -154,24 +151,18 @@ func (c *ClusterAlert) CheckAndSetDefaults() error {
 		if !matchAlertLabelKey(key) {
 			return trace.BadParameter("invalid alert label key: %q", key)
 		}
+		// for links, we relax the conditions on label values
+		if key != AlertLink && !matchAlertLabelVal(val) {
+			return trace.BadParameter("invalid alert label value: %q", val)
+		}
 
-		switch key {
-		case AlertLink:
+		if key == AlertLink {
 			u, err := url.Parse(val)
 			if err != nil {
 				return trace.BadParameter("invalid alert: label link %q is not a valid URL", val)
 			}
 			if u.Hostname() != validLinkDestination {
 				return trace.BadParameter("invalid alert: label link not allowed %q", val)
-			}
-		case AlertLinkText:
-			if !matchAlertLabelLinkTextVal(val) {
-				return trace.BadParameter("invalid alert: label button text not allowed: %q", val)
-			}
-		default:
-			if !matchAlertLabelVal(val) {
-				// for links, we relax the conditions on label values
-				return trace.BadParameter("invalid alert label value: %q", val)
 			}
 		}
 	}

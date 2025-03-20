@@ -16,33 +16,34 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 import { ButtonBorder } from 'design';
+
+import { apps } from 'teleport/Apps/fixtures';
+import { databases } from 'teleport/Databases/fixtures';
+import { kubes } from 'teleport/Kubes/fixtures';
+import { desktops } from 'teleport/Desktops/fixtures';
+import { nodes } from 'teleport/Nodes/fixtures';
+
+import { UrlResourcesParams } from 'teleport/config';
+import { ResourcesResponse } from 'teleport/services/agents';
+
 import {
-  AvailableResourceMode,
   DefaultTab,
   LabelsViewMode,
   UnifiedResourcePreferences,
   ViewMode,
 } from 'gen-proto-ts/teleport/userpreferences/v1/unified_resource_preferences_pb';
+
 import { makeErrorAttempt, makeProcessingAttempt } from 'shared/hooks/useAsync';
 
-import { apps, moreApps } from 'teleport/Apps/fixtures';
-import { UrlResourcesParams } from 'teleport/config';
-import { databases, moreDatabases } from 'teleport/Databases/fixtures';
-import { desktops, moreDesktops } from 'teleport/Desktops/fixtures';
-import { gitServers } from 'teleport/GitServers/fixtures';
-import { kubes, moreKubes } from 'teleport/Kubes/fixtures';
-import { moreNodes, nodes } from 'teleport/Nodes/fixtures';
-import { ResourcesResponse } from 'teleport/services/agents';
-
-import { SharedUnifiedResource, UnifiedResourcesQueryParams } from './types';
 import {
   UnifiedResources,
-  UnifiedResourcesProps,
   useUnifiedResourcesFetch,
+  UnifiedResourcesProps,
 } from './UnifiedResources';
+import { SharedUnifiedResource, UnifiedResourcesQueryParams } from './types';
 
 export default {
   title: 'Shared/UnifiedResources',
@@ -63,12 +64,11 @@ const allResources = [
   ...kubes,
   ...desktops,
   ...nodes,
-  ...moreApps,
-  ...moreDatabases,
-  ...moreKubes,
-  ...moreDesktops,
-  ...moreNodes,
-  ...gitServers,
+  ...apps,
+  ...databases,
+  ...kubes,
+  ...desktops,
+  ...nodes,
 ];
 
 const story = ({
@@ -100,7 +100,6 @@ const story = ({
       defaultTab: DefaultTab.ALL,
       viewMode: ViewMode.CARD,
       labelsViewMode: LabelsViewMode.COLLAPSED,
-      availableResourceMode: AvailableResourceMode.ACCESSIBLE,
     });
     const { fetch, attempt, resources } = useUnifiedResourcesFetch({
       fetchFunc,
@@ -214,6 +213,13 @@ export const LoadingPreferences = story({
     agents: allResources,
   }),
   unifiedResourcePreferencesAttempt: makeProcessingAttempt(),
+});
+
+export const PinningNotSupported = story({
+  fetchFunc: async () => {
+    return { agents: allResources, startKey: 'next-key' };
+  },
+  pinning: { kind: 'not-supported' },
 });
 
 export const PinningHidden = story({

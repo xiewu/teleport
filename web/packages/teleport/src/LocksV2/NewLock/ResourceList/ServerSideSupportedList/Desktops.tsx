@@ -16,11 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react';
 import { ClickableLabelCell } from 'design/DataTable';
 
 import { Desktop } from 'teleport/services/desktops';
 
-import { renderActionCell, ServerSideListProps, StyledTable } from '../common';
+import { ServerSideListProps, StyledTable, renderActionCell } from '../common';
 
 export function Desktops(props: ServerSideListProps & { desktops: Desktop[] }) {
   const {

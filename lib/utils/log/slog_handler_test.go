@@ -46,7 +46,7 @@ func TestSlogTextHandler(t *testing.T) {
 	// is not important for this test overriding, it allows the regex to be simpler.
 	var buf bytes.Buffer
 	h := NewSlogTextHandler(&buf, SlogTextHandlerConfig{
-		ConfiguredFields: []string{LevelField, ComponentField, TimestampField},
+		ConfiguredFields: []string{levelField, componentField, timestampField},
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				a.Value = slog.TimeValue(now)

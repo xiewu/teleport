@@ -16,131 +16,104 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useState } from 'react';
-import { useTheme } from 'styled-components';
-
-import {
-  Alert,
-  Box,
-  ButtonSecondary,
-  Link as ExternalLink,
-  Flex,
-  H3,
-  Link,
-  Mark,
-  Subtitle3,
-  Text,
-} from 'design';
+import React, { useState, useEffect } from 'react';
+import styled from 'styled-components';
+import { Box, ButtonSecondary, Link, Text, Mark } from 'design';
 import * as Icons from 'design/Icon';
-import { P } from 'design/Text/Text';
 import FieldInput from 'shared/components/FieldInput';
 import Validation, { Validator } from 'shared/components/Validation';
-import { requiredIamRoleName } from 'shared/components/Validation/rules';
 import useAttempt from 'shared/hooks/useAttemptNext';
+import { requiredIamRoleName } from 'shared/components/Validation/rules';
 
 import { TextSelectCopyMulti } from 'teleport/components/TextSelectCopy';
-import cfg from 'teleport/config';
 import { usePingTeleport } from 'teleport/Discover/Shared/PingTeleportContext';
-import { DbMeta, useDiscover } from 'teleport/Discover/useDiscover';
-import type { Database } from 'teleport/services/databases';
-import { integrationService, Regions } from 'teleport/services/integrations';
-import { splitAwsIamArn } from 'teleport/services/integrations/aws';
+import {
+  HintBox,
+  SuccessBox,
+  WaitingInfo,
+} from 'teleport/Discover/Shared/HintBox';
+import { integrationService } from 'teleport/services/integrations';
+import { useDiscover, DbMeta } from 'teleport/Discover/useDiscover';
 import {
   DiscoverEventStatus,
   DiscoverServiceDeployMethod,
   DiscoverServiceDeployType,
 } from 'teleport/services/userEvent';
+import cfg from 'teleport/config';
+import { splitAwsIamArn } from 'teleport/services/integrations/aws';
 
 import {
   ActionButtons,
-  AlternateInstructionButton,
-  Header,
   HeaderSubtitle,
-  StyledBox,
   TextIcon,
   useShowHint,
+  Header,
+  DiscoverLabel,
+  AlternateInstructionButton,
 } from '../../../Shared';
-import awsEcsBblp from '../../aws-ecs-bblp.svg';
-import awsEcsDark from '../../aws-ecs-dark.svg';
-import awsEcsLight from '../../aws-ecs-light.svg';
+
 import { DeployServiceProp } from '../DeployService';
+import { hasMatchingLabels, Labels } from '../../common';
+
 import { SelectSecurityGroups } from './SelectSecurityGroups';
-import { SelectSubnetIds } from './SelectSubnetIds';
+
+import type { Database } from 'teleport/services/databases';
 
 export function AutoDeploy({ toggleDeployMethod }: DeployServiceProp) {
   const { emitErrorEvent, nextStep, emitEvent, agentMeta, updateAgentMeta } =
     useDiscover();
   const { attempt, setAttempt } = useAttempt('');
+  const [showLabelMatchErr, setShowLabelMatchErr] = useState(true);
 
   const [taskRoleArn, setTaskRoleArn] = useState('TeleportDatabaseAccess');
   const [svcDeployedAwsUrl, setSvcDeployedAwsUrl] = useState('');
   const [deployFinished, setDeployFinished] = useState(false);
 
-  // TODO(lisa): look into using validator.Validate() instead
-  // of manually validating by hand.
-  const [hasNoSubnets, setHasNoSubnets] = useState(false);
-  const [hasNoSecurityGroups, setHasNoSecurityGroups] = useState(false);
-
-  const [selectedSubnetIds, setSelectedSubnetIds] = useState<string[]>([]);
   const [selectedSecurityGroups, setSelectedSecurityGroups] = useState<
     string[]
   >([]);
 
+  const hasDbLabels = agentMeta?.agentMatcherLabels?.length;
+  const dbLabels = hasDbLabels ? agentMeta.agentMatcherLabels : [];
+  const [labels, setLabels] = useState<DiscoverLabel[]>([
+    { name: '*', value: '*', isFixed: dbLabels.length === 0 },
+  ]);
   const dbMeta = agentMeta as DbMeta;
 
-  function manuallyValidateRequiredFields() {
-    if (selectedSubnetIds.length === 0) {
-      setHasNoSubnets(true);
-      return false;
-    } else {
-      setHasNoSubnets(false);
+  useEffect(() => {
+    // Turn off error once user changes labels.
+    if (showLabelMatchErr) {
+      setShowLabelMatchErr(false);
     }
-
-    if (selectedSecurityGroups.length === 0) {
-      setHasNoSecurityGroups(true);
-      return false;
-    } else {
-      setHasNoSecurityGroups(false);
-    }
-
-    return true; // valid
-  }
+  }, [labels]);
 
   function handleDeploy(validator) {
-    setSvcDeployedAwsUrl('');
-    setDeployFinished(false);
-
     if (!validator.validate()) {
       return;
     }
 
-    if (!manuallyValidateRequiredFields()) {
-      return;
-    }
-
     const integrationName = dbMeta.awsIntegration.name;
-    const { awsAccountId } = splitAwsIamArn(
-      agentMeta.awsIntegration.spec.roleArn
-    );
-
-    const deployment = {
-      region: dbMeta.awsRegion,
-      accountId: awsAccountId,
-      taskRoleArn,
-      deployments: [
-        {
-          vpcId: dbMeta.awsVpcId,
-          subnetIds: selectedSubnetIds,
-          securityGroups: selectedSecurityGroups,
-        },
-      ],
-    };
 
     if (wantAutoDiscover) {
       setAttempt({ status: 'processing' });
 
+      const requiredVpcsAndSubnets =
+        dbMeta.autoDiscovery.requiredVpcsAndSubnets;
+      const vpcIds = Object.keys(requiredVpcsAndSubnets);
+
+      const { awsAccountId } = splitAwsIamArn(
+        agentMeta.awsIntegration.spec.roleArn
+      );
       integrationService
-        .deployDatabaseServices(integrationName, deployment)
+        .deployDatabaseServices(integrationName, {
+          region: dbMeta.awsRegion,
+          accountId: awsAccountId,
+          taskRoleArn,
+          deployments: vpcIds.map(vpcId => ({
+            vpcId,
+            subnetIds: requiredVpcsAndSubnets[vpcId],
+          })),
+        })
         .then(url => {
           setAttempt({ status: 'success' });
           setSvcDeployedAwsUrl(url);
@@ -152,18 +125,29 @@ export function AutoDeploy({ toggleDeployMethod }: DeployServiceProp) {
           emitErrorEvent(`auto discover deploy request failed: ${err.message}`);
         });
     } else {
+      if (!hasMatchingLabels(dbLabels, labels)) {
+        setShowLabelMatchErr(true);
+        return;
+      }
+
+      setShowLabelMatchErr(false);
       setAttempt({ status: 'processing' });
       integrationService
-        .deployDatabaseServices(integrationName, deployment)
+        .deployAwsOidcService(integrationName, {
+          deploymentMode: 'database-service',
+          region: dbMeta.awsRegion,
+          subnetIds: dbMeta.selectedAwsRdsDb?.subnets,
+          taskRoleArn,
+          databaseAgentMatcherLabels: labels,
+          securityGroups: selectedSecurityGroups,
+        })
         // The user is still technically in the "processing"
         // state, because after this call succeeds, we will
         // start pinging for the newly registered db
         // to get picked up by this service we deployed.
         // So setting the attempt here to "success"
         // is not necessary.
-        .then(url => {
-          setSvcDeployedAwsUrl(url);
-        })
+        .then(setSvcDeployedAwsUrl)
         .catch((err: Error) => {
           setAttempt({ status: 'failed', statusText: err.message });
           emitErrorEvent(`deploy request failed: ${err.message}`);
@@ -203,8 +187,8 @@ export function AutoDeploy({ toggleDeployMethod }: DeployServiceProp) {
   }
 
   const wantAutoDiscover = !!dbMeta.autoDiscovery;
-  const isProcessing = attempt.status === 'processing' && !svcDeployedAwsUrl;
-  const isDeploying = attempt.status === 'processing' && !!svcDeployedAwsUrl;
+  const isProcessing = attempt.status === 'processing' && !!svcDeployedAwsUrl;
+  const isDeploying = isProcessing && !!svcDeployedAwsUrl;
   const hasError = attempt.status === 'failed';
 
   return (
@@ -228,55 +212,60 @@ export function AutoDeploy({ toggleDeployMethod }: DeployServiceProp) {
               validator={validator}
             />
 
-            <StyledBox mb={5}>
-              <header>
-                <H3>Step 2</H3>
-              </header>
-              <SelectSubnetIds
-                selectedSubnetIds={selectedSubnetIds}
-                onSelectedSubnetIds={setSelectedSubnetIds}
-                dbMeta={dbMeta}
-                emitErrorEvent={emitErrorEvent}
-                disabled={isProcessing}
-              />
-            </StyledBox>
+            {/* step two & step three
+             * for auto discover, these steps are disabled atm since
+             * user's can't supply custom label matchers and selecting
+             * security groups is out of scope.
+             */}
+            {!wantAutoDiscover && (
+              <>
+                <StyledBox mb={5}>
+                  <Text bold>Step 2 (Optional)</Text>
+                  <Labels
+                    labels={labels}
+                    setLabels={setLabels}
+                    disableBtns={attempt.status === 'processing'}
+                    showLabelMatchErr={showLabelMatchErr}
+                    dbLabels={dbLabels}
+                    autoFocus={false}
+                    region={dbMeta.selectedAwsRdsDb?.region}
+                  />
+                </StyledBox>
+                {/* step three */}
+                <StyledBox mb={5}>
+                  <Text bold>Step 3 (Optional)</Text>
+                  <SelectSecurityGroups
+                    selectedSecurityGroups={selectedSecurityGroups}
+                    setSelectedSecurityGroups={setSelectedSecurityGroups}
+                    dbMeta={dbMeta}
+                    emitErrorEvent={emitErrorEvent}
+                  />
+                </StyledBox>
+              </>
+            )}
 
             <StyledBox mb={5}>
-              <header>
-                <H3>Step 3</H3>
-              </header>
-              <SelectSecurityGroups
-                selectedSecurityGroups={selectedSecurityGroups}
-                setSelectedSecurityGroups={setSelectedSecurityGroups}
-                dbMeta={dbMeta}
-                disabled={isProcessing}
-                emitErrorEvent={emitErrorEvent}
-              />
-            </StyledBox>
-
-            <StyledBox mb={5}>
-              <header>
-                <H3>Step 4</H3>
-                <Subtitle3 mb={2}>
-                  Deploy the Teleport Database Service
-                </Subtitle3>
-              </header>
+              <Text bold>Step {wantAutoDiscover ? 2 : 4}</Text>
+              <Text mb={2}>Deploy the Teleport Database Service.</Text>
               <ButtonSecondary
-                width="230px"
+                width="215px"
                 type="submit"
                 onClick={() => handleDeploy(validator)}
-                disabled={isProcessing}
+                disabled={attempt.status === 'processing'}
                 mt={2}
                 mb={2}
               >
-                {isDeploying
-                  ? 'Redeploy Teleport Service'
-                  : 'Deploy Teleport Service'}
+                Deploy Teleport Service
               </ButtonSecondary>
               {hasError && (
                 <Box>
                   <TextIcon mt={3}>
-                    <AlertIcon />
+                    <Icons.Warning
+                      size="medium"
+                      ml={1}
+                      mr={2}
+                      color="error.main"
+                    />
                     Encountered Error: {attempt.statusText}
                   </TextIcon>
                   <Text mt={2}>
@@ -295,7 +284,6 @@ export function AutoDeploy({ toggleDeployMethod }: DeployServiceProp) {
                 resourceName={agentMeta.resourceName}
                 abortDeploying={abortDeploying}
                 svcDeployedAwsUrl={svcDeployedAwsUrl}
-                region={dbMeta.awsRegion}
               />
             )}
 
@@ -303,19 +291,6 @@ export function AutoDeploy({ toggleDeployMethod }: DeployServiceProp) {
               <AutoDiscoverDeploySuccess
                 svcDeployedAwsUrl={svcDeployedAwsUrl}
               />
-            )}
-
-            {hasNoSubnets && selectedSubnetIds.length === 0 && (
-              <TextIcon mt={3}>
-                <AlertIcon />
-                At least one subnet selection is required
-              </TextIcon>
-            )}
-            {hasNoSecurityGroups && selectedSecurityGroups.length === 0 && (
-              <TextIcon mt={3}>
-                <AlertIcon />
-                At least one security group selection is required
-              </TextIcon>
             )}
 
             <ActionButtons
@@ -340,11 +315,6 @@ const Heading = ({
   region: string;
   wantAutoDiscover: boolean;
 }) => {
-  const theme = useTheme();
-  let img = theme.type === 'light' ? awsEcsLight : awsEcsDark;
-  if (theme.isCustomTheme && theme.name === 'bblp') {
-    img = awsEcsBblp;
-  }
   return (
     <>
       <Header>Automatically Deploy a Database Service</Header>
@@ -354,23 +324,19 @@ const Heading = ({
         ECS Fargate container (2vCPU, 4GB memory) in your Amazon account with
         the ability to access databases in this region (<Mark>{region}</Mark>).
         You will only need to do this once per geographical region.
-      </HeaderSubtitle>
-      <Box mb={5} mt={-3}>
-        <Box minWidth="500px" maxWidth="998px">
-          <img src={img} width="100%" />
-        </Box>
         {!wantAutoDiscover && (
           <>
             <br />
-            Do you want to deploy a database service manually from one of your
-            existing servers?{' '}
+            <br />
+            Want to deploy a database service manually from one of your existing
+            servers?{' '}
             <AlternateInstructionButton
               onClick={toggleDeployMethod}
               disabled={togglerDisabled}
             />
           </>
         )}
-      </Box>
+      </HeaderSubtitle>
     </>
   );
 };
@@ -390,9 +356,6 @@ const CreateAccessRole = ({
 }) => {
   const [scriptUrl, setScriptUrl] = useState('');
   const { awsIntegration, awsRegion } = dbMeta;
-  const { awsAccountId: accountID } = splitAwsIamArn(
-    awsIntegration.spec.roleArn
-  );
 
   function generateAutoConfigScript() {
     if (!validator.validate()) {
@@ -402,11 +365,10 @@ const CreateAccessRole = ({
     const newScriptUrl = cfg.getDeployServiceIamConfigureScriptUrl({
       integrationName: awsIntegration.name,
       region: awsRegion,
-      // arn's are formatted as `don-care-about-this-part/role-name`.
+      // arn's are formatted as `don-care-about-this-part/role-arn`.
       // We are splitting by slash and getting the last element.
       awsOidcRoleArn: awsIntegration.spec.roleArn.split('/').pop(),
       taskRoleArn,
-      accountID,
     });
 
     setScriptUrl(newScriptUrl);
@@ -414,12 +376,12 @@ const CreateAccessRole = ({
 
   return (
     <StyledBox mb={5}>
-      <H3 mb={2}>Step 1</H3>
-      <P mb={2}>
+      <Text bold>Step 1</Text>
+      <Text mb={2}>
         Name an IAM role for the Teleport Database Service and generate a
         configuration command. The generated command will create the role and
         configure permissions for it in your AWS account.
-      </P>
+      </Text>
       <FieldInput
         mb={4}
         disabled={disabled}
@@ -467,13 +429,11 @@ const DeployHints = ({
   deployFinished,
   abortDeploying,
   svcDeployedAwsUrl,
-  region,
 }: {
   resourceName: string;
   deployFinished(dbResult: Database): void;
   abortDeploying(): void;
   svcDeployedAwsUrl: string;
-  region: Regions;
 }) => {
   // Starts resource querying interval.
   const { result, active } = usePingTeleport<Database>(resourceName);
@@ -487,104 +447,54 @@ const DeployHints = ({
   }, [result]);
 
   if (showHint && !result) {
-    const details = (
-      <Flex flexDirection="column" gap={3}>
-        <Text>
-          Visit your AWS{' '}
+    return (
+      <HintBox header="We're still in the process of creating your Database Service">
+        <Text mb={3}>
+          The network may be slow. Try continuing to wait for a few more minutes
+          or{' '}
+          <AlternateInstructionButton onClick={abortDeploying}>
+            try manually deploying your own service.
+          </AlternateInstructionButton>{' '}
+          You can visit your AWS{' '}
           <Link target="_blank" href={svcDeployedAwsUrl}>
             dashboard
           </Link>{' '}
           to see progress details.
         </Text>
-        <Text>
-          There are a few possible reasons for why we haven't been able to
-          detect your database service:
-        </Text>
-        <ul
-          css={`
-            margin: 0;
-            padding-left: ${p => p.theme.space[3]}px;
-          `}
-        >
-          <li>
-            The subnets you selected do not route to an internet gateway (igw)
-            or a NAT gateway in a public subnet.
-          </li>
-          <li>
-            The security groups you selected do not allow outbound traffic (eg:{' '}
-            <Mark>0.0.0.0/0</Mark>) to pull the public Teleport image and to
-            reach your Teleport cluster.
-          </li>
-          <li>
-            The security groups attached to your database(s) neither allow
-            inbound traffic from the security group you selected nor allow
-            inbound traffic from all IPs in the subnets you selected.
-          </li>
-          <li>
-            There may be issues in the region you selected ({region}). Check the{' '}
-            <ExternalLink
-              target="_blank"
-              href="https://health.aws.amazon.com/health/status"
-            >
-              AWS Health Dashboard
-            </ExternalLink>{' '}
-            for any problems.
-          </li>
-          <li>
-            The network may be slow. Try waiting for a few more minutes or{' '}
-            <AlternateInstructionButton onClick={abortDeploying}>
-              try manually deploying your own database service.
-            </AlternateInstructionButton>
-          </li>
-        </ul>
-        <Text>
-          Refer to the{' '}
-          <Link
-            target="_blank"
-            href="https://goteleport.com/docs/admin-guides/management/guides/awsoidc-integration-rds/#troubleshooting"
-          >
-            troubleshooting documentation
-          </Link>{' '}
-          for more details.
-        </Text>
-      </Flex>
-    );
-    return (
-      <Alert kind="warning" alignItems="flex-start" details={details}>
-        We&apos;re still in the process of creating your database service
-      </Alert>
+      </HintBox>
     );
   }
 
   if (result) {
     return (
-      <Alert kind="success" dismissible={false}>
-        Successfully created and detected your new database service.
-      </Alert>
+      <SuccessBox>
+        Successfully created and detected your new Database Service.
+      </SuccessBox>
     );
   }
 
-  const details = (
-    <Text>
-      It will take at least a minute for the Database Service to be created and
-      joined to your cluster. <br />
-      We will update this status once detected, meanwhile visit your AWS{' '}
-      <Link target="_blank" href={svcDeployedAwsUrl}>
-        dashboard
-      </Link>{' '}
-      to see progress details.
-    </Text>
-  );
   return (
-    <Alert
-      kind="neutral"
-      alignItems="flex-start"
-      icon={Icons.Restore}
-      dismissible={false}
-      details={details}
-    >
-      Teleport is currently deploying a database service
-    </Alert>
+    <WaitingInfo>
+      <TextIcon
+        css={`
+          white-space: pre;
+          margin-right: 4px;
+          padding-right: 4px;
+        `}
+      >
+        <Icons.Restore size="medium" mr={1} />
+      </TextIcon>
+      <Text>
+        Teleport is currently deploying a Database Service. It will take at
+        least a minute for the Database Service to be created and joined to your
+        cluster. <br />
+        We will update this status once detected, meanwhile visit your AWS{' '}
+        <Link target="_blank" href={svcDeployedAwsUrl}>
+          dashboard
+        </Link>{' '}
+        to see progress details.
+      </Text>
+    </WaitingInfo>
   );
 };
 
@@ -593,22 +503,21 @@ export function AutoDiscoverDeploySuccess({
 }: {
   svcDeployedAwsUrl: string;
 }) {
-  const details = (
-    <>
-      Discovery will complete in a minute. You can visit your AWS{' '}
+  return (
+    <SuccessBox>
+      The required database services have been deployed successfully. Discovery
+      will complete in a minute. You can visit your AWS{' '}
       <Link target="_blank" href={svcDeployedAwsUrl}>
         dashboard
       </Link>{' '}
       to see progress details.
-    </>
-  );
-  return (
-    <Alert kind="success" dismissible={false} details={details}>
-      The required database services have been deployed successfully.
-    </Alert>
+    </SuccessBox>
   );
 }
 
-const AlertIcon = () => (
-  <Icons.Warning size="medium" ml={1} mr={2} color="error.main" />
-);
+const StyledBox = styled(Box)`
+  max-width: 1000px;
+  background-color: ${props => props.theme.colors.spotBackground[0]};
+  padding: ${props => `${props.theme.space[3]}px`};
+  border-radius: ${props => `${props.theme.space[2]}px`};
+`;

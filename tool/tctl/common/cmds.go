@@ -19,20 +19,18 @@
 package common
 
 import (
-	"github.com/gravitational/teleport/tool/tctl/common/accessmonitoring"
 	"github.com/gravitational/teleport/tool/tctl/common/decision"
 	"github.com/gravitational/teleport/tool/tctl/common/loginrule"
 	"github.com/gravitational/teleport/tool/tctl/common/plugin"
-	"github.com/gravitational/teleport/tool/tctl/common/stableunixusers"
 	"github.com/gravitational/teleport/tool/tctl/common/top"
 	"github.com/gravitational/teleport/tool/tctl/sso/configure"
 	"github.com/gravitational/teleport/tool/tctl/sso/tester"
 )
 
-// Commands returns the set of available subcommands for tctl.
+// Commands returns the set of commands that are to oss and ent
+// variants of tctl.
 func Commands() []CLICommand {
 	return []CLICommand{
-		&VersionCommand{},
 		&UserCommand{},
 		&NodeCommand{},
 		&TokensCommand{},
@@ -46,7 +44,6 @@ func Commands() []CLICommand {
 		&DesktopCommand{},
 		&LockCommand{},
 		&BotsCommand{},
-		&WorkloadIdentityCommand{},
 		&InventoryCommand{},
 		&RecordingsCommand{},
 		&AlertCommand{},
@@ -60,17 +57,20 @@ func Commands() []CLICommand {
 		&ACLCommand{},
 		&loginrule.Command{},
 		&IdPCommand{},
-		&accessmonitoring.Command{},
 		&plugin.PluginsCommand{},
-		&NotificationCommand{},
+		&decision.Command{},
+		&AutoUpdateCommand{},
+	}
+}
+
+// OSSCommands returns the oss variants of commands that use different variants
+// for oss and ent.
+func OSSCommands() []CLICommand {
+	return []CLICommand{
 		&configure.SSOConfigureCommand{},
 		&tester.SSOTestCommand{},
 		&fido2Command{},
 		&webauthnwinCommand{},
 		&touchIDCommand{},
-		&TerraformCommand{},
-		&AutoUpdateCommand{},
-		&stableunixusers.Command{},
-		&decision.Command{},
 	}
 }

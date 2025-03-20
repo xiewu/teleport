@@ -3,9 +3,6 @@ title: Database Labels Reference
 description: Database labels reference for Teleport database access.
 ---
 
-Teleport assigns system-defined labels to protected databases. This guide
-describes the system-defined labels and how Teleport uses them.
-
 ## Origin
 
 All registered databases have a predefined `teleport.dev/origin` label with one
@@ -48,7 +45,6 @@ resource attributes:
 | `source-server`    | The source server of an Azure DB Flexible server replica. |
 | `vpc-id`           | ID of the Amazon VPC the resource resides in, if available. |
 | `workgroup`        | Amazon Redshift Serverless workgroup name. |
-| `teleport.dev/discovery-type` | Specifies the type of resource matched by the Teleport Discovery Service, e.g. "rds", "redshift", etc. |
 
 ### `endpoint-type`
 

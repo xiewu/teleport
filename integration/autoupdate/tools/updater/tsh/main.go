@@ -34,7 +34,6 @@ func main() {
 	ctx, cancel := stacksignal.GetSignalHandler().NotifyContext(context.Background())
 	defer cancel()
 
-	modules.SetInsecureTestMode(true)
 	modules.SetModules(&updater.TestModules{})
 	prompt.SetStdin(prompt.NewFakeReader().AddString(os.Getenv(updater.TestPassword)))
 

@@ -34,9 +34,6 @@ type DatabaseService interface {
 	// Database services deployed by Teleport have known configurations where
 	// we will only define a single resource matcher.
 	GetResourceMatchers() []*DatabaseResourceMatcher
-
-	// GetHostname returns the hostname where this Database Service is running.
-	GetHostname() string
 }
 
 // NewDatabaseServiceV1 creates a new DatabaseService instance.
@@ -69,11 +66,6 @@ func (s *DatabaseServiceV1) CheckAndSetDefaults() error {
 // GetResourceMatchers returns the resource matchers of the DatabaseService.
 func (s *DatabaseServiceV1) GetResourceMatchers() []*DatabaseResourceMatcher {
 	return s.Spec.ResourceMatchers
-}
-
-// GetHostname returns the hostname where this Database Service is running.
-func (s *DatabaseServiceV1) GetHostname() string {
-	return s.Spec.Hostname
 }
 
 // GetNamespace returns the resource namespace.

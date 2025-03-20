@@ -22,11 +22,11 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"os"
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/gravitational/trace"
+	"github.com/sirupsen/logrus"
 	kyaml "k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/gravitational/teleport"
@@ -37,13 +37,11 @@ import (
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/utils"
-	commonclient "github.com/gravitational/teleport/tool/tctl/common/client"
-	tctlcfg "github.com/gravitational/teleport/tool/tctl/common/config"
 )
 
 type subcommand interface {
 	initialize(parent *kingpin.CmdClause, cfg *servicecfg.Config)
-	tryRun(ctx context.Context, selectedCommand string, clientFunc commonclient.InitFunc) (match bool, err error)
+	tryRun(ctx context.Context, selectedCommand string, c *authclient.Client) (match bool, err error)
 }
 
 // Command implements all commands under "tctl login_rule".
@@ -52,7 +50,7 @@ type Command struct {
 }
 
 // Initialize installs the base "login_rule" command and all subcommands.
-func (t *Command) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags, cfg *servicecfg.Config) {
+func (t *Command) Initialize(app *kingpin.Application, cfg *servicecfg.Config) {
 	loginRuleCommand := app.Command("login_rule", "Test login rules")
 
 	t.subcommands = []subcommand{
@@ -66,9 +64,9 @@ func (t *Command) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags
 
 // TryRun calls tryRun for each subcommand, and if none of them match returns
 // (false, nil)
-func (t *Command) TryRun(ctx context.Context, cmd string, clientFunc commonclient.InitFunc) (match bool, err error) {
+func (t *Command) TryRun(ctx context.Context, selectedCommand string, c *authclient.Client) (match bool, err error) {
 	for _, subcommand := range t.subcommands {
-		match, err = subcommand.tryRun(ctx, cmd, clientFunc)
+		match, err = subcommand.tryRun(ctx, selectedCommand, c)
 		if err != nil {
 			return match, trace.Wrap(err)
 		}
@@ -114,7 +112,7 @@ Examples:
   > echo '{"groups": ["example"]}' | tctl login_rule test --resource-file rule.yaml`)
 }
 
-func (t *testCommand) tryRun(ctx context.Context, selectedCommand string, clientFunc commonclient.InitFunc) (match bool, err error) {
+func (t *testCommand) tryRun(ctx context.Context, selectedCommand string, c *authclient.Client) (match bool, err error) {
 	if selectedCommand != t.cmd.FullCommand() {
 		return false, nil
 	}
@@ -122,13 +120,8 @@ func (t *testCommand) tryRun(ctx context.Context, selectedCommand string, client
 	if len(t.inputResourceFiles) == 0 && !t.loadFromCluster {
 		return true, trace.BadParameter("no login rules to test, --resource-file or --load-from-cluster must be set")
 	}
-	client, closeFn, err := clientFunc(ctx)
-	if err != nil {
-		return false, trace.Wrap(err)
-	}
-	defer closeFn(ctx)
 
-	return true, trace.Wrap(t.run(ctx, client))
+	return true, trace.Wrap(t.run(ctx, c))
 }
 
 func (t *testCommand) run(ctx context.Context, c *authclient.Client) error {
@@ -141,7 +134,7 @@ func (t *testCommand) run(ctx context.Context, c *authclient.Client) error {
 	}
 
 	if len(t.inputResourceFiles) > 0 {
-		slog.DebugContext(ctx, "Loaded login rule(s) from input resource files", "login_rule_count", len(loginRules))
+		logrus.Debugf("Loaded %d login rule(s) from input resource files", len(loginRules))
 	}
 
 	traits, err := parseTraitsFile(t.inputTraitsFile)

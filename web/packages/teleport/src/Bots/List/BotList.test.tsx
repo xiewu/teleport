@@ -18,9 +18,9 @@
 
 import { fireEvent, render, screen } from 'design/utils/testing';
 
-import { botsFixture } from 'teleport/Bots/fixtures';
 import { BotList } from 'teleport/Bots/List/BotList';
 import { BotListProps } from 'teleport/Bots/types';
+import { botsFixture } from 'teleport/Bots/fixtures';
 import { BotUiFlow } from 'teleport/services/bot/types';
 
 const makeProps = (): BotListProps => ({
@@ -72,7 +72,7 @@ test('renders View options if type is github actions ssh', async () => {
   const props = makeProps();
   props.bots = [bot];
   render(<BotList {...props} />);
-  fireEvent.click(await screen.findByText('Options'));
+  await fireEvent.click(await screen.findByText('OPTIONS'));
   expect(screen.getByText('View...')).toBeInTheDocument();
 });
 
@@ -95,6 +95,6 @@ test('doesnt renders View options if bot type is not github actions', async () =
   const props = makeProps();
   props.bots = [bot];
   render(<BotList {...props} />);
-  fireEvent.click(await screen.findByText('Options'));
+  await fireEvent.click(await screen.findByText('OPTIONS'));
   expect(screen.queryByText('View...')).not.toBeInTheDocument();
 });

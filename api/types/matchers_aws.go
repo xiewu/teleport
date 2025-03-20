@@ -60,8 +60,6 @@ const (
 	AWSMatcherMemoryDB = "memorydb"
 	// AWSMatcherOpenSearch is the AWS matcher type for OpenSearch databases.
 	AWSMatcherOpenSearch = "opensearch"
-	// AWSMatcherDocumentDB is the AWS matcher type for DocumentDB databases.
-	AWSMatcherDocumentDB = "docdb"
 )
 
 // SupportedAWSMatchers is list of AWS services currently supported by the
@@ -83,7 +81,6 @@ var SupportedAWSDatabaseMatchers = []string{
 	AWSMatcherElastiCache,
 	AWSMatcherMemoryDB,
 	AWSMatcherOpenSearch,
-	AWSMatcherDocumentDB,
 }
 
 // RequireAWSIAMRolesAsUsersMatchers is a list of the AWS databases that
@@ -94,7 +91,6 @@ var SupportedAWSDatabaseMatchers = []string{
 var RequireAWSIAMRolesAsUsersMatchers = []string{
 	AWSMatcherRedshiftServerless,
 	AWSMatcherOpenSearch,
-	AWSMatcherDocumentDB,
 }
 
 // GetTypes gets the types that the matcher can match.

@@ -16,8 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {
+import React, {
   createContext,
+  lazy,
   ReactNode,
   Suspense,
   useContext,
@@ -26,43 +27,52 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { matchPath, useHistory } from 'react-router';
 import styled from 'styled-components';
-
-import { Box, Flex, Indicator } from 'design';
+import { Box, Indicator } from 'design';
 import { Failed } from 'design/CardError';
+
 import useAttempt from 'shared/hooks/useAttemptNext';
 
-import { BannerList } from 'teleport/components/BannerList';
-import type { BannerType } from 'teleport/components/BannerList/BannerList';
-import { useAlerts } from 'teleport/components/BannerList/useAlerts';
-import { CatchError } from 'teleport/components/CatchError';
-import { Redirect, Route, Switch } from 'teleport/components/Router';
-import { InfoGuideSidePanel } from 'teleport/components/SlidingSidePanel';
-import { infoGuidePanelWidth } from 'teleport/components/SlidingSidePanel/InfoGuideSidePanel/InfoGuideSidePanel';
-import cfg from 'teleport/config';
-import { FeaturesContextProvider, useFeatures } from 'teleport/FeaturesContext';
-import { Navigation } from 'teleport/Navigation';
-import {
-  ClusterAlert,
-  LINK_DESTINATION_LABEL,
-  LINK_TEXT_LABEL,
-} from 'teleport/services/alerts/alerts';
-import { storageService } from 'teleport/services/storageService';
-import { TopBar, TopBarProps } from 'teleport/TopBar';
-import type { LockedFeatures, TeleportFeature } from 'teleport/types';
-import { useUser } from 'teleport/User/UserContext';
-import useTeleport from 'teleport/useTeleport';
+import { matchPath, useHistory } from 'react-router';
 
-import { InfoGuidePanelProvider, useInfoGuide } from './InfoGuideContext';
+import Dialog from 'design/Dialog';
+import { sharedStyles } from 'design/theme/themes/sharedStyles';
+
+import { AssistViewMode } from 'gen-proto-ts/teleport/userpreferences/v1/assist_pb';
+
+import { Redirect, Route, Switch } from 'teleport/components/Router';
+import { CatchError } from 'teleport/components/CatchError';
+import cfg from 'teleport/config';
+import useTeleport from 'teleport/useTeleport';
+import { TopBar } from 'teleport/TopBar';
+import { BannerList } from 'teleport/components/BannerList';
+import { storageService } from 'teleport/services/storageService';
+import { ClusterAlert, LINK_LABEL } from 'teleport/services/alerts/alerts';
+import { useAlerts } from 'teleport/components/BannerList/useAlerts';
+import { FeaturesContextProvider, useFeatures } from 'teleport/FeaturesContext';
+import {
+  getFirstRouteForCategory,
+  Navigation,
+} from 'teleport/Navigation/Navigation';
+import { NavigationCategory } from 'teleport/Navigation/categories';
+import { TopBarProps } from 'teleport/TopBar/TopBar';
+import { useUser } from 'teleport/User/UserContext';
+import { QuestionnaireProps } from 'teleport/Welcome/NewCredentials';
+
 import { MainContainer } from './MainContainer';
 import { OnboardDiscover } from './OnboardDiscover';
+
+import type { BannerType } from 'teleport/components/BannerList/BannerList';
+import type { LockedFeatures, TeleportFeature } from 'teleport/types';
+
+const Assist = lazy(() => import('teleport/Assist'));
 
 export interface MainProps {
   initialAlerts?: ClusterAlert[];
   customBanners?: ReactNode[];
   features: TeleportFeature[];
   billingBanners?: ReactNode[];
+  Questionnaire?: (props: QuestionnaireProps) => React.ReactElement;
   topBarProps?: TopBarProps;
   inviteCollaboratorsFeedback?: ReactNode;
 }
@@ -84,18 +94,32 @@ export function Main(props: MainProps) {
     run(() => ctx.init(preferences));
   }, []);
 
+  const viewMode = preferences?.assist?.viewMode;
+  const assistEnabled = ctx.getFeatureFlags().assist && ctx.assistEnabled;
+  const [showAssist, setShowAssist] = useState(false);
   const featureFlags = ctx.getFeatureFlags();
 
   const features = useMemo(
     () => props.features.filter(feature => feature.hasAccess(featureFlags)),
     [featureFlags, props.features]
   );
+  const feature = features
+    .filter(feature => Boolean(feature.route))
+    .find(f =>
+      matchPath(history.location.pathname, {
+        path: f.route.path,
+        exact: f.route.exact ?? false,
+      })
+    );
 
   const { alerts, dismissAlert } = useAlerts(props.initialAlerts);
 
   // if there is a redirectUrl, do not show the onboarding popup - it'll get in the way of the redirected page
   const [showOnboardDiscover, setShowOnboardDiscover] = useState(
     !ctx.redirectUrl
+  );
+  const [showOnboardSurvey, setShowOnboardSurvey] = useState<boolean>(
+    !!props.Questionnaire
   );
 
   useEffect(() => {
@@ -148,7 +172,7 @@ export function Main(props: MainProps) {
 
     const indexRoute = cfg.isDashboard
       ? cfg.routes.downloadCenter
-      : cfg.getUnifiedResourcesRoute(cfg.proxyCluster);
+      : getFirstRouteForCategory(features, NavigationCategory.Resources);
 
     return <Redirect to={indexRoute} />;
   }
@@ -165,20 +189,20 @@ export function Main(props: MainProps) {
     return 'danger';
   };
 
-  const banners: BannerType[] = alerts.map(
-    (alert): BannerType => ({
-      message: alert.spec.message,
-      severity: mapSeverity(alert.spec.severity),
-      linkDestination: alert.metadata.labels[LINK_DESTINATION_LABEL],
-      linkText: alert.metadata.labels[LINK_TEXT_LABEL],
-      id: alert.metadata.name,
-    })
-  );
+  const banners: BannerType[] = alerts.map(alert => ({
+    message: alert.spec.message,
+    severity: mapSeverity(alert.spec.severity),
+    link: alert.metadata.labels[LINK_LABEL],
+    id: alert.metadata.name,
+  }));
 
   const onboard = storageService.getOnboardDiscover();
   const requiresOnboarding =
     onboard && !onboard.hasResource && !onboard.notified;
   const displayOnboardDiscover = requiresOnboarding && showOnboardDiscover;
+  const hasSidebar =
+    feature?.category === NavigationCategory.Management &&
+    !feature?.hideNavigation;
 
   return (
     <FeaturesContextProvider value={features}>
@@ -188,29 +212,49 @@ export function Main(props: MainProps) {
             ? props.topBarProps.CustomLogo
             : null
         }
+        assistProps={{
+          showAssist,
+          setShowAssist,
+          assistEnabled,
+        }}
       />
       <Wrapper>
         <MainContainer>
           <Navigation />
-          <InfoGuidePanelProvider>
-            <ContentWrapper>
-              <ContentMinWidth>
-                <BannerList
-                  banners={banners}
-                  customBanners={props.customBanners}
-                  billingBanners={featureFlags.billing && props.billingBanners}
-                  onBannerDismiss={dismissAlert}
-                />
-                <Suspense fallback={null}>
-                  <FeatureRoutes lockedFeatures={ctx.lockedFeatures} />
-                </Suspense>
-              </ContentMinWidth>
-            </ContentWrapper>
-          </InfoGuidePanelProvider>
+          <HorizontalSplit
+            dockedView={showAssist && viewMode === AssistViewMode.DOCKED}
+            hasSidebar={hasSidebar}
+          >
+            <ContentMinWidth>
+              <BannerList
+                banners={banners}
+                customBanners={props.customBanners}
+                billingBanners={featureFlags.billing && props.billingBanners}
+                onBannerDismiss={dismissAlert}
+              />
+              <Suspense fallback={null}>
+                <FeatureRoutes lockedFeatures={ctx.lockedFeatures} />
+              </Suspense>
+            </ContentMinWidth>
+          </HorizontalSplit>
+
+          {showAssist && (
+            <Suspense fallback={null}>
+              <Assist onClose={() => setShowAssist(false)} />
+            </Suspense>
+          )}
         </MainContainer>
       </Wrapper>
       {displayOnboardDiscover && (
         <OnboardDiscover onClose={handleOnClose} onOnboard={handleOnboard} />
+      )}
+      {showOnboardSurvey && (
+        <Dialog open={showOnboardSurvey}>
+          <props.Questionnaire
+            onSubmit={() => setShowOnboardSurvey(false)}
+            onboard={false}
+          />
+        </Dialog>
       )}
       {props.inviteCollaboratorsFeedback}
     </FeaturesContextProvider>
@@ -305,10 +349,8 @@ export const useNoMinWidth = () => {
   }, []);
 };
 
-export const ContentMinWidth = ({ children }: { children: ReactNode }) => {
+const ContentMinWidth = ({ children }: { children: ReactNode }) => {
   const [enforceMinWidth, setEnforceMinWidth] = useState(true);
-  const { infoGuideElement } = useInfoGuide();
-  const infoGuideSidePanelOpened = infoGuideElement != null;
 
   return (
     <ContentMinWidthContext.Provider value={{ setEnforceMinWidth }}>
@@ -318,32 +360,37 @@ export const ContentMinWidth = ({ children }: { children: ReactNode }) => {
           flex-direction: column;
           flex: 1;
           ${enforceMinWidth ? 'min-width: 1000px;' : ''}
-          min-height: 0;
-          margin-right: ${infoGuideSidePanelOpened
-            ? infoGuidePanelWidth
-            : '0'}px;
-          transition: ${infoGuideSidePanelOpened
-            ? 'margin 150ms'
-            : 'margin 300ms'};
-          overflow-y: auto;
         `}
       >
         {children}
       </div>
-      <InfoGuideSidePanel />
     </ContentMinWidthContext.Provider>
   );
 };
 
-export const ContentWrapper = styled.div`
+function getWidth(hasSidebar: boolean, isDockedView: boolean) {
+  const { dockedAssistWidth, sidebarWidth } = sharedStyles;
+  if (hasSidebar && isDockedView) {
+    return `max-width: calc(100% - ${sidebarWidth}px - ${dockedAssistWidth}px);`;
+  }
+  if (isDockedView) {
+    return `max-width: calc(100% - ${dockedAssistWidth}px);`;
+  }
+  if (hasSidebar) {
+    return `max-width: calc(100% - ${sidebarWidth}px);`;
+  }
+  return 'max-width: 100%;';
+}
+
+export const HorizontalSplit = styled.div`
   display: flex;
   flex-direction: column;
   flex: 1;
+  ${props => getWidth(props.hasSidebar, props.dockedView)}
   overflow-x: auto;
-  max-width: 100%;
 `;
 
-export const StyledIndicator = styled(Flex)`
+export const StyledIndicator = styled(HorizontalSplit)`
   align-items: center;
   justify-content: center;
   position: absolute;
@@ -352,9 +399,12 @@ export const StyledIndicator = styled(Flex)`
   left: 50%;
 `;
 
-const Wrapper = styled(Box)`
+const Wrapper = styled(Box)<{ hasDockedElement: boolean }>`
   display: flex;
   height: 100vh;
   flex-direction: column;
-  max-width: 100vw;
+  width: ${p =>
+    p.hasDockedElement
+      ? `calc(100vw - ${p.theme.dockedAssistWidth}px)`
+      : '100vw'};
 `;

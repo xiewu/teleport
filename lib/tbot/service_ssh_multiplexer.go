@@ -21,7 +21,6 @@ package tbot
 import (
 	"bufio"
 	"bytes"
-	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -193,7 +192,8 @@ func (s *SSHMultiplexerService) writeArtifacts(
 	}
 
 	var sshConfigBuilder strings.Builder
-	err = openssh.WriteMuxedSSHConfig(&sshConfigBuilder, &openssh.MuxedSSHConfigParameters{
+	sshConf := openssh.NewSSHConfig(openssh.GetSystemSSHVersion, nil)
+	err = sshConf.GetMuxedSSHConfig(&sshConfigBuilder, &openssh.MuxedSSHConfigParameters{
 		AppName:         openssh.TbotApp,
 		ClusterNames:    clusterNames,
 		KnownHostsPath:  filepath.Join(absPath, ssh.KnownHostsName),
@@ -274,16 +274,13 @@ func (s *SSHMultiplexerService) setup(ctx context.Context) (
 	if err != nil {
 		return nil, nil, "", nil, trace.Wrap(err)
 	}
-	proxyAddr, err := proxyPing.proxySSHAddr()
+	proxyAddr, err := proxyPing.proxyWebAddr()
 	if err != nil {
-		return nil, nil, "", nil, trace.Wrap(err, "determining proxy ssh addr")
+		return nil, nil, "", nil, trace.Wrap(err, "determining proxy web addr")
 	}
-	proxyHost, _, err = utils.SplitHostPort(proxyAddr)
+	proxyHost, _, err = net.SplitHostPort(proxyAddr)
 	if err != nil {
-		return nil, nil, "", nil, trace.BadParameter(
-			"proxy %+v has no usable public address: %v",
-			proxyAddr, err,
-		)
+		return nil, nil, "", nil, trace.Wrap(err)
 	}
 
 	connUpgradeRequired := false
@@ -349,7 +346,7 @@ func (s *SSHMultiplexerService) generateIdentity(ctx context.Context) (*identity
 		s.botAuthClient,
 		s.getBotIdentity(),
 		roles,
-		cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+		s.botCfg.CertificateTTL,
 		nil,
 	)
 	if err != nil {
@@ -391,8 +388,7 @@ func (s *SSHMultiplexerService) identityRenewalLoop(
 	reloadCh, unsubscribe := s.reloadBroadcaster.subscribe()
 	defer unsubscribe()
 	err := runOnInterval(ctx, runOnIntervalConfig{
-		service: s.String(),
-		name:    "identity-renewal",
+		name: "identity-renewal",
 		f: func(ctx context.Context) error {
 			id, err := s.generateIdentity(ctx)
 			if err != nil {
@@ -401,7 +397,7 @@ func (s *SSHMultiplexerService) identityRenewalLoop(
 			s.identity.Set(id)
 			return s.writeArtifacts(ctx, proxyHost, authClient)
 		},
-		interval:   cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
+		interval:   s.botCfg.RenewalInterval,
 		retryLimit: renewalRetryLimit,
 		log:        s.log,
 		reloadCh:   reloadCh,
@@ -528,7 +524,6 @@ func (s *SSHMultiplexerService) Run(ctx context.Context) (err error) {
 				s.agentMu.Unlock()
 
 				s.log.DebugContext(egCtx, "Serving agent connection")
-				//nolint:staticcheck // SA4023. ServeAgent always returns a non-nil error. This is fine.
 				err := agent.ServeAgent(currentAgent, conn)
 				if err != nil && !utils.IsOKNetworkError(err) {
 					s.log.WarnContext(
@@ -672,7 +667,7 @@ func (s *SSHMultiplexerService) handleConn(
 		host = cleanTargetHost(host, proxyHost, clusterName)
 		target = net.JoinHostPort(host, port)
 	} else {
-		node, err := resolveTargetHostWithClient(ctx, authClient.APIClient, expanded.Search, expanded.Query)
+		node, err := resolveTargetHostWithClient(ctx, authClient, expanded.Search, expanded.Query)
 		if err != nil {
 			return trace.Wrap(err, "resolving target host")
 		}

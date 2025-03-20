@@ -23,13 +23,12 @@ import (
 	"context"
 	"crypto/tls"
 	"io"
-	"log/slog"
 	"net"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	mssql "github.com/microsoft/go-mssqldb"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/constants"
@@ -340,7 +339,7 @@ func TestHandleConnectionAuditEvents(t *testing.T) {
 			e := Engine{
 				EngineConfig: common.EngineConfig{
 					Audit:   audit,
-					Log:     slog.Default(),
+					Log:     logrus.New(),
 					Auth:    &mockDBAuth{},
 					Context: context.Background(),
 				},
@@ -411,7 +410,7 @@ func (m *mockDBAuth) GetAuthPreference(ctx context.Context) (types.AuthPreferenc
 	})
 }
 
-func (m *mockDBAuth) GetTLSConfig(ctx context.Context, certExpiry time.Time, database types.Database, databaseUser string) (*tls.Config, error) {
+func (m *mockDBAuth) GetTLSConfig(_ context.Context, _ *common.Session) (*tls.Config, error) {
 	return &tls.Config{}, nil
 }
 

@@ -17,17 +17,16 @@
  */
 
 import React, { PropsWithChildren } from 'react';
-
+import Menu from 'design/Menu';
 import { ButtonBorder } from 'design';
 import { ChevronDown } from 'design/Icon';
-import Menu from 'design/Menu';
 
-import { AnchorProps, MenuProps } from './types';
+import { MenuProps, AnchorProps } from './types';
 
 type Props = MenuProps & {
   defaultOpen?: boolean;
   buttonProps?: AnchorProps;
-  buttonText?: React.ReactNode;
+  buttonText?: string;
   menuProps?: MenuProps;
 };
 
@@ -60,13 +59,14 @@ export default class MenuActionIcon extends React.Component<
     return (
       <>
         <ButtonBorder
+          height="24px"
           size="small"
           setRef={e => (this.anchorEl = e)}
           onClick={this.onOpen}
           {...buttonProps}
         >
-          {this.props.buttonText || 'Options'}
-          <ChevronDown ml={2} size="small" color="text.slightlyMuted" />
+          {this.props.buttonText || 'OPTIONS'}
+          <ChevronDown ml={2} mr={-2} size="small" color="text.slightlyMuted" />
         </ButtonBorder>
         <Menu
           getContentAnchorEl={null}

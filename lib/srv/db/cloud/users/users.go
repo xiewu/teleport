@@ -20,75 +20,45 @@ package users
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	elasticache "github.com/aws/aws-sdk-go-v2/service/elasticache"
-	memorydb "github.com/aws/aws-sdk-go-v2/service/memorydb"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/utils/retryutils"
-	"github.com/gravitational/teleport/lib/cloud/awsconfig"
-	"github.com/gravitational/teleport/lib/srv/db/secrets"
+	"github.com/gravitational/teleport/lib/cloud"
 	"github.com/gravitational/teleport/lib/utils/interval"
 )
 
 // Config is the config for users service.
 type Config struct {
-	// AWSConfigProvider provides [aws.Config] for AWS SDK service clients.
-	AWSConfigProvider awsconfig.Provider
+	// Clients is an interface for retrieving cloud clients.
+	Clients cloud.Clients
 	// Clock is used to control time.
 	Clock clockwork.Clock
 	// Interval is the interval between user updates. Interval is also used as
 	// the minimum password expiration duration.
 	Interval time.Duration
-	// Log is slog logger.
-	Log *slog.Logger
+	// Log is the logrus field logger.
+	Log logrus.FieldLogger
 	// UpdateMeta is used to update database metadata.
 	UpdateMeta func(context.Context, types.Database) error
-	// ClusterName is the name of the Teleport cluster (for tagging purpose).
-	ClusterName string
-
-	// awsClients is an SDK client provider.
-	awsClients awsClientProvider
-}
-
-// awsClientProvider is an AWS SDK client provider.
-type awsClientProvider interface {
-	getElastiCacheClient(cfg aws.Config, optFns ...func(*elasticache.Options)) elasticacheClient
-	getMemoryDBClient(cfg aws.Config, optFns ...func(*memorydb.Options)) memoryDBClient
-	getSecretsManagerClient(cfg aws.Config, optFns ...func(*secretsmanager.Options)) secrets.SecretsManagerClient
-}
-
-type defaultAWSClients struct{}
-
-func (defaultAWSClients) getElastiCacheClient(cfg aws.Config, optFns ...func(*elasticache.Options)) elasticacheClient {
-	return elasticache.NewFromConfig(cfg, optFns...)
-}
-
-func (defaultAWSClients) getMemoryDBClient(cfg aws.Config, optFns ...func(*memorydb.Options)) memoryDBClient {
-	return memorydb.NewFromConfig(cfg, optFns...)
-}
-
-func (defaultAWSClients) getSecretsManagerClient(cfg aws.Config, optFns ...func(*secretsmanager.Options)) secrets.SecretsManagerClient {
-	return secretsmanager.NewFromConfig(cfg, optFns...)
 }
 
 // CheckAndSetDefaults validates the config and set defaults.
 func (c *Config) CheckAndSetDefaults() error {
-	if c.AWSConfigProvider == nil {
-		return trace.BadParameter("missing AWSConfigProvider")
-	}
-	if c.ClusterName == "" {
-		return trace.BadParameter("missing cluster name")
-	}
 	if c.UpdateMeta == nil {
 		return trace.BadParameter("missing UpdateMeta")
+	}
+	if c.Clients == nil {
+		cloudClients, err := cloud.NewClients()
+		if err != nil {
+			return trace.Wrap(err)
+		}
+		c.Clients = cloudClients
 	}
 	if c.Clock == nil {
 		c.Clock = clockwork.NewRealClock()
@@ -106,10 +76,7 @@ func (c *Config) CheckAndSetDefaults() error {
 		c.Interval = 15 * time.Minute
 	}
 	if c.Log == nil {
-		c.Log = slog.With(teleport.ComponentKey, "clouduser")
-	}
-	if c.awsClients == nil {
-		c.awsClients = defaultAWSClients{}
+		c.Log = logrus.WithField(teleport.ComponentKey, "clouduser")
 	}
 	return nil
 }
@@ -185,12 +152,12 @@ func (u *Users) Setup(_ context.Context, database types.Database) error {
 
 // Start starts users service to manage cloud database users.
 func (u *Users) Start(ctx context.Context, getAllDatabases func() types.Databases) {
-	u.cfg.Log.DebugContext(ctx, "Starting cloud users service.")
-	defer u.cfg.Log.DebugContext(ctx, "Cloud users service done.")
+	u.cfg.Log.Debug("Starting cloud users service.")
+	defer u.cfg.Log.Debug("Cloud users service done.")
 
 	ticker := interval.New(interval.Config{
 		// Use jitter for HA setups.
-		Jitter: retryutils.SeventhJitter,
+		Jitter: retryutils.NewSeventhJitter(),
 
 		// NewSeventhJitter builds a new jitter on the range [6n/7,n).
 		// Use n = cfg.Interval*7/6 gives an effective duration range of
@@ -233,7 +200,7 @@ func (u *Users) setupAllDatabasesAndRotatePassowrds(ctx context.Context, allData
 			delete(u.usersByID, userID)
 
 			if err := user.Teardown(ctx); err != nil {
-				u.cfg.Log.ErrorContext(ctx, "Failed to tear down user.", "user", user.GetID(), "error", err)
+				u.cfg.Log.WithError(err).Errorf("Failed to tear down user %v.", user.GetID())
 			}
 		}
 	}
@@ -261,7 +228,7 @@ func (u *Users) setupDatabasesAndRotatePasswords(ctx context.Context, databases 
 		// whatever meta database already has.
 		if updateMeta && database.Origin() != types.OriginCloud {
 			if err := u.cfg.UpdateMeta(ctx, database); err != nil {
-				u.cfg.Log.ErrorContext(ctx, "Failed to update metadata.", "database", database, "error", err)
+				u.cfg.Log.WithError(err).Errorf("Failed to update metadata for %q.", database)
 			}
 		}
 
@@ -269,9 +236,9 @@ func (u *Users) setupDatabasesAndRotatePasswords(ctx context.Context, databases 
 		fetchedUsers, err := fetcher.FetchDatabaseUsers(ctx, database)
 		if err != nil {
 			if trace.IsAccessDenied(err) { // Permission errors are expected.
-				u.cfg.Log.DebugContext(ctx, "No permissions to fetch users.", "database", database, "error", err)
+				u.cfg.Log.WithError(err).Debugf("No permissions to fetch users for %q.", database)
 			} else {
-				u.cfg.Log.ErrorContext(ctx, "Failed to fetch users.", "database", database, "error", err)
+				u.cfg.Log.WithError(err).Errorf("Failed to fetch users for database %v.", database)
 			}
 			continue
 		}
@@ -280,7 +247,7 @@ func (u *Users) setupDatabasesAndRotatePasswords(ctx context.Context, databases 
 		var users []User
 		for _, fetchedUser := range fetchedUsers {
 			if user, err := u.setupUser(ctx, fetchedUser); err != nil {
-				u.cfg.Log.ErrorContext(ctx, "Failed to setup user.", "user", fetchedUser.GetID(), "database", database, "error", err)
+				u.cfg.Log.WithError(err).Errorf("Failed to setup user %s for database %v.", fetchedUser.GetID(), database)
 			} else {
 				users = append(users, user)
 			}
@@ -289,7 +256,7 @@ func (u *Users) setupDatabasesAndRotatePasswords(ctx context.Context, databases 
 		// Rotate passwords.
 		for _, user := range users {
 			if err = user.RotatePassword(ctx); err != nil {
-				u.cfg.Log.ErrorContext(ctx, "Failed to rotate password.", "user", user.GetID(), "error", err)
+				u.cfg.Log.WithError(err).Errorf("Failed to rotate password for user %s", user.GetID())
 			}
 		}
 

@@ -17,5 +17,4 @@
  */
 
 import AuthnDialog from './AuthnDialog';
-
 export default AuthnDialog;

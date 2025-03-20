@@ -16,21 +16,20 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react';
-
+import React, { useState } from 'react';
 import { Box, Indicator } from 'design';
 import { Danger } from 'design/Alert';
 import { ClusterDropdown } from 'shared/components/ClusterDropdown/ClusterDropdown';
 
-import { ButtonLockedFeature } from 'teleport/components/ButtonLockedFeature';
 import {
   FeatureBox,
   FeatureHeader,
   FeatureHeaderTitle,
 } from 'teleport/components/Layout';
-import { CtaEvent } from 'teleport/services/userEvent';
-import useStickerClusterId from 'teleport/useStickyClusterId';
 import useTeleport from 'teleport/useTeleport';
+import useStickerClusterId from 'teleport/useStickyClusterId';
+import { ButtonLockedFeature } from 'teleport/components/ButtonLockedFeature';
+import { CtaEvent } from 'teleport/services/userEvent';
 
 import SessionList from './SessionList';
 import useSessions from './useSessions';
@@ -71,7 +70,7 @@ export function Sessions(props: ReturnType<typeof useSessions>) {
       >
         <FeatureHeaderTitle>Active Sessions</FeatureHeaderTitle>
         {showActiveSessionsCTA && (
-          <Box>
+          <Box width="340px">
             <ButtonLockedFeature
               height="36px"
               event={CtaEvent.CTA_ACTIVE_SESSIONS}

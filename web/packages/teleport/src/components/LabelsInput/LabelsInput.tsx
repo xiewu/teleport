@@ -18,22 +18,12 @@
 
 import styled from 'styled-components';
 
-import { Box, ButtonIcon, ButtonSecondary, Flex } from 'design';
+import { Box, ButtonIcon, ButtonSecondary, Flex, Text } from 'design';
 import * as Icons from 'design/Icon';
-import { inputGeometry } from 'design/Input/Input';
-import { LabelContent } from 'design/LabelInput/LabelInput';
 import FieldInput from 'shared/components/FieldInput';
-import {
-  useRule,
-  useValidation,
-  Validator,
-} from 'shared/components/Validation';
-import {
-  precomputed,
-  requiredField,
-  Rule,
-  ValidationResult,
-} from 'shared/components/Validation/rules';
+import { ToolTipInfo } from 'shared/components/ToolTip';
+import { useValidation, Validator } from 'shared/components/Validation';
+import { requiredField } from 'shared/components/Validation/rules';
 
 export type Label = {
   name: string;
@@ -45,42 +35,21 @@ export type LabelInputTexts = {
   placeholder: string;
 };
 
-type LabelListValidationResult = ValidationResult & {
-  /**
-   * A list of validation results, one per label. Note: items are optional just
-   * because `useRule` by default returns only `ValidationResult`. For the
-   * actual validation, it's not optional; if it's undefined, or there are
-   * fewer items in this list than the labels, a default validation rule will
-   * be used instead.
-   */
-  results?: LabelValidationResult[];
-};
-
-type LabelValidationResult = {
-  name: ValidationResult;
-  value: ValidationResult;
-};
-
-export type LabelsRule = Rule<Label[], LabelListValidationResult>;
-
 export function LabelsInput({
   legend,
   tooltipContent,
-  tooltipSticky,
   labels = [],
   setLabels,
   disableBtns = false,
   autoFocus = false,
-  required = false,
+  areLabelsRequired = false,
   adjective = 'Label',
   labelKey = { fieldName: 'Key', placeholder: 'label key' },
   labelVal = { fieldName: 'Value', placeholder: 'label value' },
   inputWidth = 200,
-  rule = defaultRule,
 }: {
   legend?: string;
   tooltipContent?: string;
-  tooltipSticky?: boolean;
   labels: Label[];
   setLabels(l: Label[]): void;
   disableBtns?: boolean;
@@ -92,23 +61,16 @@ export function LabelsInput({
   /**
    * Makes it so at least one label is required
    */
-  required?: boolean;
-  /**
-   * A rule for validating the list of labels as a whole. Note that contrary to
-   * other input fields, the labels input will default to validating every
-   * input as required if this property is undefined.
-   */
-  rule?: LabelsRule;
+  areLabelsRequired?: boolean;
 }) {
   const validator = useValidation() as Validator;
-  const validationResult: LabelListValidationResult = useRule(rule(labels));
 
   function addLabel() {
     setLabels([...labels, { name: '', value: '' }]);
   }
 
   function removeLabel(index: number) {
-    if (required && labels.length === 1) {
+    if (areLabelsRequired && labels.length === 1) {
       // Since at least one label is required
       // instead of removing the last row, clear
       // the input and turn on error.
@@ -135,53 +97,56 @@ export function LabelsInput({
     setLabels(newList);
   };
 
-  const requiredKey = value => () => {
+  const requiredUniqueKey = value => () => {
     // Check for empty length and duplicate key.
     let notValid = !value || value.length === 0;
 
     return {
       valid: !notValid,
-      message: 'required',
+      message: '', // err msg doesn't matter as it isn't diaplsyed.
     };
   };
 
   const width = `${inputWidth}px`;
-  const inputSize = 'medium';
   return (
     <Fieldset>
       {legend && (
         <Legend>
-          <LabelContent
-            required={required}
-            tooltipContent={tooltipContent}
-            tooltipSticky={tooltipSticky}
-          >
-            {legend}
-          </LabelContent>
+          {tooltipContent ? (
+            <>
+              <span
+                css={{
+                  marginRight: '4px',
+                  verticalAlign: 'middle',
+                }}
+              >
+                {legend}
+              </span>
+              <ToolTipInfo children={tooltipContent} />
+            </>
+          ) : (
+            legend
+          )}
         </Legend>
       )}
       {labels.length > 0 && (
         <Flex mt={legend ? 1 : 0} mb={1}>
           <Box width={width} mr="3">
-            <LabelContent required>{labelKey.fieldName}</LabelContent>
+            <Text typography="body2">
+              {labelKey.fieldName} (required field)
+            </Text>
           </Box>
-          <LabelContent required>{labelVal.fieldName}</LabelContent>
+          <Text typography="body2">{labelVal.fieldName} (required field)</Text>
         </Flex>
       )}
       <Box>
         {labels.map((label, index) => {
-          const validationItem: LabelValidationResult | undefined =
-            validationResult.results?.[index];
           return (
             <Box mb={2} key={index}>
-              <Flex alignItems="start">
+              <Flex alignItems="center">
                 <FieldInput
-                  size={inputSize}
-                  rule={
-                    validationItem
-                      ? precomputed(validationItem.name)
-                      : requiredKey
-                  }
+                  Input
+                  rule={requiredUniqueKey}
                   autoFocus={autoFocus}
                   value={label.name}
                   placeholder={labelKey.placeholder}
@@ -192,12 +157,7 @@ export function LabelsInput({
                   readonly={disableBtns}
                 />
                 <FieldInput
-                  size={inputSize}
-                  rule={
-                    validationItem
-                      ? precomputed(validationItem.value)
-                      : requiredField('required')
-                  }
+                  rule={requiredField('required')}
                   value={label.value}
                   placeholder={labelVal.placeholder}
                   width={width}
@@ -206,29 +166,20 @@ export function LabelsInput({
                   onChange={e => handleChange(e, index, 'value')}
                   readonly={disableBtns}
                 />
-                {/* Force the trash button container to be the same height as an
-                    input. We can't just set `alignItems="center"` on the parent
-                    flex container above, because the field can expand when
-                    showing a validation error. */}
-                <Flex
-                  alignItems="center"
-                  height={inputGeometry[inputSize].height}
+                <ButtonIcon
+                  size={1}
+                  title={`Remove ${adjective}`}
+                  onClick={() => removeLabel(index)}
+                  css={`
+                    &:disabled {
+                      opacity: 0.65;
+                      pointer-events: none;
+                    }
+                  `}
+                  disabled={disableBtns}
                 >
-                  <ButtonIcon
-                    size={1}
-                    title={`Remove ${adjective}`}
-                    onClick={() => removeLabel(index)}
-                    css={`
-                      &:disabled {
-                        opacity: 0.65;
-                        pointer-events: none;
-                      }
-                    `}
-                    disabled={disableBtns}
-                  >
-                    <Icons.Trash size="medium" />
-                  </ButtonIcon>
-                </Flex>
+                  <Icons.Trash size="medium" />
+                </ButtonIcon>
               </Flex>
             </Box>
           );
@@ -239,6 +190,18 @@ export function LabelsInput({
           e.preventDefault();
           addLabel();
         }}
+        css={`
+          text-transform: none;
+          font-weight: normal;
+          &:disabled {
+            .icon-add {
+              opacity: 0.35;
+            }
+            pointer-events: none;
+          }
+          &:hover {
+          }
+        `}
         disabled={disableBtns}
         gap={1}
       >
@@ -249,19 +212,6 @@ export function LabelsInput({
   );
 }
 
-const defaultRule = () => () => ({ valid: true });
-
-export const nonEmptyLabels: LabelsRule = labels => () => {
-  const results = labels.map(label => ({
-    name: requiredField('required')(label.name)(),
-    value: requiredField('required')(label.value)(),
-  }));
-  return {
-    valid: results.every(r => r.name.valid && r.value.valid),
-    results: results,
-  };
-};
-
 const Fieldset = styled.fieldset`
   border: none;
   margin: 0;
@@ -271,5 +221,5 @@ const Fieldset = styled.fieldset`
 const Legend = styled.legend`
   margin: 0 0 ${props => props.theme.space[1]}px 0;
   padding: 0;
-  ${props => props.theme.typography.body3}
+  ${props => props.theme.typography.body2}
 `;

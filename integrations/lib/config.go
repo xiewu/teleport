@@ -20,14 +20,13 @@ package lib
 
 import (
 	"context"
-	"errors"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	grpcbackoff "google.golang.org/grpc/backoff"
 
@@ -137,7 +136,7 @@ func NewIdentityFileWatcher(ctx context.Context, path string, interval time.Dura
 			}
 
 			if err := dynamicCred.Reload(); err != nil {
-				slog.ErrorContext(ctx, "Failed to reload identity file from disk", "error", err)
+				log.WithError(err).Error("Failed to reload identity file from disk.")
 			}
 			timer.Reset(interval)
 		}
@@ -152,7 +151,7 @@ func (cfg TeleportConfig) NewClient(ctx context.Context) (*client.Client, error)
 	case cfg.Addr != "":
 		addr = cfg.Addr
 	case cfg.AuthServer != "":
-		slog.WarnContext(ctx, "Configuration setting `auth_server` is deprecated, consider to change it to `addr`")
+		log.Warn("Configuration setting `auth_server` is deprecated, consider to change it to `addr`")
 		addr = cfg.AuthServer
 	}
 
@@ -173,13 +172,13 @@ func (cfg TeleportConfig) NewClient(ctx context.Context) (*client.Client, error)
 	}
 
 	if validCred, err := credentials.CheckIfExpired(creds); err != nil {
-		slog.WarnContext(ctx, "found expired credentials", "error", err)
+		log.Warn(err)
 		if !validCred {
 			return nil, trace.BadParameter(
 				"No valid credentials found, this likely means credentials are expired. In this case, please sign new credentials and increase their TTL if needed.",
 			)
 		}
-		slog.InfoContext(ctx, "At least one non-expired credential has been found, continuing startup")
+		log.Info("At least one non-expired credential has been found, continuing startup")
 	}
 
 	bk := grpcbackoff.DefaultConfig
@@ -211,7 +210,7 @@ func ReadPassword(filename string) (string, error) {
 
 	pass := make([]byte, 2000)
 	l, err := f.Read(pass)
-	if err != nil && !errors.Is(err, io.EOF) {
+	if err != nil && err != io.EOF {
 		return "", err
 	}
 

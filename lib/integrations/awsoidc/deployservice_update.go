@@ -108,7 +108,6 @@ func updateServiceContainerImage(ctx context.Context, clt DeployServiceClient, l
 	// There is no need to update the ecs service if the ecs service is already
 	// running the latest stable version of teleport.
 	if currentTeleportImage == teleportImage {
-		log.InfoContext(ctx, "ECS service version already matches, not updating")
 		return nil
 	}
 
@@ -158,7 +157,7 @@ func getAllServiceNamesForCluster(ctx context.Context, clt DeployServiceClient, 
 			NextToken: aws.String(nextToken),
 		})
 		if err != nil {
-			return nil, awslib.ConvertIAMError(err)
+			return nil, awslib.ConvertIAMv2Error(err)
 		}
 
 		ret = append(ret, resp.ServiceArns...)

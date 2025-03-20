@@ -26,16 +26,17 @@ import {
 } from 'react';
 import { useParams } from 'react-router';
 
-import type { NotificationItem } from 'shared/components/Notification';
 import useAttempt from 'shared/hooks/useAttemptNext';
 
-import type { UrlDesktopParams } from 'teleport/config';
 import { ButtonState } from 'teleport/lib/tdp';
-import { useMfaEmitter } from 'teleport/lib/useMfa';
+import useWebAuthn from 'teleport/lib/useWebAuthn';
 import desktopService from 'teleport/services/desktops';
 import userService from 'teleport/services/user';
 
 import useTdpClientCanvas from './useTdpClientCanvas';
+
+import type { UrlDesktopParams } from 'teleport/config';
+import type { NotificationItem } from 'shared/components/Notification';
 
 export default function useDesktopSession() {
   const { attempt: fetchAttempt, run } = useAttempt('processing');
@@ -120,7 +121,7 @@ export default function useDesktopSession() {
 
   const [alerts, setAlerts] = useState<NotificationItem[]>([]);
   const onRemoveAlert = (id: string) => {
-    setAlerts(prevState => prevState.filter(alert => alert.id !== id));
+    setAlerts(prevState => prevState.filter(warning => warning.id !== id));
   };
   const addAlert = useCallback((alert: Omit<NotificationItem, 'id'>) => {
     setAlerts(prevState => [
@@ -142,7 +143,7 @@ export default function useDesktopSession() {
   });
   const tdpClient = clientCanvasProps.tdpClient;
 
-  const mfa = useMfaEmitter(tdpClient);
+  const webauthn = useWebAuthn(tdpClient);
 
   const onShareDirectory = () => {
     try {
@@ -211,7 +212,7 @@ export default function useDesktopSession() {
     fetchAttempt,
     tdpConnection,
     wsConnection,
-    mfa,
+    webauthn,
     setTdpConnection,
     showAnotherSessionActiveDialog,
     setShowAnotherSessionActiveDialog,

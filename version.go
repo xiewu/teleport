@@ -33,10 +33,8 @@ var (
 	// Per https://github.com/gravitational/teleport/blob/master/rfd/0012-teleport-versioning.md,
 	// only one major version backwards is supported for clients.
 	MinClientVersion = MinClientSemVersion.String()
-	// MinClientSemVersion is the MinClientVersion represented as a [semver.Version]. The
-	// [semver.Version.PreRelease] is set to "aa" so that the minimum client version comes before
-	// <version>-alpha so that alpha, beta, rc, and dev builds are permitted.
-	MinClientSemVersion = semver.Version{Major: SemVersion.Major - 1, PreRelease: "aa"}
+	// MinClientSemVersion is the MinClientVersion represented as a [semver.Version].
+	MinClientSemVersion = semver.Version{Major: SemVersion.Major - 1}
 )
 
 // Gitref is set to the output of "git describe" during the build process.

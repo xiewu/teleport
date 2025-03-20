@@ -27,9 +27,7 @@ import (
 	"math"
 	"os"
 	"testing"
-	"time"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/google/go-cmp/cmp"
 	"github.com/gravitational/trace"
 	"github.com/stretchr/testify/assert"
@@ -43,18 +41,13 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/utils/grpc/interceptors"
 	"github.com/gravitational/teleport/api/utils/keys"
-	"github.com/gravitational/teleport/lib/auth/authclient"
-	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/defaults"
-	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/observability/tracing"
 	"github.com/gravitational/teleport/lib/utils"
 )
 
 func TestMain(m *testing.M) {
 	utils.InitLoggerForTests()
-	modules.SetInsecureTestMode(true)
-	cryptosuites.PrecomputeRSATestKeys(m)
 	os.Exit(m.Run())
 }
 
@@ -461,11 +454,6 @@ func TestGetKubeTLSServerName(t *testing.T) {
 			want:          "kube-teleport-proxy-alpn.teleport.cluster.local",
 		},
 		{
-			name:          "localhost, API domain should be used ",
-			kubeProxyAddr: "localhost",
-			want:          "kube-teleport-proxy-alpn.teleport.cluster.local",
-		},
-		{
 			name:          "valid hostname",
 			kubeProxyAddr: "example.com",
 			want:          "kube-teleport-proxy-alpn.example.com",
@@ -827,39 +815,19 @@ func TestVirtualPathNames(t *testing.T) {
 		{
 			name:   "database",
 			kind:   VirtualPathDatabase,
-			params: VirtualPathDatabaseCertParams("foo"),
+			params: VirtualPathDatabaseParams("foo"),
 			expected: []string{
 				"TSH_VIRTUAL_PATH_DB_FOO",
 				"TSH_VIRTUAL_PATH_DB",
 			},
 		},
 		{
-			name:   "database key",
-			kind:   VirtualPathKey,
-			params: VirtualPathDatabaseKeyParams("foo"),
-			expected: []string{
-				"TSH_VIRTUAL_PATH_KEY_DB_FOO",
-				"TSH_VIRTUAL_PATH_KEY_DB",
-				"TSH_VIRTUAL_PATH_KEY",
-			},
-		},
-		{
 			name:   "app",
-			kind:   VirtualPathAppCert,
-			params: VirtualPathAppCertParams("foo"),
+			kind:   VirtualPathApp,
+			params: VirtualPathAppParams("foo"),
 			expected: []string{
 				"TSH_VIRTUAL_PATH_APP_FOO",
 				"TSH_VIRTUAL_PATH_APP",
-			},
-		},
-		{
-			name:   "app key",
-			kind:   VirtualPathKey,
-			params: VirtualPathAppKeyParams("foo"),
-			expected: []string{
-				"TSH_VIRTUAL_PATH_KEY_APP_FOO",
-				"TSH_VIRTUAL_PATH_KEY_APP",
-				"TSH_VIRTUAL_PATH_KEY",
 			},
 		},
 		{
@@ -913,15 +881,16 @@ func TestFormatConnectToProxyErr(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
-			var traceErr *trace.TraceErr
-			if errors.As(err, &traceErr) {
+			traceErr, isTraceErr := err.(*trace.TraceErr)
+
+			if isTraceErr {
 				require.EqualError(t, traceErr.OrigError(), tt.wantError)
 			} else {
 				require.EqualError(t, err, tt.wantError)
 			}
 
 			if tt.wantUserMessage != "" {
-				require.Error(t, traceErr)
+				require.True(t, isTraceErr)
 				require.Contains(t, traceErr.Messages, tt.wantUserMessage)
 			}
 		})
@@ -1034,7 +1003,7 @@ func TestRootClusterName(t *testing.T) {
 
 	rootCluster := ca.trustedCerts.ClusterName
 	leafCluster := "leaf-cluster"
-	keyRing := ca.makeSignedKeyRing(t, KeyRingIndex{
+	key := ca.makeSignedKey(t, KeyIndex{
 		ProxyHost:   "proxy.example.com",
 		ClusterName: leafCluster,
 		Username:    "teleport-user",
@@ -1047,7 +1016,7 @@ func TestRootClusterName(t *testing.T) {
 		{
 			name: "static TLS",
 			modifyCfg: func(c *Config) {
-				tlsConfig, err := keyRing.TeleportClientTLSConfig(nil, []string{leafCluster, rootCluster})
+				tlsConfig, err := key.TeleportClientTLSConfig(nil, []string{leafCluster, rootCluster})
 				require.NoError(t, err)
 				c.TLS = tlsConfig
 			},
@@ -1055,7 +1024,7 @@ func TestRootClusterName(t *testing.T) {
 			name: "key store",
 			modifyCfg: func(c *Config) {
 				c.ClientStore = NewMemClientStore()
-				err := c.ClientStore.AddKeyRing(keyRing)
+				err := c.ClientStore.AddKey(key)
 				require.NoError(t, err)
 			},
 		},
@@ -1082,18 +1051,18 @@ func TestLoadTLSConfigForClusters(t *testing.T) {
 	rootCA := newTestAuthority(t)
 
 	rootCluster := rootCA.trustedCerts.ClusterName
-	keyRing := rootCA.makeSignedKeyRing(t, KeyRingIndex{
+	key := rootCA.makeSignedKey(t, KeyIndex{
 		ProxyHost:   "proxy.example.com",
 		ClusterName: rootCluster,
 		Username:    "teleport-user",
 	}, false)
 
-	tlsCertPoolNoCA, err := keyRing.clientCertPool()
+	tlsCertPoolNoCA, err := key.clientCertPool()
 	require.NoError(t, err)
-	tlsCertPoolRootCA, err := keyRing.clientCertPool(rootCluster)
+	tlsCertPoolRootCA, err := key.clientCertPool(rootCluster)
 	require.NoError(t, err)
 
-	tlsConfig, err := keyRing.TeleportClientTLSConfig(nil, []string{rootCluster})
+	tlsConfig, err := key.TeleportClientTLSConfig(nil, []string{rootCluster})
 	require.NoError(t, err)
 
 	for _, tt := range []struct {
@@ -1114,7 +1083,7 @@ func TestLoadTLSConfigForClusters(t *testing.T) {
 			clusters: []string{},
 			modifyCfg: func(c *Config) {
 				c.ClientStore = NewMemClientStore()
-				err := c.ClientStore.AddKeyRing(keyRing)
+				err := c.ClientStore.AddKey(key)
 				require.NoError(t, err)
 			},
 			expectCAs: tlsCertPoolNoCA,
@@ -1123,7 +1092,7 @@ func TestLoadTLSConfigForClusters(t *testing.T) {
 			clusters: []string{rootCluster},
 			modifyCfg: func(c *Config) {
 				c.ClientStore = NewMemClientStore()
-				err := c.ClientStore.AddKeyRing(keyRing)
+				err := c.ClientStore.AddKey(key)
 				require.NoError(t, err)
 			},
 			expectCAs: tlsCertPoolRootCA,
@@ -1132,7 +1101,7 @@ func TestLoadTLSConfigForClusters(t *testing.T) {
 			clusters: []string{"leaf-1", "leaf-2"},
 			modifyCfg: func(c *Config) {
 				c.ClientStore = NewMemClientStore()
-				err := c.ClientStore.AddKeyRing(keyRing)
+				err := c.ClientStore.AddKey(key)
 				require.NoError(t, err)
 			},
 			expectCAs: tlsCertPoolNoCA,
@@ -1172,8 +1141,8 @@ func TestConnectToProxyCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	clusterClient, err := clt.ConnectToCluster(ctx)
-	require.Nil(t, clusterClient)
+	proxy, err := clt.ConnectToProxy(ctx)
+	require.Nil(t, proxy)
 	require.Error(t, err)
 }
 
@@ -1216,6 +1185,18 @@ func TestIsErrorResolvableWithRelogin(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNonRetryableError(t *testing.T) {
+	orgError := trace.AccessDenied("do not enter")
+	err := &NonRetryableError{
+		Err: orgError,
+	}
+	require.Error(t, err)
+	assert.Equal(t, "do not enter", err.Error())
+	assert.True(t, IsNonRetryableError(err))
+	assert.True(t, trace.IsAccessDenied(err))
+	assert.Equal(t, orgError, err.Unwrap())
 }
 
 type fakeResourceClient struct {
@@ -1303,344 +1284,6 @@ func TestGetTargetNodes(t *testing.T) {
 			match, err := clt.GetTargetNodes(context.Background(), test.clt, test.options)
 			require.NoError(t, err)
 			require.EqualValues(t, test.expected, match)
-		})
-	}
-}
-
-type fakeGetTargetNodeClient struct {
-	authclient.ClientI
-
-	nodes             []*types.ServerV2
-	resolved          *types.ServerV2
-	resolveErr        error
-	routeToMostRecent bool
-}
-
-func (f fakeGetTargetNodeClient) ListUnifiedResources(ctx context.Context, req *proto.ListUnifiedResourcesRequest) (*proto.ListUnifiedResourcesResponse, error) {
-	out := make([]*proto.PaginatedResource, 0, len(f.nodes))
-	for _, n := range f.nodes {
-		out = append(out, &proto.PaginatedResource{Resource: &proto.PaginatedResource_Node{Node: n}})
-	}
-
-	return &proto.ListUnifiedResourcesResponse{Resources: out}, nil
-}
-
-func (f fakeGetTargetNodeClient) ResolveSSHTarget(ctx context.Context, req *proto.ResolveSSHTargetRequest) (*proto.ResolveSSHTargetResponse, error) {
-	if f.resolveErr != nil {
-		return nil, f.resolveErr
-	}
-
-	return &proto.ResolveSSHTargetResponse{Server: f.resolved}, nil
-}
-
-func (f fakeGetTargetNodeClient) GetClusterNetworkingConfig(ctx context.Context) (types.ClusterNetworkingConfig, error) {
-	cfg := types.DefaultClusterNetworkingConfig()
-	if f.routeToMostRecent {
-		cfg.SetRoutingStrategy(types.RoutingStrategy_MOST_RECENT)
-	}
-
-	return cfg, nil
-}
-
-func TestGetTargetNode(t *testing.T) {
-	now := time.Now()
-	then := now.Add(-5 * time.Hour)
-
-	tests := []struct {
-		name         string
-		options      *SSHOptions
-		labels       map[string]string
-		search       []string
-		predicate    string
-		host         string
-		port         int
-		clt          fakeGetTargetNodeClient
-		errAssertion require.ErrorAssertionFunc
-		expected     TargetNode
-	}{
-		{
-			name: "options override",
-			options: &SSHOptions{
-				HostAddress: "test:1234",
-			},
-			host:         "llama",
-			port:         56789,
-			errAssertion: require.NoError,
-			expected:     TargetNode{Hostname: "test:1234", Addr: "test:1234"},
-		},
-		{
-			name:         "explicit target",
-			host:         "test",
-			port:         1234,
-			errAssertion: require.NoError,
-			expected:     TargetNode{Hostname: "test", Addr: "test:1234"},
-		},
-		{
-			name:         "resolved labels",
-			labels:       map[string]string{"foo": "bar"},
-			errAssertion: require.NoError,
-			expected:     TargetNode{Hostname: "resolved-labels", Addr: "abcd:0"},
-			clt: fakeGetTargetNodeClient{
-				nodes:    []*types.ServerV2{{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "labels"}}},
-				resolved: &types.ServerV2{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "resolved-labels"}},
-			},
-		},
-		{
-			name:         "fallback labels",
-			labels:       map[string]string{"foo": "bar"},
-			errAssertion: require.NoError,
-			expected:     TargetNode{Hostname: "labels", Addr: "abcd:0"},
-			clt: fakeGetTargetNodeClient{
-				nodes:      []*types.ServerV2{{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "labels"}}},
-				resolved:   &types.ServerV2{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "resolved-labels"}},
-				resolveErr: trace.NotImplemented(""),
-			},
-		},
-		{
-			name:         "resolved search",
-			search:       []string{"foo", "bar"},
-			errAssertion: require.NoError,
-			expected:     TargetNode{Hostname: "resolved-search", Addr: "abcd:0"},
-			clt: fakeGetTargetNodeClient{
-				nodes:    []*types.ServerV2{{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "search"}}},
-				resolved: &types.ServerV2{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "resolved-search"}},
-			},
-		},
-
-		{
-			name:         "fallback search",
-			search:       []string{"foo", "bar"},
-			errAssertion: require.NoError,
-			expected:     TargetNode{Hostname: "search", Addr: "abcd:0"},
-			clt: fakeGetTargetNodeClient{
-				nodes:      []*types.ServerV2{{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "search"}}},
-				resolveErr: trace.NotImplemented(""),
-				resolved:   &types.ServerV2{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "resolved-search"}},
-			},
-		},
-		{
-			name:         "resolved predicate",
-			predicate:    `resource.spec.hostname == "test"`,
-			errAssertion: require.NoError,
-			expected:     TargetNode{Hostname: "resolved-predicate", Addr: "abcd:0"},
-			clt: fakeGetTargetNodeClient{
-				nodes:    []*types.ServerV2{{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "predicate"}}},
-				resolved: &types.ServerV2{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "resolved-predicate"}},
-			},
-		},
-		{
-			name:         "fallback predicate",
-			predicate:    `resource.spec.hostname == "test"`,
-			errAssertion: require.NoError,
-			expected:     TargetNode{Hostname: "predicate", Addr: "abcd:0"},
-			clt: fakeGetTargetNodeClient{
-				nodes:      []*types.ServerV2{{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "predicate"}}},
-				resolveErr: trace.NotImplemented(""),
-				resolved:   &types.ServerV2{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "resolved-predicate"}},
-			},
-		},
-		{
-			name:         "fallback ambiguous hosts",
-			predicate:    `resource.spec.hostname == "test"`,
-			errAssertion: require.Error,
-			clt: fakeGetTargetNodeClient{
-				nodes: []*types.ServerV2{
-					{Metadata: types.Metadata{Name: "abcd-1"}, Spec: types.ServerSpecV2{Hostname: "predicate"}},
-					{Metadata: types.Metadata{Name: "abcd-2"}, Spec: types.ServerSpecV2{Hostname: "predicate"}},
-				},
-				resolveErr: trace.NotImplemented(""),
-				resolved:   &types.ServerV2{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "resolved-predicate"}},
-			},
-		},
-		{
-			name:         "fallback and route to recent",
-			predicate:    `resource.spec.hostname == "test"`,
-			errAssertion: require.NoError,
-			expected:     TargetNode{Hostname: "predicate-now", Addr: "abcd-1:0"},
-			clt: fakeGetTargetNodeClient{
-				nodes: []*types.ServerV2{
-					{Metadata: types.Metadata{Name: "abcd-0", Expires: &then}, Spec: types.ServerSpecV2{Hostname: "predicate-then"}},
-					{Metadata: types.Metadata{Name: "abcd-1", Expires: &now}, Spec: types.ServerSpecV2{Hostname: "predicate-now"}},
-					{Metadata: types.Metadata{Name: "abcd-2", Expires: &then}, Spec: types.ServerSpecV2{Hostname: "predicate-then-again"}},
-				},
-				resolveErr:        trace.NotImplemented(""),
-				routeToMostRecent: true,
-				resolved:          &types.ServerV2{Metadata: types.Metadata{Name: "abcd"}, Spec: types.ServerSpecV2{Hostname: "resolved-predicate"}},
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			clt := TeleportClient{
-				Config: Config{
-					Tracer:              tracing.NoopTracer(""),
-					Labels:              test.labels,
-					SearchKeywords:      test.search,
-					PredicateExpression: test.predicate,
-					Host:                test.host,
-					HostPort:            test.port,
-				},
-			}
-
-			match, err := clt.GetTargetNode(context.Background(), test.clt, test.options)
-			test.errAssertion(t, err)
-			if match == nil {
-				match = &TargetNode{}
-			}
-			require.EqualValues(t, test.expected, *match)
-		})
-	}
-}
-
-func TestNonRetryableError(t *testing.T) {
-	orgError := trace.AccessDenied("do not enter")
-	err := &NonRetryableError{
-		Err: orgError,
-	}
-	require.Error(t, err)
-	assert.Equal(t, "do not enter", err.Error())
-	assert.True(t, IsNonRetryableError(err))
-	assert.True(t, trace.IsAccessDenied(err))
-	assert.Equal(t, orgError, err.Unwrap())
-}
-
-func TestWarningAboutIncompatibleClientVersion(t *testing.T) {
-	tests := []struct {
-		name            string
-		clientVersion   string
-		serverVersion   string
-		expectedWarning string
-	}{
-		{
-			name:          "client on a higher major version than server triggers a warning",
-			clientVersion: "17.0.0",
-			serverVersion: "16.0.0",
-			expectedWarning: `
-WARNING
-Detected potentially incompatible client and server versions.
-Maximum client version supported by the server is 16.x.x but you are using 17.0.0.
-Please downgrade tsh to 16.x.x or use the --skip-version-check flag to bypass this check.
-Future versions of tsh will fail when incompatible versions are detected.
-
-`,
-		},
-		{
-			name:          "client on a too low major version compared to server triggers a warning",
-			clientVersion: "16.4.0",
-			serverVersion: "18.0.0",
-			expectedWarning: `
-WARNING
-Detected potentially incompatible client and server versions.
-Minimum client version supported by the server is 17.0.0 but you are using 16.4.0.
-Please upgrade tsh to 17.0.0 or newer or use the --skip-version-check flag to bypass this check.
-Future versions of tsh will fail when incompatible versions are detected.
-
-`,
-		},
-		{
-			name:            "client on a higher minor version than server does not trigger a warning",
-			clientVersion:   "17.1.0",
-			serverVersion:   "17.0.0",
-			expectedWarning: "",
-		},
-		{
-			name:            "client on a lower major version than server does not trigger a warning",
-			clientVersion:   "17.0.0",
-			serverVersion:   "18.0.0",
-			expectedWarning: "",
-		},
-		{
-			name:            "client and server on the same version do not trigger a warning",
-			clientVersion:   "18.0.0",
-			serverVersion:   "18.0.0",
-			expectedWarning: "",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			minClientVersion, err := semver.NewVersion(test.serverVersion)
-			require.NoError(t, err)
-			minClientVersion.Major = minClientVersion.Major - 1
-			// Mirror what happens with teleport.MinClientSemVersion.
-			minClientVersion.PreRelease = "aa"
-			warning, err := getClientIncompatibilityWarning(Versions{
-				MinClient: minClientVersion.String(),
-				Client:    test.clientVersion,
-				Server:    test.serverVersion,
-			})
-			require.NoError(t, err)
-			require.Equal(t, test.expectedWarning, warning)
-		})
-	}
-}
-
-func TestParsePortMapping(t *testing.T) {
-	tests := []struct {
-		in      string
-		want    PortMapping
-		wantErr bool
-	}{
-		{
-			in:   "",
-			want: PortMapping{},
-		},
-		{
-			in:   "1337",
-			want: PortMapping{LocalPort: 1337},
-		},
-		{
-			in:   "1337:42",
-			want: PortMapping{LocalPort: 1337, TargetPort: 42},
-		},
-		{
-			in:   "0:0",
-			want: PortMapping{},
-		},
-		{
-			in:   "0:42",
-			want: PortMapping{TargetPort: 42},
-		},
-		{
-			in:      " ",
-			wantErr: true,
-		},
-		{
-			in:      "1337:",
-			wantErr: true,
-		},
-		{
-			in:      ":42",
-			wantErr: true,
-		},
-		{
-			in:      "13371337",
-			wantErr: true,
-		},
-		{
-			in:      "42:73317331",
-			wantErr: true,
-		},
-		{
-			in:      "1337:42:42",
-			wantErr: true,
-		},
-		{
-			in:      "1337:42:",
-			wantErr: true,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.in, func(t *testing.T) {
-			out, err := ParsePortMapping(test.in)
-			if test.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, test.want, out)
-			}
 		})
 	}
 }

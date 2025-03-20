@@ -20,12 +20,12 @@ package common
 
 import (
 	"context"
-	"encoding/hex"
-	"log/slog"
+	"fmt"
 	"time"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/types"
@@ -42,7 +42,7 @@ type UserProvisioner struct {
 	// Backend is the particular database implementation.
 	Backend AutoUsers
 	// Log is the logger.
-	Log *slog.Logger
+	Log logrus.FieldLogger
 	// Clock is the clock to use.
 	Clock clockwork.Clock
 }
@@ -77,7 +77,7 @@ func (a *UserProvisioner) Activate(ctx context.Context, sessionCtx *Session) (fu
 	retryCtx, cancel := context.WithTimeout(ctx, defaults.DatabaseConnectTimeout)
 	defer cancel()
 
-	a.Log.DebugContext(ctx, "Activating database user", "user", sessionCtx.DatabaseUser)
+	a.Log.WithField("user", sessionCtx.DatabaseUser).Debug("Activating database user")
 	lease, err := services.AcquireSemaphoreWithRetry(retryCtx, a.makeAcquireSemaphoreConfig(sessionCtx))
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -86,7 +86,7 @@ func (a *UserProvisioner) Activate(ctx context.Context, sessionCtx *Session) (fu
 	release := func() {
 		err := a.AuthClient.CancelSemaphoreLease(ctx, *lease)
 		if err != nil {
-			a.Log.ErrorContext(ctx, "Failed to cancel lease.", "lease", lease, "error", err)
+			a.Log.WithError(err).Errorf("Failed to cancel lease: %v.", lease)
 		}
 	}
 
@@ -118,8 +118,9 @@ func (a *UserProvisioner) Teardown(ctx context.Context, sessionCtx *Session) err
 
 // deactivate disables a database user.
 func (a *UserProvisioner) deactivate(ctx context.Context, sessionCtx *Session) error {
+	// Observe.
 	defer methodCallMetrics("UserProvisioner:Deactivate", teleport.ComponentDatabase, sessionCtx.Database)()
-	a.Log.DebugContext(ctx, "Deactivating database user", "user", sessionCtx.DatabaseUser)
+	a.Log.WithField("user", sessionCtx.DatabaseUser).Debug("Deactivating database user")
 
 	retryCtx, cancel := context.WithTimeout(ctx, defaults.DatabaseConnectTimeout)
 	defer cancel()
@@ -132,7 +133,7 @@ func (a *UserProvisioner) deactivate(ctx context.Context, sessionCtx *Session) e
 	defer func() {
 		err := a.AuthClient.CancelSemaphoreLease(ctx, *lease)
 		if err != nil {
-			a.Log.ErrorContext(ctx, "Failed to cancel lease.", "lease", lease, "error", err)
+			a.Log.WithError(err).Errorf("Failed to cancel lease: %v.", lease)
 		}
 	}()
 
@@ -148,7 +149,7 @@ func (a *UserProvisioner) deactivate(ctx context.Context, sessionCtx *Session) e
 func (a *UserProvisioner) delete(ctx context.Context, sessionCtx *Session) error {
 	// Observe.
 	defer methodCallMetrics("UserProvisioner:Delete", teleport.ComponentDatabase, sessionCtx.Database)()
-	a.Log.DebugContext(ctx, "Deleting database user", "user", sessionCtx.DatabaseUser)
+	a.Log.WithField("user", sessionCtx.DatabaseUser).Debug("Deleting database user")
 
 	retryCtx, cancel := context.WithTimeout(ctx, defaults.DatabaseConnectTimeout)
 	defer cancel()
@@ -161,7 +162,7 @@ func (a *UserProvisioner) delete(ctx context.Context, sessionCtx *Session) error
 	defer func() {
 		err := a.AuthClient.CancelSemaphoreLease(ctx, *lease)
 		if err != nil {
-			a.Log.ErrorContext(ctx, "Failed to cancel lease.", "lease", lease, "error", err)
+			a.Log.WithError(err).Errorf("Failed to cancel lease: %v.", lease)
 		}
 	}()
 
@@ -181,9 +182,7 @@ func (a *UserProvisioner) makeAcquireSemaphoreConfig(sessionCtx *Session) servic
 		// in a minute anyway.
 		Request: types.AcquireSemaphoreRequest{
 			SemaphoreKind: "db-auto-users",
-			// The name of the sempahore is encoded to prevent any invalid characters
-			// in a user's name from being rejected by the backend when creating the semaphore.
-			SemaphoreName: hex.EncodeToString([]byte(sessionCtx.Database.GetName() + "-" + sessionCtx.DatabaseUser)),
+			SemaphoreName: fmt.Sprintf("%v-%v", sessionCtx.Database.GetName(), sessionCtx.DatabaseUser),
 			MaxLeases:     1,
 			Expires:       a.Clock.Now().Add(time.Minute),
 		},

@@ -16,138 +16,53 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {
-  forwardRef,
-  HTMLAttributes,
-  HTMLInputAutoCompleteAttribute,
-} from 'react';
-import styled, { CSSObject } from 'styled-components';
-import {
-  color,
-  ColorProps,
-  height,
-  HeightProps,
-  space,
-  SpaceProps,
-  width,
-  WidthProps,
-} from 'styled-system';
+import React, { CSSProperties } from 'react';
+import styled from 'styled-components';
+import { space, width, color, height } from 'styled-system';
 
-import { Theme } from 'design/theme/themes/types';
-
-export type TextAreaSize = 'large' | 'medium' | 'small';
-
-export interface TextAreaProps
-  extends ColorProps,
-    SpaceProps,
-    WidthProps,
-    HeightProps {
-  size?: TextAreaSize;
+export interface TextAreaProps extends React.ComponentPropsWithRef<'textarea'> {
   hasError?: boolean;
   resizable?: boolean;
 
-  // TextArea element attributes
-  autoFocus?: boolean;
-  disabled?: boolean;
-  id?: string;
-  name?: string;
-  readOnly?: boolean;
-  value?: string;
-  defaultValue?: string;
-  placeholder?: string;
-  autoComplete?: HTMLInputAutoCompleteAttribute;
-  spellCheck?: boolean;
-  style?: React.CSSProperties;
-
-  'aria-invalid'?: HTMLAttributes<'textarea'>['aria-invalid'];
-  'aria-describedby'?: HTMLAttributes<'textarea'>['aria-describedby'];
-
-  onChange?: React.ChangeEventHandler<HTMLInputElement>;
-  onKeyPress?: React.KeyboardEventHandler<HTMLInputElement>;
-  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
-  onFocus?: React.FocusEventHandler<HTMLInputElement>;
-  onBlur?: React.FocusEventHandler<HTMLInputElement>;
-  onClick?: React.MouseEventHandler<HTMLInputElement>;
+  // TS: temporary handles ...styles
+  [key: string]: any;
 }
 
-export const textAreaGeometry: {
-  [s in TextAreaSize]: {
-    height: number;
-    typography: keyof Theme['typography'];
-  };
-} = {
-  large: {
-    height: 96,
-    typography: 'body1',
-  },
-  medium: {
-    height: 84,
-    typography: 'body2',
-  },
-  small: {
-    height: 76,
-    typography: 'body3',
-  },
-};
-
-export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(
-  ({ size = 'medium', ...rest }, ref) => (
-    <StyledTextArea ref={ref} taSize={size} {...rest} />
-  )
-);
-
-type StyledTextAreaProps = Omit<TextAreaProps, 'size'> & {
-  taSize: TextAreaSize;
-};
-
-const StyledTextArea = styled.textarea<StyledTextAreaProps>`
+export const TextArea: React.FC<TextAreaProps> = styled.textarea`
   appearance: none;
-  border: 1px solid;
-  border-color: ${props => props.theme.colors.interactive.tonal.neutral[2]};
+  border: 1px solid ${props => props.theme.colors.text.muted};
   border-radius: 4px;
   box-sizing: border-box;
-  display: block;
   min-height: 50px;
-  height: ${props => textAreaGeometry[props.taSize].height}px;
-  padding: 8px 16px;
+  height: 80px;
+  font-size: 16px;
+  padding: 16px;
   outline: none;
   width: 100%;
-  background-color: transparent;
   color: ${props => props.theme.colors.text.main};
+  background: inherit;
 
-  ${props => props.theme.typography[textAreaGeometry[props.taSize].typography]}
-
-  &:hover {
-    border: 1px solid ${props => props.theme.colors.text.muted};
-  }
-
-  &:focus-visible {
-    border-color: ${props =>
-      props.theme.colors.interactive.solid.primary.default};
-  }
-
-  &::placeholder {
+  ::placeholder {
     color: ${props => props.theme.colors.text.muted};
     opacity: 1;
   }
 
-  &:read-only {
+  &:hover,
+  &:focus,
+  &:active {
+    border: 1px solid ${props => props.theme.colors.text.slightlyMuted};
+  }
+
+  :read-only {
     cursor: not-allowed;
   }
 
-  &:disabled {
-    background-color: ${props =>
-      props.theme.colors.interactive.tonal.neutral[0]};
+  :disabled {
     color: ${props => props.theme.colors.text.disabled};
-    border-color: transparent;
+    border-color: ${props => props.theme.colors.text.disabled};
   }
 
-  ${color}
-  ${space}
-  ${width}
-  ${height}
-  ${error}
-  ${resize}
+  ${color} ${space} ${width} ${height} ${error} ${resize};
 `;
 
 function error({
@@ -161,13 +76,15 @@ function error({
   }
 
   return {
-    borderColor: theme.colors.interactive.solid.danger.default,
-    '&:hover': {
-      borderColor: theme.colors.interactive.solid.danger.default,
+    border: `2px solid ${theme.colors.error.main}`,
+    '&:hover, &:focus': {
+      border: `2px solid ${theme.colors.error.main}`,
     },
   };
 }
 
-function resize({ resizable }: Pick<TextAreaProps, 'resizable'>): CSSObject {
+function resize({
+  resizable,
+}: Pick<TextAreaProps, 'resizable'>): CSSProperties {
   return { resize: resizable ? 'vertical' : 'none' };
 }

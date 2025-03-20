@@ -20,7 +20,6 @@ package tbot
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -78,10 +77,9 @@ func (s *KubernetesOutputService) Run(ctx context.Context) error {
 	defer unsubscribe()
 
 	err := runOnInterval(ctx, runOnIntervalConfig{
-		service:    s.String(),
 		name:       "output-renewal",
 		f:          s.generate,
-		interval:   cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
+		interval:   s.botCfg.RenewalInterval,
 		retryLimit: renewalRetryLimit,
 		log:        s.log,
 		reloadCh:   reloadCh,
@@ -123,7 +121,7 @@ func (s *KubernetesOutputService) generate(ctx context.Context) error {
 		s.botAuthClient,
 		s.getBotIdentity(),
 		roles,
-		cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+		s.botCfg.CertificateTTL,
 		nil,
 	)
 	if err != nil {
@@ -149,13 +147,12 @@ func (s *KubernetesOutputService) generate(ctx context.Context) error {
 	// and will fail to generate certs if the cluster doesn't exist or is
 	// offline.
 
-	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
 	routedIdentity, err := generateIdentity(
 		ctx,
 		s.botAuthClient,
 		id,
 		roles,
-		effectiveLifetime.TTL,
+		s.botCfg.CertificateTTL,
 		func(req *proto.UserCertsRequest) {
 			req.KubernetesCluster = kubeClusterName
 		},
@@ -163,8 +160,6 @@ func (s *KubernetesOutputService) generate(ctx context.Context) error {
 	if err != nil {
 		return trace.Wrap(err)
 	}
-
-	warnOnEarlyExpiration(ctx, s.log.With("output", s), id, effectiveLifetime)
 
 	s.log.InfoContext(
 		ctx,
@@ -200,7 +195,7 @@ func (s *KubernetesOutputService) generate(ctx context.Context) error {
 		return trace.Wrap(err)
 	}
 
-	keyRing, err := NewClientKeyRing(routedIdentity, hostCAs)
+	key, err := NewClientKey(routedIdentity, hostCAs)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -208,7 +203,7 @@ func (s *KubernetesOutputService) generate(ctx context.Context) error {
 	status := &kubernetesStatus{
 		clusterAddr:           clusterAddr,
 		tlsServerName:         tlsServerName,
-		credentials:           keyRing,
+		credentials:           key,
 		teleportClusterName:   proxyPong.ClusterName,
 		kubernetesClusterName: kubeClusterName,
 	}
@@ -293,7 +288,7 @@ type kubernetesStatus struct {
 	teleportClusterName   string
 	kubernetesClusterName string
 	tlsServerName         string
-	credentials           *client.KeyRing
+	credentials           *client.Key
 }
 
 func generateKubeConfigWithoutPlugin(ks *kubernetesStatus) (*clientcmdapi.Config, error) {
@@ -317,7 +312,7 @@ func generateKubeConfigWithoutPlugin(ks *kubernetesStatus) (*clientcmdapi.Config
 
 	config.AuthInfos[contextName] = &clientcmdapi.AuthInfo{
 		ClientCertificateData: ks.credentials.TLSCert,
-		ClientKeyData:         ks.credentials.TLSPrivateKey.PrivateKeyPEM(),
+		ClientKeyData:         ks.credentials.PrivateKeyPEM(),
 	}
 
 	// Last, create a context linking the cluster to the auth info.
@@ -396,7 +391,7 @@ func chooseOneKubeCluster(clusters []types.KubeCluster, name string) (types.Kube
 	return chooseOneResource(clusters, name, "kubernetes cluster")
 }
 
-func getKubeCluster(ctx context.Context, clt apiclient.GetResourcesClient, name string) (types.KubeCluster, error) {
+func getKubeCluster(ctx context.Context, clt *authclient.Client, name string) (types.KubeCluster, error) {
 	ctx, span := tracer.Start(ctx, "getKubeCluster")
 	defer span.End()
 
