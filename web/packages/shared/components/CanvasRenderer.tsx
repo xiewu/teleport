@@ -30,9 +30,9 @@ import { debounce } from 'shared/utils/highbar';
 import { BitmapFrame } from 'teleport/lib/tdp/client';
 import type { PngFrame } from 'teleport/lib/tdp/codec';
 
-const logger = new Logger('TdpClientCanvas');
+const logger = new Logger('CanvasRenderer');
 
-export interface TdpClientCanvasRef {
+export interface CanvasRendererRef {
   setPointer(pointer: Pointer): void;
   renderPngFrame(frame: PngFrame): void;
   renderBitmapFrame(frame: BitmapFrame): void;
@@ -41,8 +41,8 @@ export interface TdpClientCanvasRef {
   focus(): void;
 }
 
-export const TdpClientCanvas = forwardRef<
-  TdpClientCanvasRef,
+export const CanvasRenderer = forwardRef<
+  CanvasRendererRef,
   {
     onKeyDown?(e: React.KeyboardEvent): void;
     onKeyUp?(e: React.KeyboardEvent): void;

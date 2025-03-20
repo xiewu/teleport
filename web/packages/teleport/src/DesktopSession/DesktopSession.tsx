@@ -26,12 +26,14 @@ import Dialog, {
   DialogHeader,
   DialogTitle,
 } from 'design/Dialog';
+import {
+  CanvasRenderer,
+  CanvasRendererRef,
+} from 'shared/components/CanvasRenderer';
 import { Attempt as AsyncAttempt } from 'shared/hooks/useAsync';
 import { Attempt } from 'shared/hooks/useAttemptNext';
 
 import AuthnDialog from 'teleport/components/AuthnDialog';
-import TdpClientCanvas from 'teleport/components/TdpClientCanvas';
-import { TdpClientCanvasRef } from 'teleport/components/TdpClientCanvas/TdpClientCanvas';
 import { useListener } from 'teleport/lib/tdp/client';
 import { MfaState, shouldShowMfaPrompt } from 'teleport/lib/useMfa';
 
@@ -128,7 +130,7 @@ export function DesktopSession(props: State) {
     mfa,
   ]);
 
-  const tdpClientCanvasRef = useRef<TdpClientCanvasRef>(null);
+  const canvasRendererRef = useRef<CanvasRendererRef>(null);
   const onInitialTdpConnectionSucceeded = useCallback(() => {
     setInitialTdpConnectionSucceeded(() => {
       // TODO(gzdunek): This callback is a temporary fix for focusing the canvas.
@@ -136,7 +138,7 @@ export function DesktopSession(props: State) {
       // The timeout it a small hack, we should verify
       // what is the earliest moment we can focus the canvas.
       setTimeout(() => {
-        tdpClientCanvasRef.current?.focus();
+        canvasRendererRef.current?.focus();
       }, 100);
     });
   }, [setInitialTdpConnectionSucceeded]);
@@ -198,13 +200,13 @@ export function DesktopSession(props: State) {
     }, [setWsConnection])
   );
 
-  useListener(client?.onPointer, tdpClientCanvasRef.current?.setPointer);
+  useListener(client?.onPointer, canvasRendererRef.current?.setPointer);
   useListener(
     client?.onPngFrame,
     useCallback(
       frame => {
         onInitialTdpConnectionSucceeded();
-        tdpClientCanvasRef.current?.renderPngFrame(frame);
+        canvasRendererRef.current?.renderPngFrame(frame);
       },
       [onInitialTdpConnectionSucceeded]
     )
@@ -214,13 +216,13 @@ export function DesktopSession(props: State) {
     useCallback(
       frame => {
         onInitialTdpConnectionSucceeded();
-        tdpClientCanvasRef.current?.renderBitmapFrame(frame);
+        canvasRendererRef.current?.renderBitmapFrame(frame);
       },
       [onInitialTdpConnectionSucceeded]
     )
   );
-  useListener(client?.onReset, tdpClientCanvasRef.current?.clear);
-  useListener(client?.onScreenSpec, tdpClientCanvasRef.current?.setResolution);
+  useListener(client?.onReset, canvasRendererRef.current?.clear);
+  useListener(client?.onScreenSpec, canvasRendererRef.current?.setResolution);
 
   return (
     <Flex
@@ -264,8 +266,8 @@ export function DesktopSession(props: State) {
       )}
       {screenState.screen === 'processing' && <Processing />}
 
-      <TdpClientCanvas
-        ref={tdpClientCanvasRef}
+      <CanvasRenderer
+        ref={canvasRendererRef}
         style={{
           display: screenState.canvasState.shouldDisplay ? 'flex' : 'none',
         }}
