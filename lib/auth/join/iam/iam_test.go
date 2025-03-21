@@ -43,7 +43,8 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 	for desc, tc := range map[string]struct {
 		envRegion             string
 		imdsRegion            string
-		fips                  bool
+		fipsMode              bool
+		fipsDisabledByEnv     bool
 		expectError           string
 		expectEndpoint        string
 		expectSignatureRegion string
@@ -53,8 +54,14 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 			expectSignatureRegion: "us-east-1",
 		},
 		"no region fips": {
-			fips:                  true,
+			fipsMode:              true,
 			expectEndpoint:        "sts-fips.us-east-1.amazonaws.com",
+			expectSignatureRegion: "us-east-1",
+		},
+		"no region fips disabled": {
+			fipsMode:              true,
+			fipsDisabledByEnv:     true,
+			expectEndpoint:        "sts.us-east-1.amazonaws.com",
 			expectSignatureRegion: "us-east-1",
 		},
 		"us-west-2": {
@@ -69,14 +76,28 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 		},
 		"us-west-2 fips": {
 			envRegion:             "us-west-2",
-			fips:                  true,
+			fipsMode:              true,
 			expectEndpoint:        "sts-fips.us-west-2.amazonaws.com",
+			expectSignatureRegion: "us-west-2",
+		},
+		"us-west-2 fips diabled": {
+			envRegion:             "us-west-2",
+			fipsMode:              true,
+			fipsDisabledByEnv:     true,
+			expectEndpoint:        "sts.us-west-2.amazonaws.com",
 			expectSignatureRegion: "us-west-2",
 		},
 		"us-west-2 fips with region from imdsv2": {
 			imdsRegion:            "us-west-2",
-			fips:                  true,
+			fipsMode:              true,
 			expectEndpoint:        "sts-fips.us-west-2.amazonaws.com",
+			expectSignatureRegion: "us-west-2",
+		},
+		"us-west-2 fips disabled with region from imdsv2": {
+			imdsRegion:            "us-west-2",
+			fipsMode:              true,
+			fipsDisabledByEnv:     true,
+			expectEndpoint:        "sts.us-west-2.amazonaws.com",
 			expectSignatureRegion: "us-west-2",
 		},
 		"eu-central-1": {
@@ -86,11 +107,20 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 		},
 		"eu-central-1 fips": {
 			envRegion: "eu-central-1",
-			fips:      true,
+			fipsMode:  true,
 			// All non-US regions have no FIPS endpoint and use the FIPS
 			// endpoint in us-east-1.
 			expectEndpoint:        "sts-fips.us-east-1.amazonaws.com",
 			expectSignatureRegion: "us-east-1",
+		},
+		"eu-central-1 fips disabled": {
+			envRegion:         "eu-central-1",
+			fipsMode:          true,
+			fipsDisabledByEnv: true,
+			// When AWs FIPS is disabled by the environment, the EU endpoint is
+			// used.
+			expectEndpoint:        "sts.eu-central-1.amazonaws.com",
+			expectSignatureRegion: "eu-central-1",
 		},
 		"ap-southeast-1": {
 			envRegion:             "ap-southeast-1",
@@ -99,7 +129,7 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 		},
 		"ap-southeast-1 fips": {
 			envRegion: "ap-southeast-1",
-			fips:      true,
+			fipsMode:  true,
 			// All non-US regions have no FIPS endpoint and try to use the FIPS
 			// endpoint in us-east-1, but this will fail if the AWS credentials
 			// were issued by the AWS China partition because they will not be
@@ -109,6 +139,15 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 			expectEndpoint:        "sts-fips.us-east-1.amazonaws.com",
 			expectSignatureRegion: "us-east-1",
 		},
+		"ap-southeast-1 fips disabled": {
+			envRegion:         "ap-southeast-1",
+			fipsMode:          true,
+			fipsDisabledByEnv: true,
+			// When AWs FIPS is disabled by the environment, the asia endpoint is
+			// used.
+			expectEndpoint:        "sts.ap-southeast-1.amazonaws.com",
+			expectSignatureRegion: "ap-southeast-1",
+		},
 		"govcloud": {
 			envRegion:             "us-gov-east-1",
 			expectEndpoint:        "sts.us-gov-east-1.amazonaws.com",
@@ -116,7 +155,15 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 		},
 		"govcloud fips": {
 			envRegion: "us-gov-east-1",
-			fips:      true,
+			fipsMode:  true,
+			// All govcloud endpoints are FIPS.
+			expectEndpoint:        "sts.us-gov-east-1.amazonaws.com",
+			expectSignatureRegion: "us-gov-east-1",
+		},
+		"govcloud fips disabled": {
+			envRegion:         "us-gov-east-1",
+			fipsMode:          true,
+			fipsDisabledByEnv: true,
 			// All govcloud endpoints are FIPS.
 			expectEndpoint:        "sts.us-gov-east-1.amazonaws.com",
 			expectSignatureRegion: "us-gov-east-1",
@@ -126,10 +173,12 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 			if len(tc.envRegion) > 0 {
 				t.Setenv("AWS_REGION", tc.envRegion)
 			} else {
-				// There's no t.Unsetenv so do this manually.
-				prev := os.Getenv("AWS_REGION")
-				os.Unsetenv("AWS_REGION")
-				t.Cleanup(func() { os.Setenv("AWS_REGION", prev) })
+				unsetEnv(t, "AWS_REGION")
+			}
+			if tc.fipsDisabledByEnv {
+				t.Setenv("TELEPORT_UNSTABLE_DISABLE_AWS_FIPS", "1")
+			} else {
+				unsetEnv(t, "TELEPORT_UNSTABLE_DISABLE_AWS_FIPS")
 			}
 
 			imdsClient := &fakeIMDSClient{}
@@ -143,7 +192,7 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 			// Create the signed sts:GetCallerIdentity request, which is a full
 			// HTTP request with a body serialized into a byte slice.
 			req, err := iam.CreateSignedSTSIdentityRequest(ctx, challenge,
-				iam.WithFIPSEndpoint(tc.fips),
+				iam.WithFIPSEndpoint(tc.fipsMode),
 				iam.WithIMDSClient(imdsClient))
 			if tc.expectError != "" {
 				assert.Error(t, err)
@@ -164,6 +213,14 @@ func TestCreateSignedSTSIdentityRequest(t *testing.T) {
 			assert.Equal(t, challenge, httpReq.Header.Get("x-teleport-challenge"))
 			assert.Equal(t, tc.expectSignatureRegion, sigV4.Region, "signature region did not match expected")
 		})
+	}
+}
+
+func unsetEnv(t *testing.T, envVar string) {
+	// There's no t.Unsetenv so do this manually.
+	if prev, prevSet := os.LookupEnv(envVar); prevSet {
+		os.Unsetenv(envVar)
+		t.Cleanup(func() { os.Setenv(envVar, prev) })
 	}
 }
 

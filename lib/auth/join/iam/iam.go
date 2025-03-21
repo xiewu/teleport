@@ -34,6 +34,7 @@ import (
 	"go.opentelemetry.io/otel"
 
 	cloudaws "github.com/gravitational/teleport/lib/cloud/imds/aws"
+	"github.com/gravitational/teleport/lib/utils/aws/awsfips"
 	"github.com/gravitational/teleport/lib/utils/aws/stsutils"
 )
 
@@ -97,7 +98,8 @@ func CreateSignedSTSIdentityRequest(ctx context.Context, challenge string, opts 
 		awsConfig.Region = region
 	}
 
-	if options.useFIPS && !slices.Contains(FIPSSTSRegions(), awsConfig.Region) {
+	if options.useFIPS && !awsfips.IsFIPSDisabledByEnv() &&
+		!slices.Contains(FIPSSTSRegions(), awsConfig.Region) {
 		slog.InfoContext(ctx, "AWS region does not have a FIPS STS endpoint, attempting to use us-east-1 instead. This will fail in non-default AWS partitions.",
 			slog.String("region", awsConfig.Region))
 		awsConfig.Region = "us-east-1"
