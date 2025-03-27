@@ -5076,7 +5076,7 @@ func onStatus(cf *CLIConf) error {
 	}
 
 	if profile == nil {
-		return trace.NotFound("Not logged in.")
+		return trace.NotFound("No active profile.")
 	}
 
 	duration := time.Until(profile.ValidUntil)
