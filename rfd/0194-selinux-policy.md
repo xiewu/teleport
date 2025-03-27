@@ -100,6 +100,9 @@ The policy source will be embedded in future Teleport agent binaries.
 A `selinux` subcommand will be added to `teleport` to allow users to install and configure the SELinux policy. This subcommand
 will use the Teleport agent configuration file to determine how to configure some of the tunable SELinux policy contexts, such as port
 numbers, file paths, and booleans using the `semanage` tool.
+`teleport selinux` will only manage the official Teleport SELinux policy. Policies created by users or third parties will not be inspected or
+modified. If a SELinux policy installed that shares a name with the official Teleport SELinux policy it will be assumed to be a version of
+the Teleport SELinux policy and may be modified.
 
 The policy will allow the Teleport agent processes with the `selinux` subcommand only to create or update its SELinux policy. This will be enforced by
 creating a `teleport_selinux_management` domain, which will not be allowed to be a parent of any other Teleport related domain. Otherwise an attacker could
