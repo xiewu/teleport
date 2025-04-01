@@ -23,6 +23,7 @@ import (
 
 	"github.com/gravitational/trace"
 
+	alpncommon "github.com/gravitational/teleport/lib/srv/alpnproxy/common"
 	"github.com/gravitational/teleport/lib/tlsca"
 )
 
@@ -30,6 +31,9 @@ import (
 // if it's a database access connection as determined by the decoded
 // identity from the client certificate.
 func IsDatabaseConnection(state tls.ConnectionState) (bool, error) {
+	if state.NegotiatedProtocol == string(alpncommon.ProtocolMCP) {
+		return false, nil
+	}
 	// VerifiedChains must be populated after the handshake.
 	if len(state.VerifiedChains) < 1 || len(state.VerifiedChains[0]) < 1 {
 		return false, nil

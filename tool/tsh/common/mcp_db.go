@@ -19,6 +19,7 @@
 package common
 
 import (
+	"crypto/tls"
 	"net"
 
 	"github.com/gravitational/trace"
@@ -36,15 +37,7 @@ func onMCPStartDB(cf *CLIConf) error {
 		return trace.Wrap(err)
 	}
 
-	keyRing, err := tc.LocalAgent().GetCoreKeyRing()
-	if err != nil {
-		return trace.Wrap(err)
-	}
-	cred := client.TLSCredential{
-		PrivateKey: keyRing.TLSPrivateKey,
-		Cert:       keyRing.TLSCert,
-	}
-	cert, err := cred.TLSCertificate()
+	cert, err := getMCPStartDBCert(cf, tc)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -71,4 +64,42 @@ func onMCPStartDB(cf *CLIConf) error {
 
 	stdioConn := utils.CombinedStdio{}
 	return utils.ProxyConn(cf.Context, in, stdioConn)
+}
+
+func getMCPStartDBCert(cf *CLIConf, tc *client.TeleportClient) (tls.Certificate, error) {
+	if cf.DatabaseService == "" {
+		keyRing, err := tc.LocalAgent().GetCoreKeyRing()
+		if err != nil {
+			return tls.Certificate{}, trace.Wrap(err)
+		}
+		cred := client.TLSCredential{
+			PrivateKey: keyRing.TLSPrivateKey,
+			Cert:       keyRing.TLSCert,
+		}
+		cert, err := cred.TLSCertificate()
+		return cert, trace.Wrap(err)
+	}
+
+	profile, err := tc.ProfileStatus()
+	if err != nil {
+		return tls.Certificate{}, trace.Wrap(err)
+	}
+	routes, err := profile.DatabasesForCluster(tc.SiteName)
+	if err != nil {
+		return tls.Certificate{}, trace.Wrap(err)
+	}
+	dbInfo, err := getDatabaseInfo(cf, tc, routes)
+	if err != nil {
+		return tls.Certificate{}, trace.Wrap(err)
+	}
+	requires := &dbLocalProxyRequirement{
+		localProxy: true,
+		tunnel:     true,
+	}
+	if err := maybeDatabaseLogin(cf, tc, profile, dbInfo, requires); err != nil {
+		return tls.Certificate{}, trace.Wrap(err)
+	}
+
+	cert, err := loadDBCertificate(tc, dbInfo.ServiceName)
+	return cert, trace.Wrap(err)
 }

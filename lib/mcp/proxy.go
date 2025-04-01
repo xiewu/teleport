@@ -20,6 +20,10 @@ package mcp
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
 	"io"
 	"log/slog"
 	"net"
@@ -32,10 +36,13 @@ import (
 
 	"github.com/gravitational/teleport"
 	clientproto "github.com/gravitational/teleport/api/client/proto"
+	"github.com/gravitational/teleport/api/constants"
+	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/lib/auth"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/authz"
 	pgmcp "github.com/gravitational/teleport/lib/client/db/mcp/postgres"
+	alpncommon "github.com/gravitational/teleport/lib/srv/alpnproxy/common"
 	"github.com/gravitational/teleport/lib/utils"
 )
 
@@ -43,6 +50,7 @@ type ProxyServerConfig struct {
 	Authorizer  authz.Authorizer
 	AuthClient  authclient.ClientI
 	AccessPoint authclient.ProxyAccessPoint
+	ALPNHandler func(ctx context.Context, conn net.Conn) error
 }
 
 func (c *ProxyServerConfig) Check() error {
@@ -102,20 +110,9 @@ func (s *ProxyServer) HandleConnection(ctx context.Context, conn net.Conn) error
 		return trace.Wrap(err)
 	}
 
-	mcpServer := server.NewMCPServer("teleport", teleport.Version)
-
-	// Add PostgreSQL MCP stuff.
-	// TODO add MCP servers based on what the user has access to.
-	sess, err := pgmcp.NewSession(ctx, pgmcp.NewSessionConfig{
-		MCPServer: mcpServer,
-		// TODO
-		RawDBConn: nil,
-		Route:     clientproto.RouteToDatabase{},
-	})
-	defer sess.Close(ctx)
-
-	err = server.NewStdioServer(mcpServer).Listen(ctx, tlsConn, tlsConn)
-	s.logger.DebugContext(ctx, "MCP session terminated", "error", err)
+	if !authCtx.Identity.GetIdentity().RouteToDatabase.Empty() {
+		return s.handleOneDB(ctx, conn, authCtx)
+	}
 
 	// TODO replace me with real impl
 	cmdToRun := os.Getenv("TELEPORT_MCP_RUN_POSTGRES")
@@ -138,4 +135,91 @@ func (s *ProxyServer) HandleConnection(ctx context.Context, conn net.Conn) error
 		_, err := tlsConn.Write([]byte("hello teleport"))
 		return trace.Wrap(err)
 	}
+}
+
+func (s *ProxyServer) handleOneDB(ctx context.Context, clientConn net.Conn, authCtx *authz.Context) error {
+	// What the hell am i doing
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	marshal, err := keys.MarshalPrivateKey(ecKey)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	pk, err := keys.ParsePrivateKey(marshal)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	publicKeyPEM, err := keys.MarshalPublicKey(pk.Public())
+	if err != nil {
+		return trace.Wrap(err, "failed to marshal public key")
+	}
+
+	identity := authCtx.Identity.GetIdentity()
+	certsReq := clientproto.UserCertsRequest{
+		TLSPublicKey:   publicKeyPEM,
+		Username:       authCtx.User.GetName(),
+		Expires:        identity.Expires,
+		Format:         constants.CertificateFormatStandard,
+		RouteToCluster: identity.RouteToCluster,
+		Usage:          clientproto.UserCertsRequest_Database,
+		RouteToDatabase: clientproto.RouteToDatabase{
+			ServiceName: identity.RouteToDatabase.ServiceName,
+			Username:    identity.RouteToDatabase.Username,
+			Database:    identity.RouteToDatabase.Database,
+			Protocol:    identity.RouteToDatabase.Protocol,
+			Roles:       identity.RouteToDatabase.Roles,
+		},
+	}
+
+	certs, err := s.cfg.AuthClient.GenerateUserCerts(ctx, certsReq)
+	if err != nil {
+		return trace.Wrap(err, "failed issuing user certs")
+	}
+
+	tlsCert, err := pk.TLSCertificate(certs.TLS)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	alpnProtocol, err := alpncommon.ToALPNProtocol(identity.RouteToDatabase.Protocol)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	tlsConfig := &tls.Config{
+		NextProtos:   []string{string(alpnProtocol)},
+		Certificates: []tls.Certificate{tlsCert},
+		// Use proper server name and root CAs
+		InsecureSkipVerify: true,
+	}
+
+	utils.SetupTLSConfig(tlsConfig, nil /* let server decide cipher */)
+
+	in, out := net.Pipe()
+	defer in.Close()
+	defer out.Close()
+	go func() {
+		if err := s.cfg.ALPNHandler(ctx, out); !utils.IsOKNetworkError(err) {
+			s.logger.ErrorContext(ctx, "ALPN handler for database interactive session failed", "error", err)
+		}
+	}()
+
+	serverConn := tls.Client(in, tlsConfig)
+	_, err = serverConn.Write([]byte("whatever"))
+
+	mcpServer := server.NewMCPServer("teleport", teleport.Version)
+
+	// Add PostgreSQL MCP stuff.
+	sess, err := pgmcp.NewSession(ctx, pgmcp.NewSessionConfig{
+		MCPServer: mcpServer,
+		RawDBConn: serverConn,
+		Route:     certsReq.RouteToDatabase,
+	})
+	defer sess.Close(ctx)
+
+	err = server.NewStdioServer(mcpServer).Listen(ctx, clientConn, clientConn)
+	s.logger.DebugContext(ctx, "MCP session terminated", "error", err)
+	return trace.Wrap(err)
 }

@@ -5159,15 +5159,16 @@ func (process *TeleportProcess) initProxyEndpoint(conn *Connector) error {
 	}
 
 	// MCP on proxy stuff
-	mcpServer, err := mcp.NewProxyServer(process.ExitContext(), &mcp.ProxyServerConfig{
-		AccessPoint: accessPoint,
-		AuthClient:  conn.Client,
-		Authorizer:  authorizer,
-	})
-	if err != nil {
-		return trace.Wrap(err)
-	}
 	if alpnRouter != nil {
+		mcpServer, err := mcp.NewProxyServer(process.ExitContext(), &mcp.ProxyServerConfig{
+			AccessPoint: accessPoint,
+			AuthClient:  conn.Client,
+			Authorizer:  authorizer,
+			ALPNHandler: alpnHandlerForWeb.HandleConnection,
+		})
+		if err != nil {
+			return trace.Wrap(err)
+		}
 		alpnRouter.Add(alpnproxy.HandlerDecs{
 			Handler:   mcpServer.HandleConnection,
 			MatchFunc: alpnproxy.MatchByProtocol(alpncommon.ProtocolMCP),
