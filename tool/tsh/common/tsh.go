@@ -975,6 +975,8 @@ func Run(ctx context.Context, args []string, opts ...CliOption) error {
 	mcpStart := mcp.Command("start", "two sheep")
 	mcpStart.Arg("name", "three sheep").Required().StringVar(&cf.AppName)
 
+	mcpStartDB := mcp.Command("start-db", "star wars")
+
 	// Databases.
 	db := app.Command("db", "View and control proxied databases.")
 	db.Flag("cluster", clusterHelp).Short('c').StringVar(&cf.SiteName)
@@ -1576,6 +1578,8 @@ func Run(ctx context.Context, args []string, opts ...CliOption) error {
 
 	case mcpStart.FullCommand():
 		err = onMCPStart(&cf)
+	case mcpStartDB.FullCommand():
+		err = onMCPStartDB(&cf)
 
 	case dbList.FullCommand():
 		err = onListDatabases(&cf)
