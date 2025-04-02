@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/ghodss/yaml"
 	"github.com/gravitational/trace"
 	"github.com/jackc/pgx/v5"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -101,16 +100,15 @@ func (sess *Session) DatabaseResourceHandler(ctx context.Context, request mcp.Re
 		},
 	}
 
-	out, err := yaml.Marshal(resource)
+	out, err := json.Marshal(resource)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
 	return []mcp.ResourceContents{
 		mcp.TextResourceContents{
-			URI: request.Params.URI,
-			// https://www.rfc-editor.org/rfc/rfc9512.html
-			MIMEType: "application/yaml",
+			URI:      request.Params.URI,
+			MIMEType: "application/json",
 			Text:     string(out),
 		},
 	}, nil
@@ -184,6 +182,7 @@ var (
 		queryToolName,
 		mcp.WithDescription("Run a read-only SQL query"),
 		mcp.WithString(queryToolDBNameParamName, mcp.Description("Database resource URI where the query will be executed"), mcp.Required()),
+		// mcp.WithString(queryToolDBUserParamName, mcp.Description("Database user used to execute the query"), mcp.Required()),
 		mcp.WithString(queryToolSQLParamName, mcp.Required()),
 	)
 )
@@ -194,6 +193,7 @@ const (
 	queryToolName            = "query"
 	queryToolSQLParamName    = "sql"
 	queryToolDBNameParamName = "db_name"
+	queryToolDBUserParamName = "db_user"
 
 	// TODO use to list tables and their schema.
 	// listTablesQuery       = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
