@@ -90,9 +90,10 @@ func onMCPStartDB(cf *CLIConf) error {
 		}()
 
 		mcpInfo = append(mcpInfo, pgmcp.DBInfo{
-			RawConn:     in,
-			Route:       client.RouteToDatabaseToProto(db.info.RouteToDatabase),
-			Description: db.info.database.GetDescription(),
+			RawConn:      in,
+			Route:        client.RouteToDatabaseToProto(db.info.RouteToDatabase),
+			Database:     db.info.database,
+			AllowedUsers: db.users.Allowed,
 		})
 	}
 
@@ -175,7 +176,7 @@ func listAvailableMCPDatatabases(cf *CLIConf, tc *client.TeleportClient, profile
 		// 	return nil, trace.Wrap(err)
 		// }
 
-		dbs = append(dbs, mcpDb{info: dbInfo})
+		dbs = append(dbs, mcpDb{info: dbInfo, users: users})
 	}
 
 	return dbs, nil

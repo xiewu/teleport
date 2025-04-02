@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"net"
 
+	"github.com/ghodss/yaml"
 	"github.com/gravitational/trace"
 	"github.com/jackc/pgx/v5"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	clientproto "github.com/gravitational/teleport/api/client/proto"
+	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/defaults"
 )
 
@@ -31,9 +33,19 @@ type NewSessionConfig struct {
 }
 
 type DBInfo struct {
-	RawConn     net.Conn
-	Route       clientproto.RouteToDatabase
-	Description string
+	RawConn      net.Conn
+	Route        clientproto.RouteToDatabase
+	Database     types.Database
+	AllowedUsers []string
+}
+
+type DatabaseResourceUsers struct {
+	Allowed []string `json:"allowed"`
+}
+
+type DatabaseResource struct {
+	types.Metadata
+	Users DatabaseResourceUsers `json:"users"`
 }
 
 func NewSession(ctx context.Context, cfg NewSessionConfig) (*Session, error) {
@@ -53,7 +65,10 @@ func NewSession(ctx context.Context, cfg NewSessionConfig) (*Session, error) {
 
 		dbURI := buildDBURI(dbInfo.Route.ServiceName)
 		dbs[dbURI] = &servedDB{conn: pgConn, info: dbInfo}
-		cfg.MCPServer.AddResource(mcp.NewResource(dbURI, fmt.Sprintf("%s PostgreSQL Datatabase", dbInfo.Route.ServiceName)), sess.DatabaseResourceHandler)
+		cfg.MCPServer.AddResource(
+			mcp.NewResource(dbURI, fmt.Sprintf("%s PostgreSQL Datatabase", dbInfo.Route.ServiceName), mcp.WithMIMEType("application/yaml")),
+			sess.DatabaseResourceHandler,
+		)
 	}
 
 	sess.dbs = dbs
@@ -74,17 +89,32 @@ func (sess *Session) Close(ctx context.Context) error {
 }
 
 func (sess *Session) DatabaseResourceHandler(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-	if db, ok := sess.dbs[request.Params.URI]; ok {
-		return []mcp.ResourceContents{
-			mcp.TextResourceContents{
-				URI:      request.Params.URI,
-				MIMEType: "text/plain",
-				Text:     db.info.Description,
-			},
-		}, nil
+	dbInfo, ok := sess.dbs[request.Params.URI]
+	if !ok {
+		return nil, trace.NotFound("database %q not found", request.Params.URI)
 	}
 
-	return nil, trace.NotFound("database %q not found", request.Params.URI)
+	resource := DatabaseResource{
+		Metadata: dbInfo.info.Database.GetMetadata(),
+		Users: DatabaseResourceUsers{
+			Allowed: dbInfo.info.AllowedUsers,
+		},
+	}
+
+	out, err := yaml.Marshal(resource)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return []mcp.ResourceContents{
+		mcp.TextResourceContents{
+			URI: request.Params.URI,
+			// https://www.rfc-editor.org/rfc/rfc9512.html
+			MIMEType: "application/yaml",
+			Text:     string(out),
+		},
+	}, nil
+
 }
 
 func (sess *Session) QueryToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -95,7 +125,7 @@ func (sess *Session) QueryToolHandler(ctx context.Context, request mcp.CallToolR
 	// TODO have some better handling for db name, db URI, and or description (or query).
 	db, ok := sess.dbs[buildDBURI(dbURI)]
 	if !ok {
-		return nil, trace.NotFound("Database %q not found. Only databases resources can be used for queries.")
+		return mcp.NewToolResultText(fmt.Sprintf("Database %q not found. Only databases resources can be used for queries.", dbURI)), nil
 	}
 
 	tx, err := db.conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
