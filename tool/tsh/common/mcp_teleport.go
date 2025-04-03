@@ -61,17 +61,25 @@ Teleport is the easiest, most secure way to access and protect all your infrastr
 
 Teleport logs cluster activity by emitting various events into its audit log. 
 
-The tool takes in two mandatory parameters "from" and "to" which are the
-searching time range. The time must be in RFC3339 formats. 
-An optional "start_key"" param can be used to perform pagination where returned
-by previous call.
+The tool takes in two mandatory parameters "from" and "to" which define the time range to search. 
+These parameters must express time using RFC3339 format. 
 
-The response is a list of audit events found in that time period, maximum 100
-per call. If more events are available, it will return a "next_key"" to be used
-as "start_key"" in the next call for pagination.
-`),
+The tool returns up to 250 events. To continue search, you must call it again but provide the "start_key" parameter. 
+The value of the "start_key" parameter must be taken from "next_key" return value of results.
+
+The response is a list of audit events found in that time period, maximum 250
+per call. If more events are available, it will return a "next_key" to be used
+as "start_key" in the next call for pagination. 
+
+If there are no more events available, the tool will return no events. In general continue fetching additional events until you got them all.
+
+Here is a complete description of all event types.
+
+`+libevents.AllEventsDescription()),
 			mcp.WithString("from", mcp.Required(), mcp.Description("oldest date of returned events, in RFC3339 format")),
 			mcp.WithString("to", mcp.Required(), mcp.Description("newest date of returned events, in RFC3339 format")),
+			mcp.WithString("start_key", mcp.Description("optional start key of returned events in case of paging; must be taken from prior reply.")),
+			mcp.WithArray("event_types", mcp.Description("A list of event types to search for")),
 		),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			fromStr, ok := request.Params.Arguments["from"].(string)
@@ -91,13 +99,30 @@ as "start_key"" in the next call for pagination.
 				return nil, trace.Wrap(err, "failed to parse 'to' as RFC3339 format")
 			}
 			req := libevents.SearchEventsRequest{
-				From:  from,
-				To:    to,
-				Limit: 100,
+				From:       from,
+				To:         to,
+				EventTypes: nil,
+				Limit:      250,
+				Order:      0,
+				StartKey:   "",
 			}
-			startKey, ok := request.Params.Arguments["start_key"].(string)
-			if ok {
-				req.StartKey = startKey
+
+			req.StartKey, ok = request.Params.Arguments["start_key"].(string)
+			if !ok {
+				if request.Params.Arguments["start_key"] != nil {
+					return nil, trace.BadParameter("invalid type for 'start_key' parameter, expected string got %T", request.Params.Arguments["start_key"])
+				}
+			}
+
+			eventTypes, ok := request.Params.Arguments["event_types"].([]string)
+			if !ok {
+				if request.Params.Arguments["event_types"] != nil {
+					return nil, trace.BadParameter("invalid type for 'event_types' parameter, expected []string, got %T", request.Params.Arguments["event_types"])
+				}
+			} else {
+				if len(eventTypes) > 0 {
+					req.EventTypes = eventTypes
+				}
 			}
 
 			events, nextKey, err := authClient.SearchEvents(cf.Context, req)
