@@ -37,7 +37,6 @@ import (
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/srv/alpnproxy"
 	"github.com/gravitational/teleport/lib/tlsca"
-	listenerutils "github.com/gravitational/teleport/lib/utils/listener"
 )
 
 func onMCPStartDB(cf *CLIConf) error {
@@ -66,9 +65,16 @@ func onMCPStartDB(cf *CLIConf) error {
 			continue
 		}
 
-		in, out := net.Pipe()
-		listener := listenerutils.NewSingleUseListener(out)
-		defer listener.Close()
+		addr := "localhost:0"
+		listener, err := net.Listen("tcp", addr)
+		if err != nil {
+			return trace.Wrap(err)
+		}
+		defer func() {
+			if err := listener.Close(); err != nil {
+				logger.WarnContext(cf.Context, "Failed to close listener", "error", err)
+			}
+		}()
 
 		cc := client.NewDBCertChecker(tc, db.info.RouteToDatabase, nil, client.WithTTL(time.Duration(cf.MinsToLive)*time.Minute))
 
@@ -90,7 +96,7 @@ func onMCPStartDB(cf *CLIConf) error {
 		}()
 
 		mcpInfo = append(mcpInfo, pgmcp.DBInfo{
-			RawConn:      in,
+			Addr:         listener.Addr().String(),
 			Route:        client.RouteToDatabaseToProto(db.info.RouteToDatabase),
 			Database:     db.info.database,
 			AllowedUsers: db.users.Allowed,
@@ -166,7 +172,8 @@ func listAvailableMCPDatatabases(cf *CLIConf, tc *client.TeleportClient, profile
 			return nil, trace.BadParameter("could not take a database username from %s", strings.Join(users.Allowed, ","))
 		}
 		// manually fill the user info
-		dbInfo.RouteToDatabase.Username = users.Allowed[0]
+		// dbInfo.RouteToDatabase.Username = users.Allowed[0]
+		dbInfo.RouteToDatabase.Username = "postgres"
 		// TODO make it dynamic
 		// TODO grab this from the list of available (allowed) databases
 		dbInfo.RouteToDatabase.Database = "postgres"

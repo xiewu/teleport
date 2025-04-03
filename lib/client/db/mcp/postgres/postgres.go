@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
+	"sync"
 
 	"github.com/gravitational/trace"
 	"github.com/jackc/pgx/v5"
@@ -18,11 +18,11 @@ import (
 )
 
 type Session struct {
+	mu  sync.Mutex
 	dbs map[string]*servedDB
 }
 
 type servedDB struct {
-	conn *pgx.Conn
 	info DBInfo
 }
 
@@ -32,7 +32,7 @@ type NewSessionConfig struct {
 }
 
 type DBInfo struct {
-	RawConn      net.Conn
+	Addr         string
 	Route        clientproto.RouteToDatabase
 	Database     types.Database
 	AllowedUsers []string
@@ -53,17 +53,8 @@ func NewSession(ctx context.Context, cfg NewSessionConfig) (*Session, error) {
 	sess := &Session{}
 	dbs := make(map[string]*servedDB, len(cfg.Datatabases))
 	for _, dbInfo := range cfg.Datatabases {
-		pgConfig, err := buildConfig(dbInfo)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		pgConn, err := pgx.ConnectConfig(ctx, pgConfig)
-		if err != nil {
-			return nil, trace.ConnectionProblem(err, "Unable to connect to database %q: %v", dbInfo.Route.ServiceName, err)
-		}
-
 		dbURI := buildDBURI(dbInfo.Route.ServiceName)
-		dbs[dbURI] = &servedDB{conn: pgConn, info: dbInfo}
+		dbs[dbURI] = &servedDB{info: dbInfo}
 		cfg.MCPServer.AddResource(
 			mcp.NewResource(dbURI, fmt.Sprintf("%s PostgreSQL Datatabase", dbInfo.Route.ServiceName), mcp.WithMIMEType("application/yaml")),
 			sess.DatabaseResourceHandler,
@@ -80,11 +71,12 @@ func NewSession(ctx context.Context, cfg NewSessionConfig) (*Session, error) {
 }
 
 func (sess *Session) Close(ctx context.Context) error {
-	var errors []error
-	for _, db := range sess.dbs {
-		errors = append(errors, db.conn.Close(ctx))
-	}
-	return trace.NewAggregate(errors...)
+	// var errors []error
+	// for _, db := range sess.dbs {
+	// 	errors = append(errors, db.conn.Close(ctx))
+	// }
+	// return trace.NewAggregate(errors...)
+	return nil
 }
 
 func (sess *Session) DatabaseResourceHandler(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
@@ -116,8 +108,13 @@ func (sess *Session) DatabaseResourceHandler(ctx context.Context, request mcp.Re
 }
 
 func (sess *Session) QueryToolHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// ensure only one query at time
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+
 	slog.DebugContext(ctx, "Handle query", "request", request)
 	sql := request.Params.Arguments[queryToolSQLParamName].(string)
+	dbUser := request.Params.Arguments[queryToolDBUserParamName].(string)
 	dbURI := request.Params.Arguments[queryToolDBNameParamName].(string)
 
 	// TODO have some better handling for db name, db URI, and or description (or query).
@@ -126,7 +123,17 @@ func (sess *Session) QueryToolHandler(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultText(fmt.Sprintf("Database %q not found. Only databases resources can be used for queries.", dbURI)), nil
 	}
 
-	tx, err := db.conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	pgConfig, err := buildConfig(db.info, dbUser)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	pgConn, err := pgx.ConnectConfig(ctx, pgConfig)
+	if err != nil {
+		return mcp.NewToolResultText(fmt.Sprintf("Unable to connect to database %q: %s", db.info.Route.ServiceName, err)), nil
+	}
+	defer pgConn.Close(ctx)
+
+	tx, err := pgConn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -182,7 +189,7 @@ var (
 		queryToolName,
 		mcp.WithDescription("Run a read-only SQL query"),
 		mcp.WithString(queryToolDBNameParamName, mcp.Description("Database resource URI where the query will be executed"), mcp.Required()),
-		// mcp.WithString(queryToolDBUserParamName, mcp.Description("Database user used to execute the query"), mcp.Required()),
+		mcp.WithString(queryToolDBUserParamName, mcp.Description("Database user used to execute the query"), mcp.Required()),
 		mcp.WithString(queryToolSQLParamName, mcp.Required()),
 	)
 )
@@ -212,12 +219,12 @@ const (
 	applicationNameParamValue = "teleport-repl"
 )
 
-func buildConfig(info DBInfo) (*pgx.ConnConfig, error) {
-	config, err := pgx.ParseConfig(fmt.Sprintf("postgres://%s", hostnamePlaceholder))
+func buildConfig(info DBInfo, username string) (*pgx.ConnConfig, error) {
+	config, err := pgx.ParseConfig(fmt.Sprintf("postgres://%s", info.Addr))
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	config.User = info.Route.Username
+	config.User = username
 	config.Database = info.Route.Database
 	config.ConnectTimeout = defaults.DatabaseConnectTimeout
 	config.RuntimeParams = map[string]string{
@@ -227,12 +234,12 @@ func buildConfig(info DBInfo) (*pgx.ConnConfig, error) {
 
 	// Provide a lookup function to avoid having the hostname placeholder to
 	// resolve into something else. Note that the returned value won't be used.
-	config.LookupFunc = func(_ context.Context, _ string) ([]string, error) {
-		return []string{hostnamePlaceholder}, nil
-	}
-	config.DialFunc = func(_ context.Context, _, _ string) (net.Conn, error) {
-		return info.RawConn, nil
-	}
+	// config.LookupFunc = func(_ context.Context, _ string) ([]string, error) {
+	// 	return []string{hostnamePlaceholder}, nil
+	// }
+	// config.DialFunc = func(_ context.Context, _, _ string) (net.Conn, error) {
+	// 	return info.RawConn, nil
+	// }
 
 	return config, nil
 }
