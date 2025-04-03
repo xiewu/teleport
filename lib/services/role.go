@@ -2278,6 +2278,29 @@ func makeUsernamesForAWSRoleARN(db types.Database, user string) []string {
 	return []string{roleARN.Resource}
 }
 
+type MCPToolsMatcher struct {
+	Name string
+}
+
+func (m *MCPToolsMatcher) Match(role types.Role, condition types.RoleConditionType) (bool, error) {
+	selectors := role.GetMCPTools(condition)
+
+	// Empty.
+	if len(selectors) == 0 {
+		if condition == types.Allow {
+			return true, nil
+		} else {
+			return false, nil
+		}
+	}
+
+	result, err := utils.SliceMatchesRegex(m.Name, selectors)
+	if err != nil {
+		return false, trace.Wrap(err)
+	}
+	return result, nil
+}
+
 // DatabaseNameMatcher matches a role against database name.
 type DatabaseNameMatcher struct {
 	Name string

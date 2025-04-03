@@ -327,6 +327,7 @@ export const eventCodes = {
   HEALTH_CHECK_CONFIG_UPDATE: 'THCC002I',
   HEALTH_CHECK_CONFIG_DELETE: 'THCC003I',
   APP_SESSION_MCP_REQUEST: 'TMCP001I',
+  APP_SESSION_MCP_REQUEST_FAILURE: 'TMCP001E',
   APP_SESSION_MCP_NOTIFICATION: 'TMCP002I',
 } as const;
 
@@ -1876,6 +1877,18 @@ export type RawEvents = {
     typeof eventCodes.APP_SESSION_MCP_REQUEST,
     {
       rpc_method: string;
+      rpc_params?: {
+        name?: string;
+      }
+    }
+  >;
+  [eventCodes.APP_SESSION_MCP_REQUEST_FAILURE]: RawEvent<
+    typeof eventCodes.APP_SESSION_MCP_REQUEST_FAILURE,
+    {
+      rpc_method: string;
+      rpc_params?: {
+        name?: string;
+      }
     }
   >;
   [eventCodes.APP_SESSION_MCP_NOTIFICATION]: RawEvent<

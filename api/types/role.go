@@ -170,6 +170,9 @@ type Role interface {
 	// SetDatabaseLabels sets the map of db labels this role is allowed or denied access to.
 	SetDatabaseLabels(RoleConditionType, Labels)
 
+	// TODO
+	GetMCPTools(rct RoleConditionType) []string
+
 	// GetDatabaseNames gets a list of database names this role is allowed or denied access to.
 	GetDatabaseNames(RoleConditionType) []string
 	// SetDatabaseNames sets a list of database names this role is allowed or denied access to.
@@ -728,6 +731,13 @@ func (r *RoleV6) SetDatabaseLabels(rct RoleConditionType, labels Labels) {
 	} else {
 		r.Spec.Deny.DatabaseLabels = labels.Clone()
 	}
+}
+
+func (r *RoleV6) GetMCPTools(rct RoleConditionType) []string {
+	if rct == Allow {
+		return r.Spec.Allow.MCPTools
+	}
+	return r.Spec.Deny.MCPTools
 }
 
 // GetDatabaseNames gets a list of database names this role is allowed or denied access to.

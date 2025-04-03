@@ -12,14 +12,13 @@ import (
 )
 
 // mcpMessageToEvent handles a single JSON-RPC message and either returns audit event (possibly empty) or error.
-func mcpMessageToEvent(line string, userMeta apievents.UserMetadata, sessionMeta apievents.SessionMetadata) (apievents.AuditEvent, bool, error) {
+func mcpMessageToEvent(line string, userMeta apievents.UserMetadata, sessionMeta apievents.SessionMetadata, authErr error) (apievents.AuditEvent, bool, error) {
 	var baseMessage struct {
 		JSONRPC string            `json:"jsonrpc"`
 		Method  string            `json:"method"`
 		ID      any               `json:"id,omitempty"`
 		Params  *apievents.Struct `json:"params,omitempty"`
 	}
-
 	if err := json.Unmarshal([]byte(line), &baseMessage); err != nil {
 		return nil, false, trace.Wrap(err, "failed to parse MCP message")
 	}
@@ -37,17 +36,28 @@ func mcpMessageToEvent(line string, userMeta apievents.UserMetadata, sessionMeta
 			RPCParams: baseMessage.Params,
 		}, shouldEmit, nil
 	}
+
+	code := events.AppSessionMCPRequestCode
+	status := apievents.Status{
+		Success: true,
+	}
+	if authErr != nil {
+		status.Success = false
+		status.Error = authErr.Error()
+		code = events.AppSessionMCPRequestFailureCode
+	}
 	return &apievents.AppSessionMCPRequest{
 		UserMetadata:    userMeta,
 		SessionMetadata: sessionMeta,
 		Metadata: apievents.Metadata{
 			Type: events.AppSessionMCPRequestEvent,
-			Code: events.AppSessionMCPRequestCode,
+			Code: code,
 		},
 		JSONRPC:   baseMessage.JSONRPC,
 		RPCMethod: baseMessage.Method,
 		RPCID:     fmt.Sprintf("%v", baseMessage.ID),
 		RPCParams: baseMessage.Params,
+		Status:    status,
 	}, shouldEmit, nil
 }
 

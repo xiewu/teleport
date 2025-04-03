@@ -3531,6 +3531,9 @@ message RoleConditions {
   // WorkloadIdentityLabelsExpression is a predicate expression used to
   // allow/deny access to issuing a WorkloadIdentity.
   string WorkloadIdentityLabelsExpression = 45 [(gogoproto.jsontag) = "workload_identity_labels_expression,omitempty"];
+
+  // MCPTools controls what tools can be invoked on the remote MCP server.s
+  repeated string MCPTools = 46 [(gogoproto.jsontag) = "mcp_tools,omitempty"];
 }
 
 // IdentityCenterAccountAssignment captures an AWS Identity Center account
