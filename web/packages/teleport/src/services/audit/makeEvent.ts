@@ -2132,8 +2132,21 @@ export const formatters: Formatters = {
   [eventCodes.APP_SESSION_MCP_REQUEST]: {
     type: 'app.session.mcp.request',
     desc: 'App Session MCP Request',
-    format: ({ user, rpc_method }) => {
+    format: ({ user, rpc_method, rpc_params }) => {
+      if (rpc_params && rpc_params.name) {
+        return `User [${user}] sent an MCP request [${rpc_method}] for [${rpc_params.name}]`;
+      }
       return `User [${user}] sent an MCP request [${rpc_method}]`;
+    },
+  },
+  [eventCodes.APP_SESSION_MCP_REQUEST_FAILURE]: {
+    type: 'app.session.mcp.request',
+    desc: 'App Session MCP Request Failure',
+    format: ({ user, rpc_method, rpc_params }) => {
+      if (rpc_params && rpc_params.name) {
+        return `User [${user}] was denied access to an MCP request [${rpc_method}] for [${rpc_params.name}]`;
+      }
+      return `User [${user}] was denied access to an MCP request [${rpc_method}]`;
     },
   },
   [eventCodes.APP_SESSION_MCP_NOTIFICATION]: {

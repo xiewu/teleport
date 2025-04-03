@@ -308,6 +308,7 @@ const EventIconMap: Record<EventCode, any> = {
   [eventCodes.HEALTH_CHECK_CONFIG_UPDATE]: Icons.Info,
   [eventCodes.HEALTH_CHECK_CONFIG_DELETE]: Icons.Info,
   [eventCodes.APP_SESSION_MCP_REQUEST]: Icons.Info,
+  [eventCodes.APP_SESSION_MCP_REQUEST_FAILURE]: Icons.Warning,
   [eventCodes.APP_SESSION_MCP_NOTIFICATION]: Icons.Info,
 };
 

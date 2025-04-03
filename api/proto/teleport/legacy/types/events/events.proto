@@ -8316,6 +8316,13 @@ message AppSessionMCPRequest {
     (gogoproto.jsontag) = "rpc_params,omitempty",
     (gogoproto.casttype) = "Struct"
   ];
+
+  // Status contains common command or operation status fields
+  Status Status = 8 [
+    (gogoproto.nullable) = false,
+    (gogoproto.embed) = true,
+    (gogoproto.jsontag) = ""
+  ];
 }
 
 message AppSessionMCPNotification {

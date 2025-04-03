@@ -727,6 +727,8 @@ const (
 
 	// AppSessionMCPRequestCode is the code for a Model Context Protocol (MCP) request.
 	AppSessionMCPRequestCode = "TMCP001I"
+	// AppSessionMCPRequestFailureCode is the code for a Model Context Protocol (MCP) request failure event.
+	AppSessionMCPRequestFailureCode = "TMCP001E"
 	// AppSessionMCPNotificationCode is the code for a Model Context Protocol (MCP) notification.
 	AppSessionMCPNotificationCode = "TMCP002I"
 

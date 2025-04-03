@@ -610,10 +610,14 @@ func (c *ConnectionsHandler) handleConnection(conn net.Conn) (func(), error) {
 
 	// Application access supports plain TCP connections which are handled
 	// differently than HTTP requests from web apps.
-	if app.IsTCP() || app.IsMCP() {
+	if app.IsTCP() {
 		identity := authCtx.Identity.GetIdentity()
 		defer cancel(nil)
 		return nil, trace.Wrap(c.handleTCPApp(ctx, tlsConn, &identity, app))
+	}
+	if app.IsMCP() {
+		defer cancel(nil)
+		return nil, trace.Wrap(c.mcpServer.handleConnection(ctx, tlsConn, authCtx, app))
 	}
 
 	cleanup := func() {
@@ -642,10 +646,6 @@ func (c *ConnectionsHandler) handleHTTPApp(ctx context.Context, conn net.Conn) e
 
 // handleTCPApp handles connection for a TCP application.
 func (c *ConnectionsHandler) handleTCPApp(ctx context.Context, conn net.Conn, identity *tlsca.Identity, app types.Application) error {
-	if app.IsMCP() {
-		c.log.DebugContext(ctx, "=== handling MCP app", "app", app.GetName())
-		return trace.Wrap(c.mcpServer.handleConnection(ctx, conn, identity, app))
-	}
 	err := c.tcpServer.handleConnection(ctx, conn, identity, app)
 	if err != nil {
 		return trace.Wrap(err)

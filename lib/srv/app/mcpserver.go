@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -29,11 +30,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
+	"github.com/mark3labs/mcp-go/mcp"
 
 	apitypes "github.com/gravitational/teleport/api/types"
 	apievents "github.com/gravitational/teleport/api/types/events"
+	"github.com/gravitational/teleport/lib/authz"
+	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
+	logutils "github.com/gravitational/teleport/lib/utils/log"
 )
 
 type mcpServer struct {
@@ -43,7 +48,8 @@ type mcpServer struct {
 }
 
 // handleConnection handles connection from an MCP application.
-func (s *mcpServer) handleConnection(ctx context.Context, clientConn net.Conn, identity *tlsca.Identity, app apitypes.Application) error {
+func (s *mcpServer) handleConnection(ctx context.Context, clientConn net.Conn, authCtx *authz.Context, app apitypes.Application) error {
+	identity := authCtx.Identity.GetIdentity()
 	sessionID := uuid.New().String()
 
 	log := s.log.With("session", sessionID)
@@ -56,15 +62,24 @@ func (s *mcpServer) handleConnection(ctx context.Context, clientConn net.Conn, i
 
 	mkWriter := func(handleName string, emitEvents bool) *dumpWriter {
 		if emitEvents {
-			return newDumpWriter(ctx, handleName, s.emitter, log, identity, sessionID)
+			return newDumpWriter(ctx, handleName, s.emitter, log, &identity, sessionID)
 		}
-		return newDumpWriter(ctx, handleName, nil, log, identity, sessionID)
+		return newDumpWriter(ctx, handleName, nil, log, &identity, sessionID)
 	}
 
+	responseWriter := utils.NewSyncWriter(clientConn)
 	cmd := exec.CommandContext(ctx, app.GetMCPCommand(), app.GetMCPArgs()...)
 	//cmd.Stdin = io.TeeReader(clientConn, mkWriter("in", true))
-	cmd.Stdin = &authorizedReader{clientConn: clientConn}
-	cmd.Stdout = io.MultiWriter(utils.NewSyncWriter(clientConn), mkWriter("out", false))
+	cmd.Stdin = &authorizedReader{
+		ctx:            ctx,
+		clientConn:     clientConn,
+		authCtx:        authCtx,
+		app:            app,
+		responseWriter: responseWriter,
+		log:            s.log,
+		dumpWriter:     mkWriter("in", true),
+	}
+	cmd.Stdout = io.MultiWriter(responseWriter, mkWriter("out", false))
 	cmd.Stderr = mkWriter("err", false)
 	if err := cmd.Start(); err != nil {
 		return trace.Wrap(err)
@@ -73,7 +88,13 @@ func (s *mcpServer) handleConnection(ctx context.Context, clientConn net.Conn, i
 }
 
 type authorizedReader struct {
-	clientConn io.Reader
+	ctx            context.Context
+	clientConn     io.Reader
+	authCtx        *authz.Context
+	app            apitypes.Application
+	responseWriter io.Writer
+	log            *slog.Logger
+	dumpWriter     *dumpWriter
 }
 
 func (r *authorizedReader) Read(p []byte) (n int, err error) {
@@ -84,18 +105,54 @@ func (r *authorizedReader) Read(p []byte) (n int, err error) {
 	}
 	if len(temp) != 0 {
 		var baseMessage struct {
+			ID     any    `json:"id,omitempty"`
 			Method string `json:"method"`
 			Params struct {
 				Name string `json:"name"`
 			} `json:"params"`
 		}
 		if err := json.Unmarshal(bytes.TrimSpace(temp[:n]), &baseMessage); err == nil {
-			if baseMessage.Method == "tools/call" && baseMessage.Params.Name == "add" {
-				return 0, trace.AccessDenied("unauthorized")
+			if baseMessage.ID != nil && baseMessage.Method == string(mcp.MethodToolsCall) {
+				r.log.DebugContext(r.ctx, "Tools call", "msg", baseMessage)
+				accessState := services.AccessState{
+					MFAVerified:    true,
+					DeviceVerified: true,
+				}
+				toolMatcher := &services.MCPToolsMatcher{
+					Name: baseMessage.Params.Name,
+				}
+				authErr := r.authCtx.Checker.CheckAccess(r.app, accessState, toolMatcher)
+				if authErr != nil {
+					// Send a response.
+					result := mcp.CallToolResult{
+						Content: []mcp.Content{mcp.TextContent{
+							Type: "text",
+							Text: fmt.Sprintf("Access denied to this MCP tool: %v. RBAC is enforced by your Teleport roles.", authErr),
+						}},
+						IsError: false,
+					}
+					resp := mcp.JSONRPCResponse{
+						JSONRPC: mcp.JSONRPC_VERSION,
+						ID:      baseMessage.ID,
+						Result:  result,
+					}
+					if respBytes, err := json.Marshal(resp); err == nil {
+						// Write response followed by newline
+						if _, err := fmt.Fprintf(r.responseWriter, "%s\n", respBytes); err != nil {
+							r.log.ErrorContext(r.ctx, "Failed to send JSON RPC response", "error", err, "resp", resp)
+						}
+					} else {
+						r.log.ErrorContext(r.ctx, "Failed to marshal JSON RPC response", "error", err, "resp", resp)
+					}
+					r.dumpWriter.emitAuditEvent(string(temp[:n]), authErr)
+					// Do NOT fail this otherwise the connection will be killed.
+					return n, nil
+				}
 			}
 		}
 	}
 	copy(p, temp)
+	r.dumpWriter.Write(temp[:n])
 	return n, err
 }
 
@@ -117,14 +174,14 @@ type dumpWriter struct {
 	sessionID string
 }
 
-func (d *dumpWriter) emitAuditEvent(msg string) {
+func (d *dumpWriter) emitAuditEvent(msg string, authError error) {
 	if d.emitter == nil {
 		return
 	}
 
 	userMeta := d.identity.GetUserMetadata()
 	sessionMeta := apievents.SessionMetadata{SessionID: d.sessionID}
-	event, emit, err := mcpMessageToEvent(msg, userMeta, sessionMeta)
+	event, emit, err := mcpMessageToEvent(msg, userMeta, sessionMeta, authError)
 	if err != nil {
 		d.logger.WarnContext(d.ctx, "Failed to parse RPC message", "error", err)
 		return
@@ -140,7 +197,7 @@ func (d *dumpWriter) emitAuditEvent(msg string) {
 }
 
 func (d *dumpWriter) Write(p []byte) (int, error) {
-	d.emitAuditEvent(string(p))
-	d.logger.DebugContext(d.ctx, "=== dump", "data", string(p))
+	d.emitAuditEvent(string(p), nil)
+	d.logger.Log(d.ctx, logutils.TraceLevel, "=== dump", "data", string(p))
 	return len(p), nil
 }
