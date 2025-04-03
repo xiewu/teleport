@@ -126,6 +126,9 @@ const (
 	// ComponentApp is the application proxy service.
 	ComponentApp = "app:service"
 
+	// ComponentMCP is the MCP proxy service.
+	ComponentMCP = "mcp:service"
+
 	// ComponentDatabase is the database proxy service.
 	ComponentDatabase = "db:service"
 

@@ -445,6 +445,38 @@ func NewDatabaseWatcher(ctx context.Context, cfg DatabaseWatcherConfig) (*Generi
 	return w, trace.Wrap(err)
 }
 
+type AppServerWatcherConfig struct {
+	// AppGetter is responsible for fetching application resources.
+	Reader AppServersGetter
+	// ResourcesC receives up-to-date list of all application resources.
+	ResourcesC chan []types.AppServer
+	// ResourceWatcherConfig is the resource watcher configuration.
+	ResourceWatcherConfig
+}
+
+type AppServerWatcher = GenericWatcher[types.AppServer, readonly.AppServer]
+
+func NewAppServerWatcher(ctx context.Context, cfg AppServerWatcherConfig) (*AppServerWatcher, error) {
+	if cfg.Reader == nil {
+		return nil, trace.BadParameter("Reader must be provided")
+	}
+
+	w, err := NewGenericResourceWatcher(ctx, GenericWatcherConfig[types.AppServer, readonly.AppServer]{
+		ResourceWatcherConfig: cfg.ResourceWatcherConfig,
+		ResourceKind:          types.KindAppServer,
+		ResourceKey:           types.AppServer.GetName,
+		ResourceGetter: func(ctx context.Context) ([]types.AppServer, error) {
+			return cfg.Reader.GetApplicationServers(ctx, apidefaults.Namespace)
+		},
+		ResourcesC: cfg.ResourcesC,
+		CloneFunc: func(resource types.AppServer) types.AppServer {
+			return resource.Copy()
+		},
+	})
+
+	return w, trace.Wrap(err)
+}
+
 // AppWatcherConfig is an AppWatcher configuration.
 type AppWatcherConfig struct {
 	// AppGetter is responsible for fetching application resources.

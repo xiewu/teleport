@@ -19,11 +19,15 @@
 package common
 
 import (
+	"context"
 	"io"
 	"net"
+	"os"
 
 	"github.com/gravitational/trace"
 
+	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/lib/client/mcp"
 	"github.com/gravitational/teleport/lib/srv/alpnproxy"
 	alpncommon "github.com/gravitational/teleport/lib/srv/alpnproxy/common"
 	"github.com/gravitational/teleport/lib/utils"
@@ -70,4 +74,69 @@ func onMCPStart(cf *CLIConf) error {
 
 	stdioConn := utils.CombinedStdio{}
 	return utils.ProxyConn(cf.Context, in, stdioConn)
+}
+
+func onMCPForward(cf *CLIConf) error {
+	cf.OverrideStdout = io.Discard
+
+	tc, err := makeClient(cf)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	clusterClient, err := tc.ConnectToCluster(cf.Context)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	defer clusterClient.Close()
+
+	dialAppServer := func(ctx context.Context, appServer types.AppServer) (io.ReadCloser, io.WriteCloser, error) {
+		cf := *cf
+		tc, err := makeClient(&cf)
+		if err != nil {
+			return nil, nil, trace.Wrap(err)
+		}
+		cf.AppName = appServer.GetApp().GetName()
+		if err := onAppLogin(&cf); err != nil {
+			return nil, nil, trace.Wrap(err)
+		}
+		cert, err := loadAppCertificate(tc, cf.AppName)
+		if err != nil {
+			return nil, nil, trace.Wrap(err)
+		}
+		left, right := net.Pipe()
+		listener := listenerutils.NewSingleUseListener(right)
+		lp, err := alpnproxy.NewLocalProxy(
+			makeBasicLocalProxyConfig(cf.Context, tc, listener, tc.InsecureSkipVerify),
+			alpnproxy.WithALPNProtocol(alpncommon.ProtocolTCP),
+			alpnproxy.WithClientCert(cert),
+			alpnproxy.WithClusterCAsIfConnUpgrade(cf.Context, tc.RootClusterCACertPool),
+		)
+		if err != nil {
+			return nil, nil, trace.Wrap(err)
+		}
+		go func() {
+			defer logger.InfoContext(ctx, "Local proxy for MCP app exited", "app", appServer.GetName())
+			logger.InfoContext(ctx, "Starting local proxy for MCP app", "app", appServer.GetName())
+			if err = lp.Start(ctx); err != nil {
+				logger.ErrorContext(ctx, "Failed to start local ALPN proxy", "error", err)
+			}
+		}()
+		return left, left, nil
+	}
+
+	proxy, err := mcp.NewProxy(cf.Context, mcp.ProxyConfig{
+		AppDialerFn:      dialAppServer,
+		Events:           clusterClient.AuthClient,
+		AppServersGetter: clusterClient.AuthClient,
+	})
+	if err != nil {
+		logger.ErrorContext(cf.Context, "Failed to start MCP proxy",
+			"error", err,
+		)
+		return trace.Wrap(err)
+	}
+
+	return trace.Wrap(
+		proxy.Listen(cf.Context, os.Stdin, os.Stdout),
+	)
 }

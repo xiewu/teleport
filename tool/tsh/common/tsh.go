@@ -974,6 +974,7 @@ func Run(ctx context.Context, args []string, opts ...CliOption) error {
 	mcp := app.Command("mcp", "View and control available MCP servers")
 	mcpStart := mcp.Command("start", "Start proxy for particular MCP server")
 	mcpStart.Arg("name", "Name of the MCP server").Required().StringVar(&cf.AppName)
+	mcpForward := mcp.Command("forward", "Start a forwarding proxy for all accessible MCP servers")
 	lsMCP := mcp.Command("ls", "List available MCP servers")
 	mcpStartDB := mcp.Command("start-db", "Start a local MCP server for a database service")
 	// mcpStartDB.Arg("db", "Database to retrieve credentials for. Can be obtained from 'tsh db ls' output.").StringVar(&cf.DatabaseService)
@@ -1595,6 +1596,8 @@ func Run(ctx context.Context, args []string, opts ...CliOption) error {
 
 	case mcpStart.FullCommand():
 		err = onMCPStart(&cf)
+	case mcpForward.FullCommand():
+		err = onMCPForward(&cf)
 	case lsMCP.FullCommand():
 		err = onMCPList(&cf)
 	case mcpStartDB.FullCommand():

@@ -230,6 +230,35 @@ type Application interface {
 	GetCORS() *types.CORSPolicy
 }
 
+// AppServer is a read-only variant of [types.AppServer].
+type AppServer interface {
+	// ResourceWithLabels provides common resource methods.
+	ResourceWithLabels
+	// GetNamespace returns server namespace.
+	GetNamespace() string
+	// GetTeleportVersion returns the teleport version the server is running on.
+	GetTeleportVersion() string
+	// GetHostname returns the server hostname.
+	GetHostname() string
+	// GetHostID returns ID of the host the server is running on.
+	GetHostID() string
+	// GetRotation gets the state of certificate authority rotation.
+	GetRotation() types.Rotation
+	// String returns string representation of the server.
+	String() string
+	// Copy returns a copy of this app server object.
+	Copy() types.AppServer
+
+	// CloneResource returns a copy of the AppServer as a ResourceWithLabels
+	CloneResource() types.ResourceWithLabels
+	// GetApp returns the app this app server proxies.
+	GetApp() types.Application
+	// GetTunnelType returns the tunnel type associated with the app server.
+	GetTunnelType() types.TunnelType
+	// GetProxyIDs returns a list of proxy ids this service is connected to.
+	GetProxyIDs() []string
+}
+
 // KubeServer is a read only variant of [types.KubeServer].
 type KubeServer interface {
 	// ResourceWithLabels provides common resource methods.
