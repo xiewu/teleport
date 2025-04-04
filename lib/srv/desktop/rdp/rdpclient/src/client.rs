@@ -308,14 +308,14 @@ impl Client {
             .take()
             .ok_or_else(|| ClientError::InternalError("function_receiver failed".to_string()))?;
 
-        let read_loop_handle = Client::run_read_loop(
+        let read_loop = Client::read_loop(
             self.cgo_handle,
             read_stream,
             self.x224_processor.clone(),
             self.client_handle.clone(),
         );
 
-        let write_loop_handle = Client::run_write_loop(
+        let write_loop = Client::write_loop(
             self.cgo_handle,
             write_stream,
             function_receiver,
@@ -325,16 +325,12 @@ impl Client {
 
         // Wait for either loop to finish. When one does, cancel the other and return the result.
         tokio::select! {
-            res = read_loop_handle => {
-                res
-            },
-            res = write_loop_handle => {
-                res.map(|_|None)
-            }
+            res = read_loop => res,
+            res = write_loop => res.map(|_| None),
         }
     }
 
-    async fn run_read_loop(
+    async fn read_loop(
         cgo_handle: CgoHandle,
         mut read_stream: RdpReadStream,
         x224_processor: Arc<Mutex<x224::Processor>>,
@@ -415,7 +411,7 @@ impl Client {
         }
     }
 
-    async fn run_write_loop(
+    async fn write_loop(
         cgo_handle: CgoHandle,
         mut write_stream: RdpWriteStream,
         mut write_receiver: FunctionReceiver,
