@@ -212,10 +212,10 @@ check if any active keys are accessible (detailed in the next paragraph) and,
 in the case that there are none, generate a new `RSA` wrapping keypair. The new
 keypair  will be added as an entry to the list of active keys but without a
 wrapped `Identity`. Any other auth server with an active key can inspect the
-new entry, unwrap their own copy of the `Identity`, and wrap it again using the
-included public `RSA` key provided by the new auth server. The re-wrapped
-`Identity` is then saved as the wrapped key for the new entry and both auth
-servers will be able to decrypt sessions.
+new entry, unwrap their own copy of the `Identity`, and wrap it again using
+software encryption and the included public `RSA` key provided by the new auth
+server. The re-wrapped `Identity` is then saved as the wrapped key for the new
+entry and both auth servers will be able to decrypt sessions.
 
 When using KMS keystores, auth servers may share access to the same key. In that
 case, they will also share the same wrapped key which can be identified by the
@@ -263,7 +263,7 @@ will:
   keys.
 - Generate a new `X25519` keypair.
 - Iterate over all active wrapped keys and use their public `RSA` keys to
-  replace their `wrapped_private_key` value.
+  replace their `wrapped_private_key` value using software encryption.
 
 These are two separate operations and should be handled separately in order to
 avoid any period of time where valid keys are unavailable. For simplicity,
