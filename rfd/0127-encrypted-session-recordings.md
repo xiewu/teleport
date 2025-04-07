@@ -203,9 +203,8 @@ and the private key as the `Identity` in keeping with `age` terminology.
 
 The auth server generating the keys will then use the configured CA keystore to
 generate an `RSA` keypair used to encrypt, or wrap, the `Identity`. Once
-encrypted, the `Recipient` will be written to
-`session_recording_config.status.public_key` and the wrapped `Identity` will
-be added as an entry to `session_recording_config.status.active_keys`.
+encrypted, the `Recipient`, wrapped `Identity`, and wrapping keypair are added
+as a new entry to the `session_recording_config.status.active_keys` list.
 
 If a new auth server is added to the environment, it will find that there is
 already a configured `X25519` keypair in the session recording config. It will
@@ -216,12 +215,12 @@ wrapped `Identity`. Any other auth server with an active key can inspect the
 new entry, unwrap their own copy of the `Identity`, and wrap it again using the
 included public `RSA` key provided by the new auth server. The re-wrapped
 `Identity` is then saved as the wrapped key for the new entry and both auth
-servers are will be able to decrypt sessions.
+servers will be able to decrypt sessions.
 
-For KMS wrapped keys, auth servers may share access to the same key. In that
+When using KMS keystores, auth servers may share access to the same key. In that
 case, they will also share the same wrapped key which can be identified by the
 key ID. For HSMs integrated over PKCS#11, the auth server's host UUID is
-already attached to the key ID and will be used to determine access.
+attached to the key ID and will be used to determine access.
 
 ### Decryption and Replay
 
