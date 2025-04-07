@@ -266,7 +266,9 @@ will:
   replace their `wrapped_private_key` value.
 
 These are two separate operations and should be handled separately in order to
-avoid any period of time where valid keys are unavailable.
+avoid any period of time where valid keys are unavailable. For simplicity,
+auth servers without immediate access to an active key will return an error to
+the client letting them know the rotation should be tried again.
 
 #### `tctl` Changes
 
