@@ -196,9 +196,13 @@ This design relies on a few different types of keys.
   symmetric encryption of the recording data.
 - `Identity` and `Recipient` keys used by `age` to wrap and unwrap file keys.
   These are an asymmetric `X25519` keypair.
-- HSM/KMS-owned `RSA` keypairs used to wrap the `Identity` key. These allow the
-  HSM or KMS keystore to "own" decryption without requiring proxy or host nodes
-  to make encryption requests to the auth server.
+- HSM/KMS-owned `RSA` keypairs used to wrap and unwrap the `Identity` key. 
+  "Wrapping" in the context of this document refers to software OAED encryption
+  using `RSA` public keys and `SHA256` as the hashing function. "Unwrapping"
+  refers to OAED decryption through integration with an HSM or KMS. Integrating
+  with keystore backends in this way allows for proxy and host nodes to use the
+  easily accessible `Recipient` key for encryption instead of requiring access
+  to any of the key material managed by the keystore.
 
 ### Key Generation
 
@@ -208,9 +212,22 @@ For the rest of this section I will refer to the public key as the `Recipient`
 and the private key as the `Identity` in keeping with `age` terminology.
 
 The auth server generating the keys will then use the configured CA keystore to
-generate an `RSA` keypair used to encrypt, or wrap, the `Identity`. Once
-encrypted, the `Recipient`, wrapped `Identity`, and wrapping keypair are added
-as a new entry to the `session_recording_config.status.active_keys` list.
+generate an `RSA` keypair used to wrap the `Identity`. Once encrypted, the
+`Recipient`, wrapped `Identity`, and wrapping keypair are added as a new entry
+to the `session_recording_config.status.active_keys` list. 
+
+`RSA` key generation is already supported for signing use-cases across AWS KMS,
+GCP CKM, and PKCS#11. However we will need to add support for calling into
+their native decryption functions in order to unwrap `Identity` keys:
+- AWS KMS supports setting an algorithm of `RSAES_OAEP_SHA_256` when using the
+  `Decrypt` action of the KMS API.
+- GCP CKM supports generating keys of type `RSAES_OAEP_2048_SHA256` which can
+  be used when calling the `AsymmetricDecrypt` API from their go SDK. Worth
+  noting that keys generated for signing can not be used for decryption, so key
+  generation with a GCP backend will need to be modified slightly.
+- This should be supported by most HSMs through the `C_RSA_PKCS_OAEP` and
+  `CKM_SHA256` mechanisms which can be passed to the `C_DecryptInit` function
+  exposed by PKCS#11. 
 
 In order to collaboratively generate and share the `Identity` and `Recipient`
 keys, all auth servers must create a watcher for `Put` events against the
