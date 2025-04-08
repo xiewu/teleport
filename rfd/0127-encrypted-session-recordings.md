@@ -126,11 +126,17 @@ service TrustService {
   rpc RotateSessionRecordingKeys(RotateSessionRecordingKeysRequest) returns (RotateSessionRecordingKeysResponse);
 }
 
+// RecordingKeyType represents the types of keys associated with encrypting and
+// decrypting session recordings.
+enum RecordingKeyType = {
+  Data = 0;
+  Wrapping = 1;
+}
+
 // Request for RotateSessionRecordingKeys.
 message RotateSessionRecordingKeysRequest {
-  // KeyType defines which key type should be rotated. Valid options are:
-  // "data" and "wrap"
-  string KeyType = 1;
+  // KeyType defines which key type should be rotated.
+  RecordingKeyType KeyType = 1;
 }
 
 // Response for RotateSessionRecordingKeys
@@ -196,7 +202,7 @@ This design relies on a few different types of keys.
 
 ### Key Generation
 
-To simplify integration with different HSM/KMS systems, the keypair used for 
+To simplify integration with different HSM/KMS systems, the keypair used for
 data encryption through `age` will be a software generated `X25519` keypair.
 For the rest of this section I will refer to the public key as the `Recipient`
 and the private key as the `Identity` in keeping with `age` terminology.
@@ -206,16 +212,20 @@ generate an `RSA` keypair used to encrypt, or wrap, the `Identity`. Once
 encrypted, the `Recipient`, wrapped `Identity`, and wrapping keypair are added
 as a new entry to the `session_recording_config.status.active_keys` list.
 
-If a new auth server is added to the environment, it will find that there is
-already a configured `X25519` keypair in the session recording config. It will
-check if any active keys are accessible (detailed in the next paragraph) and,
-in the case that there are none, generate a new `RSA` wrapping keypair. The new
-keypair  will be added as an entry to the list of active keys but without a
-wrapped `Identity`. Any other auth server with an active key can inspect the
-new entry, unwrap their own copy of the `Identity`, and wrap it again using
-software encryption and the included public `RSA` key provided by the new auth
-server. The re-wrapped `Identity` is then saved as the wrapped key for the new
-entry and both auth servers will be able to decrypt sessions.
+In order to collaboratively generate and share the `Identity` and `Recipient`
+keys, all auth servers must create a watcher for `Put` events against the
+`SessionRecordingConfigV2` resource. Modifications to this resource will signal
+existing auth servers to investigate whether or not there is work that needs to
+be done. For example, when adding a new auth server to an environment, it will
+find that there is already an `X25519` keypair configured. It will check if any
+active keys are accessible (detailed in the next paragraph) and, in the case
+that there are none, generate a new `RSA` wrapping keypair. The new keypair
+will be added as an entry to the list of active keys but without a wrapped
+`Identity`. Any other auth server with an active key can inspect the new entry,
+unwrap their own copy of the `Identity`, and wrap it again using software OAEP
+encryption with the entry's public `RSA` key. The re-wrapped `Identity` is then
+saved as the wrapped key for the new entry and the newly added auth server will
+be able to decrypt sessions.
 
 When using KMS keystores, auth servers may share access to the same key. In that
 case, they will also share the same wrapped key which can be identified by the
@@ -244,38 +254,57 @@ may need to be rotated. Both cases are supported by making rotation requests to
 the auth service and can be fulfilled by any auth server with an active wrapped
 key.
 
-When an auth server receives a rotation request for wrapped keys, it will:
+These are implemented as two separate operations in order to avoid any period
+of time where valid keys might be unavailable. For simplicity, auth servers
+without immediate access to an active key will return an error to the client
+letting them know the rotation should be tried again.
+
+#### Rotating Wrapping Keys 
+
+When an auth server receives a rotation request for wrapping keys, it will:
 - Unwrap its copy of the active `X25519` private key and generate a new `RSA`
   wrapping keypair.
-- Wrap the `X25519` private key with the new `RSA` public key and replace its
-  active key.
+- Wrap the `X25519` private key with the new `RSA` public key.
 - Mark all other active keys for rotation by setting their `rotate` field to
   `true`. This is done in place of removing all other keys in order to avoid
   any situation where an auth server initiates a rotation and then crashes,
   leaving all other auth servers without a way of retrieving new keys.
+- Replace wrapped private key and active keys marked for rotation in a single
+  atomic write to the backend.
 
-All other auth servers will find their keys marked for rotation and go through
-the same rotation process omitting the step of marking other keys.
+All other auth servers will check if their keys are marked for rotation when a
+change to the resource is picked up by their watcher. If they find their keys
+need to be rotated, they will:
+- Unwrap their copy of the `X25519` private key.
+- Generate a new `RSA` wrapping keypair.
+- Wrap the `X25519` private key.
+- Replace their active key with the newl wrapped key and wrapping keypair in a
+  single atomic write to the backend.
+
+It's worth noting that we do not need to move these keys into the `RotatedKeys`
+list because the expectation is that we will no longer have access to them in
+their respective HSM or KMS. Since the same underlying `X25519` keypair is
+ultimately driving encryption and decryption, we aren't losing any ability to
+decrypt historical sessions.
+
+#### Rotating `Identity` and `Recipient` keys
 
 When an auth server receives a rotation request for the `X25519` keypair, it
 will:
 - Copy all wrapped keys from the list of active keys to the list of rotated
   keys.
 - Generate a new `X25519` keypair.
-- Iterate over all active wrapped keys and use their public `RSA` keys to
-  replace their `wrapped_private_key` value using software encryption.
+- Iterate over all active keys and use their public `RSA` keys to generate new
+  wrapped private keys.
+- Replace all active and rotated keys in a single atomic write to the backend.
 
-These are two separate operations and should be handled separately in order to
-avoid any period of time where valid keys are unavailable. For simplicity,
-auth servers without immediate access to an active key will return an error to
-the client letting them know the rotation should be tried again.
 
 #### `tctl` Changes
 
 Key rotation will be handled through `tctl` using a new subcommand:
 ```bash
-tctl auth rotate recordings --type=data # for rotating X25519 pairs
-tctl auth rotate recordings --type=wrap # for rotating HSM/KMS backed wrapping keys
+tctl auth keys rotate --type=recording-data # for rotating X25519 pairs
+tctl auth keys rotate --type=recording-wrap # for rotating HSM/KMS backed wrapping keys
 ```
 The reasoning for the new subcommand was to try and avoid cases where you might
 forget the `--type` flag and initiate a rotation of the user and host CAs.
@@ -324,3 +353,4 @@ tsh play 49608fad-7fe3-44a7-b3b5-fab0e0bd34d1
 - Encrypted sessions can be recorded and played back with or without a backing
 - Key rotations for both key types don't break new recordings or remove the
   ability to decrypt old recordings.
+- Repeat all test plan steps with software, HSM, and KMS key backends.
