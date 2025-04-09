@@ -346,22 +346,29 @@ default.
 
 For the most part, the user experience of encrypted session recordings is
 identical to non-encrypted session recordings. The only notable change is the
-addition of the `tctl auth rotate recordings` subcommand for rotating keys
+addition of the `tctl auth keys rotate` subcommand for rotating keys
 related to encrypted session recording.
 
 ### Teleport admin rotating `Identity` and `Recipient` keypair
 ```bash
-tctl auth rotate recordings --type=data
+tctl auth keys rotate --type=recording-data
 ```
 
 ### Teleport admin rotating wrapping keys
 ```bash
-tctl auth rotate recordings --type=wrap
+tctl auth keys rotate --type=recording-wrap
 ```
 
-### Teleport admin replaying encrypted session using tsh
+### Teleport admin replaying encrypted session recording using `tsh`
 ```bash
 tsh play 49608fad-7fe3-44a7-b3b5-fab0e0bd34d1
+```
+
+### Teleport admin replaying encrypted session recording file using `tsh`
+```bash
+tsh play 49608fad-7fe3-44a7-b3b5-fab0e0bd34d1.tar
+
+"Replaying encrypted recording files is not supported by tsh, try replaying the with the session ID instead"
 ```
 
 ### Test Plan
