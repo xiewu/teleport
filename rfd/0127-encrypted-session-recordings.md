@@ -53,7 +53,8 @@ through the `session_recording_config` resource.
 kind: session_recording_config
 version: v2
 spec:
-  encrypted: true
+  encryption:
+    enabled: true
 ```
 HSM integration is facilitated through the existing configuration
 options for setting up an HSM backed CA keystore through pkcs#11. Example
@@ -76,31 +77,45 @@ message WrappedKey {
   // keypairs and to make available to proxy and host nodes.
   bytes PublicKey = 3 [(gogoproto.jsontag) = "public_key"];
   // Signals that a key should be rotated
-  bool rotate = 4 [(gogoproto.jsontag) = "rotate"];
+  bool Rotate = 4 [(gogoproto.jsontag) = "rotate"];
 }
 
-// SessionRecordingConfigStatusV2 contains all of the current and rotated keys
-// used for encrypted session recording.
-message SessionRecordingConfigStatusV2 {
+// EncryptionKeySet contains the list of active and rotated WrappedKeys for a
+// given usage.
+message EncryptionKeySet {
   // ActiveKeys is a list of active, wrapped X25519 private keys. There should
   // be at most one wrapped key per auth server using the
   // SessionRecordingConfigV2 resource unless keys are being rotated.
-  repeated WrappedKey ActiveKeys = 2 [
+  repeated WrappedKey ActiveKeys = 1 [
     (gogoproto.jsontag) = "active_keys"
   ];
   // RotatedKeys is a list of wrapped private keys that have been rotated.
   // These are kept to decrypt historical encrypted session recordings.
-  repeated WrappedKey RotatedKeys = 3 [
+  repeated WrappedKey RotatedKeys = 2 [
     (gogoproto.jsontag) = "rotated_keys"
   ];
+}
+// SessionRecordingConfigStatusV2 contains all of the current and rotated keys
+// used for encrypted session recording.
+message SessionRecordingConfigStatusV2 {
+  EncryptionKeySet KeySet = 1 [(gogoproto.jsontag) = "keyset"]
 }
 
 // SessionRecordingConfigSpecV2 is the actual data we care about
 // for SessionRecordingConfig.
 message SessionRecordingConfigSpecV2 {
-  // existing fields omitted 
+  // existing fields omitted
 
-  BoolValue encrypted = 3 [(gogoproto.jsontag) = "encrypted"]
+  SessionRecordingEncryptionConfig Encryption = 3 [
+    (gogoproto.jsontag) = "encryption"],
+    (gogoproto.nullable) = true,
+  ]
+}
+
+// SessionRecordingEncryptionConfig configures if and how session recordings
+// should be encrypted.
+message SessionRecordingEncryptionConfig {
+  BoolValue Enabled = 1 [(gogoproto.jsontag) = "encrypted"]
 }
 
 // SessionRecordingConfigV2 contains session recording configuration.
@@ -110,8 +125,8 @@ message SessionRecordingConfigV2 {
   // Status contains all of the current and rotated keys used for encrypted
   // session recording
   SessionRecordingConfigStatusV2 Status = 6 [
-    (gogoproto.nullable) = true,
-    (gogoproto.jsontag) = "status"
+    (gogoproto.jsontag) = "status",
+    (gogoproto.nullable) = true
   ]
 }
 
@@ -129,8 +144,9 @@ service TrustService {
 // RecordingKeyType represents the types of keys associated with encrypting and
 // decrypting session recordings.
 enum RecordingKeyType = {
-  Data = 0;
-  Wrapping = 1;
+  RECORDING_KEY_TYPE_UNSPECIFIED = 0;
+  RECORDING_KEY_TYPE_DATA = 1;
+  RECORDING_KEY_TYPE_WRAPPING = 2;
 }
 
 // Request for RotateSessionRecordingKeys.
