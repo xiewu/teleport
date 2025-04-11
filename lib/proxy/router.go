@@ -309,6 +309,138 @@ func (r *Router) DialHost(ctx context.Context, clientSrcAddr, clientDstAddr net.
 	return NewProxiedMetricConn(conn), trace.Wrap(err)
 }
 
+// DialDesktop dials the desktop that matches the provided desktop name and cluster. If no matching desktop
+// is found, an error is returned.
+func (r *Router) DialDesktop(ctx context.Context, clientSrcAddr, clientDstAddr net.Addr, desktopName, clusterName string, accessChecker services.AccessChecker) (_ net.Conn, err error) {
+	ctx, span := r.tracer.Start(
+		ctx,
+		"router/DialDesktop",
+		oteltrace.WithAttributes(
+			attribute.String("desktopName", desktopName),
+			attribute.String("cluster", clusterName),
+		),
+	)
+	connectingToNode.Inc()
+	defer func() {
+		if err != nil {
+			failedConnectingToNode.Inc()
+		}
+		tracing.EndSpan(span, err)
+	}()
+
+	site := r.localSite
+	if clusterName != r.clusterName {
+		remoteSite, err := r.getRemoteCluster(ctx, clusterName, accessChecker)
+		if err != nil {
+			return nil, trace.Wrap(err, "looking up remote cluster %q", clusterName)
+		}
+		site = remoteSite
+	}
+
+	ap, err := site.CachingAccessPoint()
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	span.AddEvent("looking up desktop")
+
+	winDesktops, err := ap.GetWindowsDesktops(ctx, types.WindowsDesktopFilter{Name: desktopName})
+	if err != nil {
+		return nil, trace.Wrap(err, "cannot get Windows desktops")
+	}
+	if len(winDesktops) == 0 {
+		return nil, trace.NotFound("no Windows desktops were found")
+	}
+	span.AddEvent("retrieved target desktop")
+
+	var validServiceIDs []string
+	for _, desktop := range winDesktops {
+		if desktop.GetHostID() == "" {
+			// desktops with empty host ids are invalid and should
+			// only occur when migrating from an old version of teleport
+			continue
+		}
+		validServiceIDs = append(validServiceIDs, desktop.GetHostID())
+	}
+	rand.Shuffle(len(validServiceIDs), func(i, j int) {
+		validServiceIDs[i], validServiceIDs[j] = validServiceIDs[j], validServiceIDs[i]
+	})
+
+	c := &connector{
+		ap:            ap,
+		site:          site,
+		clientSrcAddr: clientSrcAddr,
+		clientDstAddr: clientDstAddr,
+	}
+
+	serviceConn, _, err := c.connectToWindowsService(ctx, clusterName, validServiceIDs)
+	if err != nil {
+		return nil, trace.Wrap(err, "cannot connect to Windows Desktop Service")
+	}
+
+	return NewProxiedMetricConn(serviceConn), trace.Wrap(err)
+}
+
+type connector struct {
+	ap            authclient.RemoteProxyAccessPoint
+	site          reversetunnelclient.RemoteSite
+	clientSrcAddr net.Addr
+	clientDstAddr net.Addr
+}
+
+// connectToWindowsService tries to make a connection to a Windows Desktop Service
+// by trying each of the services provided. It returns an error if it could not connect
+// to any of the services or if it encounters an error that is not a connection problem.
+func (c *connector) connectToWindowsService(
+	ctx context.Context,
+	clusterName string,
+	desktopServiceIDs []string,
+) (conn net.Conn, version string, err error) {
+	for _, id := range desktopServiceIDs {
+		conn, ver, err := c.tryConnect(ctx, clusterName, id)
+		if err != nil && !trace.IsConnectionProblem(err) {
+			return nil, "", trace.WrapWithMessage(err,
+				"error connecting to windows_desktop_service %q", id)
+		}
+		if trace.IsConnectionProblem(err) {
+			//c.log.WarnContext(ctx, "failed to connect to windows_desktop_service",
+			//	"windows_desktop_service_id", id,
+			//	"error", err,
+			//)
+			continue
+		}
+		if err == nil {
+			return conn, ver, nil
+		}
+	}
+	return nil, "", trace.Errorf("failed to connect to any windows_desktop_service")
+}
+
+func (c *connector) tryConnect(ctx context.Context, clusterName, desktopServiceID string) (conn net.Conn, version string, err error) {
+	service, err := c.ap.GetWindowsDesktopService(ctx, desktopServiceID)
+	if err != nil {
+		//c.log.ErrorContext(ctx, "Error finding service", "service_id", desktopServiceID, "error", err)
+		return nil, "", trace.NotFound("could not find windows desktop service %s: %v", desktopServiceID, err)
+	}
+
+	ver := service.GetTeleportVersion()
+	//*c.log = *c.log.With(
+	//	"windows_service_version", ver,
+	//	"windows_service_uuid", service.GetName(),
+	//	"windows_service_addr", service.GetAddr(),
+	//)
+
+	conn, err = c.site.DialTCP(reversetunnelclient.DialParams{
+		From:                  c.clientSrcAddr,
+		To:                    &utils.NetAddr{AddrNetwork: "tcp", Addr: service.GetAddr()},
+		ConnType:              types.WindowsDesktopTunnel,
+		ServerID:              service.GetName() + "." + clusterName,
+		ProxyIDs:              service.GetProxyIDs(),
+		OriginalClientDstAddr: c.clientDstAddr,
+	})
+	return conn, ver, trace.Wrap(err)
+}
+
 // checkedPrefixWriter checks that first data written into it has the specified prefix.
 type checkedPrefixWriter struct {
 	net.Conn

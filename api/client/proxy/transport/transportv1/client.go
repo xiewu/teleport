@@ -21,6 +21,7 @@ import (
 
 	"github.com/gravitational/trace"
 	"golang.org/x/crypto/ssh/agent"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 
 	transportv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/transport/v1"
@@ -54,6 +55,16 @@ func (c *Client) ClusterDetails(ctx context.Context) (*transportv1pb.ClusterDeta
 	}
 
 	return resp.Details, nil
+}
+
+// ProxyDesktopSession establishes a connection to the target desktop over a bidirectional stream.
+func (c *Client) ProxyDesktopSession(ctx context.Context) (grpc.BidiStreamingClient[transportv1pb.ProxyDesktopSessionRequest, transportv1pb.ProxyDesktopSessionResponse], error) {
+	stream, err := c.clt.ProxyDesktopSession(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return stream, nil
 }
 
 // DialCluster establishes a connection to the provided cluster. The provided

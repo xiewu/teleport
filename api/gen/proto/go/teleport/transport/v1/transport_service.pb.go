@@ -35,6 +35,162 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Request message for a proxied desktop session.
+type ProxyDesktopSessionRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Specifies the target desktop and associated cluster.
+	DialTarget *TargetDesktop `protobuf:"bytes,1,opt,name=dial_target,json=dialTarget,proto3" json:"dial_target,omitempty"`
+	// Encapsulated desktop stream payload.
+	Data          []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProxyDesktopSessionRequest) Reset() {
+	*x = ProxyDesktopSessionRequest{}
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProxyDesktopSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProxyDesktopSessionRequest) ProtoMessage() {}
+
+func (x *ProxyDesktopSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProxyDesktopSessionRequest.ProtoReflect.Descriptor instead.
+func (*ProxyDesktopSessionRequest) Descriptor() ([]byte, []int) {
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ProxyDesktopSessionRequest) GetDialTarget() *TargetDesktop {
+	if x != nil {
+		return x.DialTarget
+	}
+	return nil
+}
+
+func (x *ProxyDesktopSessionRequest) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// Identifies the destination desktop within a specific cluster.
+type TargetDesktop struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name of the desktop to connect to.
+	DesktopName string `protobuf:"bytes,1,opt,name=desktop_name,json=desktopName,proto3" json:"desktop_name,omitempty"`
+	// Name of the cluster that the desktop belongs to.
+	Cluster       string `protobuf:"bytes,2,opt,name=cluster,proto3" json:"cluster,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TargetDesktop) Reset() {
+	*x = TargetDesktop{}
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TargetDesktop) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TargetDesktop) ProtoMessage() {}
+
+func (x *TargetDesktop) ProtoReflect() protoreflect.Message {
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TargetDesktop.ProtoReflect.Descriptor instead.
+func (*TargetDesktop) Descriptor() ([]byte, []int) {
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *TargetDesktop) GetDesktopName() string {
+	if x != nil {
+		return x.DesktopName
+	}
+	return ""
+}
+
+func (x *TargetDesktop) GetCluster() string {
+	if x != nil {
+		return x.Cluster
+	}
+	return ""
+}
+
+// Response message for a proxied desktop session.
+type ProxyDesktopSessionResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Encapsulated desktop stream payload.
+	Data          []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProxyDesktopSessionResponse) Reset() {
+	*x = ProxyDesktopSessionResponse{}
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProxyDesktopSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProxyDesktopSessionResponse) ProtoMessage() {}
+
+func (x *ProxyDesktopSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProxyDesktopSessionResponse.ProtoReflect.Descriptor instead.
+func (*ProxyDesktopSessionResponse) Descriptor() ([]byte, []int) {
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ProxyDesktopSessionResponse) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
 // Request for ProxySSH
 //
 // In order for proxying to begin the client must send a request with the
@@ -59,7 +215,7 @@ type ProxySSHRequest struct {
 
 func (x *ProxySSHRequest) Reset() {
 	*x = ProxySSHRequest{}
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[0]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -71,7 +227,7 @@ func (x *ProxySSHRequest) String() string {
 func (*ProxySSHRequest) ProtoMessage() {}
 
 func (x *ProxySSHRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[0]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -84,7 +240,7 @@ func (x *ProxySSHRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxySSHRequest.ProtoReflect.Descriptor instead.
 func (*ProxySSHRequest) Descriptor() ([]byte, []int) {
-	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{0}
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ProxySSHRequest) GetDialTarget() *TargetHost {
@@ -160,7 +316,7 @@ type ProxySSHResponse struct {
 
 func (x *ProxySSHResponse) Reset() {
 	*x = ProxySSHResponse{}
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[1]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -172,7 +328,7 @@ func (x *ProxySSHResponse) String() string {
 func (*ProxySSHResponse) ProtoMessage() {}
 
 func (x *ProxySSHResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[1]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -185,7 +341,7 @@ func (x *ProxySSHResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxySSHResponse.ProtoReflect.Descriptor instead.
 func (*ProxySSHResponse) Descriptor() ([]byte, []int) {
-	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{1}
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ProxySSHResponse) GetDetails() *ClusterDetails {
@@ -258,7 +414,7 @@ type ProxyClusterRequest struct {
 
 func (x *ProxyClusterRequest) Reset() {
 	*x = ProxyClusterRequest{}
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[2]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -270,7 +426,7 @@ func (x *ProxyClusterRequest) String() string {
 func (*ProxyClusterRequest) ProtoMessage() {}
 
 func (x *ProxyClusterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[2]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -283,7 +439,7 @@ func (x *ProxyClusterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyClusterRequest.ProtoReflect.Descriptor instead.
 func (*ProxyClusterRequest) Descriptor() ([]byte, []int) {
-	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{2}
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ProxyClusterRequest) GetCluster() string {
@@ -311,7 +467,7 @@ type ProxyClusterResponse struct {
 
 func (x *ProxyClusterResponse) Reset() {
 	*x = ProxyClusterResponse{}
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[3]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -323,7 +479,7 @@ func (x *ProxyClusterResponse) String() string {
 func (*ProxyClusterResponse) ProtoMessage() {}
 
 func (x *ProxyClusterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[3]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -336,7 +492,7 @@ func (x *ProxyClusterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyClusterResponse.ProtoReflect.Descriptor instead.
 func (*ProxyClusterResponse) Descriptor() ([]byte, []int) {
-	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{3}
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ProxyClusterResponse) GetFrame() *Frame {
@@ -357,7 +513,7 @@ type Frame struct {
 
 func (x *Frame) Reset() {
 	*x = Frame{}
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[4]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -369,7 +525,7 @@ func (x *Frame) String() string {
 func (*Frame) ProtoMessage() {}
 
 func (x *Frame) ProtoReflect() protoreflect.Message {
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[4]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -382,7 +538,7 @@ func (x *Frame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Frame.ProtoReflect.Descriptor instead.
 func (*Frame) Descriptor() ([]byte, []int) {
-	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{4}
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Frame) GetPayload() []byte {
@@ -405,7 +561,7 @@ type TargetHost struct {
 
 func (x *TargetHost) Reset() {
 	*x = TargetHost{}
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[5]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -417,7 +573,7 @@ func (x *TargetHost) String() string {
 func (*TargetHost) ProtoMessage() {}
 
 func (x *TargetHost) ProtoReflect() protoreflect.Message {
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[5]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -430,7 +586,7 @@ func (x *TargetHost) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TargetHost.ProtoReflect.Descriptor instead.
 func (*TargetHost) Descriptor() ([]byte, []int) {
-	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{5}
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *TargetHost) GetHostPort() string {
@@ -456,7 +612,7 @@ type GetClusterDetailsRequest struct {
 
 func (x *GetClusterDetailsRequest) Reset() {
 	*x = GetClusterDetailsRequest{}
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[6]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -468,7 +624,7 @@ func (x *GetClusterDetailsRequest) String() string {
 func (*GetClusterDetailsRequest) ProtoMessage() {}
 
 func (x *GetClusterDetailsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[6]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -481,7 +637,7 @@ func (x *GetClusterDetailsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetClusterDetailsRequest.ProtoReflect.Descriptor instead.
 func (*GetClusterDetailsRequest) Descriptor() ([]byte, []int) {
-	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{6}
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{9}
 }
 
 // Response for GetClusterDetails.
@@ -495,7 +651,7 @@ type GetClusterDetailsResponse struct {
 
 func (x *GetClusterDetailsResponse) Reset() {
 	*x = GetClusterDetailsResponse{}
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[7]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -507,7 +663,7 @@ func (x *GetClusterDetailsResponse) String() string {
 func (*GetClusterDetailsResponse) ProtoMessage() {}
 
 func (x *GetClusterDetailsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[7]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -520,7 +676,7 @@ func (x *GetClusterDetailsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetClusterDetailsResponse.ProtoReflect.Descriptor instead.
 func (*GetClusterDetailsResponse) Descriptor() ([]byte, []int) {
-	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{7}
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetClusterDetailsResponse) GetDetails() *ClusterDetails {
@@ -541,7 +697,7 @@ type ClusterDetails struct {
 
 func (x *ClusterDetails) Reset() {
 	*x = ClusterDetails{}
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[8]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -553,7 +709,7 @@ func (x *ClusterDetails) String() string {
 func (*ClusterDetails) ProtoMessage() {}
 
 func (x *ClusterDetails) ProtoReflect() protoreflect.Message {
-	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[8]
+	mi := &file_teleport_transport_v1_transport_service_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -566,7 +722,7 @@ func (x *ClusterDetails) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterDetails.ProtoReflect.Descriptor instead.
 func (*ClusterDetails) Descriptor() ([]byte, []int) {
-	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{8}
+	return file_teleport_transport_v1_transport_service_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ClusterDetails) GetFipsEnabled() bool {
@@ -580,7 +736,16 @@ var File_teleport_transport_v1_transport_service_proto protoreflect.FileDescript
 
 const file_teleport_transport_v1_transport_service_proto_rawDesc = "" +
 	"\n" +
-	"-teleport/transport/v1/transport_service.proto\x12\x15teleport.transport.v1\"\xc6\x01\n" +
+	"-teleport/transport/v1/transport_service.proto\x12\x15teleport.transport.v1\"w\n" +
+	"\x1aProxyDesktopSessionRequest\x12E\n" +
+	"\vdial_target\x18\x01 \x01(\v2$.teleport.transport.v1.TargetDesktopR\n" +
+	"dialTarget\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"L\n" +
+	"\rTargetDesktop\x12!\n" +
+	"\fdesktop_name\x18\x01 \x01(\tR\vdesktopName\x12\x18\n" +
+	"\acluster\x18\x02 \x01(\tR\acluster\"1\n" +
+	"\x1bProxyDesktopSessionResponse\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"\xc6\x01\n" +
 	"\x0fProxySSHRequest\x12B\n" +
 	"\vdial_target\x18\x01 \x01(\v2!.teleport.transport.v1.TargetHostR\n" +
 	"dialTarget\x120\n" +
@@ -607,10 +772,11 @@ const file_teleport_transport_v1_transport_service_proto_rawDesc = "" +
 	"\x19GetClusterDetailsResponse\x12?\n" +
 	"\adetails\x18\x01 \x01(\v2%.teleport.transport.v1.ClusterDetailsR\adetails\"3\n" +
 	"\x0eClusterDetails\x12!\n" +
-	"\ffips_enabled\x18\x01 \x01(\bR\vfipsEnabled2\xd8\x02\n" +
+	"\ffips_enabled\x18\x01 \x01(\bR\vfipsEnabled2\xdb\x03\n" +
 	"\x10TransportService\x12v\n" +
 	"\x11GetClusterDetails\x12/.teleport.transport.v1.GetClusterDetailsRequest\x1a0.teleport.transport.v1.GetClusterDetailsResponse\x12_\n" +
-	"\bProxySSH\x12&.teleport.transport.v1.ProxySSHRequest\x1a'.teleport.transport.v1.ProxySSHResponse(\x010\x01\x12k\n" +
+	"\bProxySSH\x12&.teleport.transport.v1.ProxySSHRequest\x1a'.teleport.transport.v1.ProxySSHResponse(\x010\x01\x12\x80\x01\n" +
+	"\x13ProxyDesktopSession\x121.teleport.transport.v1.ProxyDesktopSessionRequest\x1a2.teleport.transport.v1.ProxyDesktopSessionResponse(\x010\x01\x12k\n" +
 	"\fProxyCluster\x12*.teleport.transport.v1.ProxyClusterRequest\x1a+.teleport.transport.v1.ProxyClusterResponse(\x010\x01BVZTgithub.com/gravitational/teleport/api/gen/proto/go/teleport/transport/v1;transportv1b\x06proto3"
 
 var (
@@ -625,39 +791,45 @@ func file_teleport_transport_v1_transport_service_proto_rawDescGZIP() []byte {
 	return file_teleport_transport_v1_transport_service_proto_rawDescData
 }
 
-var file_teleport_transport_v1_transport_service_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_teleport_transport_v1_transport_service_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_teleport_transport_v1_transport_service_proto_goTypes = []any{
-	(*ProxySSHRequest)(nil),           // 0: teleport.transport.v1.ProxySSHRequest
-	(*ProxySSHResponse)(nil),          // 1: teleport.transport.v1.ProxySSHResponse
-	(*ProxyClusterRequest)(nil),       // 2: teleport.transport.v1.ProxyClusterRequest
-	(*ProxyClusterResponse)(nil),      // 3: teleport.transport.v1.ProxyClusterResponse
-	(*Frame)(nil),                     // 4: teleport.transport.v1.Frame
-	(*TargetHost)(nil),                // 5: teleport.transport.v1.TargetHost
-	(*GetClusterDetailsRequest)(nil),  // 6: teleport.transport.v1.GetClusterDetailsRequest
-	(*GetClusterDetailsResponse)(nil), // 7: teleport.transport.v1.GetClusterDetailsResponse
-	(*ClusterDetails)(nil),            // 8: teleport.transport.v1.ClusterDetails
+	(*ProxyDesktopSessionRequest)(nil),  // 0: teleport.transport.v1.ProxyDesktopSessionRequest
+	(*TargetDesktop)(nil),               // 1: teleport.transport.v1.TargetDesktop
+	(*ProxyDesktopSessionResponse)(nil), // 2: teleport.transport.v1.ProxyDesktopSessionResponse
+	(*ProxySSHRequest)(nil),             // 3: teleport.transport.v1.ProxySSHRequest
+	(*ProxySSHResponse)(nil),            // 4: teleport.transport.v1.ProxySSHResponse
+	(*ProxyClusterRequest)(nil),         // 5: teleport.transport.v1.ProxyClusterRequest
+	(*ProxyClusterResponse)(nil),        // 6: teleport.transport.v1.ProxyClusterResponse
+	(*Frame)(nil),                       // 7: teleport.transport.v1.Frame
+	(*TargetHost)(nil),                  // 8: teleport.transport.v1.TargetHost
+	(*GetClusterDetailsRequest)(nil),    // 9: teleport.transport.v1.GetClusterDetailsRequest
+	(*GetClusterDetailsResponse)(nil),   // 10: teleport.transport.v1.GetClusterDetailsResponse
+	(*ClusterDetails)(nil),              // 11: teleport.transport.v1.ClusterDetails
 }
 var file_teleport_transport_v1_transport_service_proto_depIdxs = []int32{
-	5,  // 0: teleport.transport.v1.ProxySSHRequest.dial_target:type_name -> teleport.transport.v1.TargetHost
-	4,  // 1: teleport.transport.v1.ProxySSHRequest.ssh:type_name -> teleport.transport.v1.Frame
-	4,  // 2: teleport.transport.v1.ProxySSHRequest.agent:type_name -> teleport.transport.v1.Frame
-	8,  // 3: teleport.transport.v1.ProxySSHResponse.details:type_name -> teleport.transport.v1.ClusterDetails
-	4,  // 4: teleport.transport.v1.ProxySSHResponse.ssh:type_name -> teleport.transport.v1.Frame
-	4,  // 5: teleport.transport.v1.ProxySSHResponse.agent:type_name -> teleport.transport.v1.Frame
-	4,  // 6: teleport.transport.v1.ProxyClusterRequest.frame:type_name -> teleport.transport.v1.Frame
-	4,  // 7: teleport.transport.v1.ProxyClusterResponse.frame:type_name -> teleport.transport.v1.Frame
-	8,  // 8: teleport.transport.v1.GetClusterDetailsResponse.details:type_name -> teleport.transport.v1.ClusterDetails
-	6,  // 9: teleport.transport.v1.TransportService.GetClusterDetails:input_type -> teleport.transport.v1.GetClusterDetailsRequest
-	0,  // 10: teleport.transport.v1.TransportService.ProxySSH:input_type -> teleport.transport.v1.ProxySSHRequest
-	2,  // 11: teleport.transport.v1.TransportService.ProxyCluster:input_type -> teleport.transport.v1.ProxyClusterRequest
-	7,  // 12: teleport.transport.v1.TransportService.GetClusterDetails:output_type -> teleport.transport.v1.GetClusterDetailsResponse
-	1,  // 13: teleport.transport.v1.TransportService.ProxySSH:output_type -> teleport.transport.v1.ProxySSHResponse
-	3,  // 14: teleport.transport.v1.TransportService.ProxyCluster:output_type -> teleport.transport.v1.ProxyClusterResponse
-	12, // [12:15] is the sub-list for method output_type
-	9,  // [9:12] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	1,  // 0: teleport.transport.v1.ProxyDesktopSessionRequest.dial_target:type_name -> teleport.transport.v1.TargetDesktop
+	8,  // 1: teleport.transport.v1.ProxySSHRequest.dial_target:type_name -> teleport.transport.v1.TargetHost
+	7,  // 2: teleport.transport.v1.ProxySSHRequest.ssh:type_name -> teleport.transport.v1.Frame
+	7,  // 3: teleport.transport.v1.ProxySSHRequest.agent:type_name -> teleport.transport.v1.Frame
+	11, // 4: teleport.transport.v1.ProxySSHResponse.details:type_name -> teleport.transport.v1.ClusterDetails
+	7,  // 5: teleport.transport.v1.ProxySSHResponse.ssh:type_name -> teleport.transport.v1.Frame
+	7,  // 6: teleport.transport.v1.ProxySSHResponse.agent:type_name -> teleport.transport.v1.Frame
+	7,  // 7: teleport.transport.v1.ProxyClusterRequest.frame:type_name -> teleport.transport.v1.Frame
+	7,  // 8: teleport.transport.v1.ProxyClusterResponse.frame:type_name -> teleport.transport.v1.Frame
+	11, // 9: teleport.transport.v1.GetClusterDetailsResponse.details:type_name -> teleport.transport.v1.ClusterDetails
+	9,  // 10: teleport.transport.v1.TransportService.GetClusterDetails:input_type -> teleport.transport.v1.GetClusterDetailsRequest
+	3,  // 11: teleport.transport.v1.TransportService.ProxySSH:input_type -> teleport.transport.v1.ProxySSHRequest
+	0,  // 12: teleport.transport.v1.TransportService.ProxyDesktopSession:input_type -> teleport.transport.v1.ProxyDesktopSessionRequest
+	5,  // 13: teleport.transport.v1.TransportService.ProxyCluster:input_type -> teleport.transport.v1.ProxyClusterRequest
+	10, // 14: teleport.transport.v1.TransportService.GetClusterDetails:output_type -> teleport.transport.v1.GetClusterDetailsResponse
+	4,  // 15: teleport.transport.v1.TransportService.ProxySSH:output_type -> teleport.transport.v1.ProxySSHResponse
+	2,  // 16: teleport.transport.v1.TransportService.ProxyDesktopSession:output_type -> teleport.transport.v1.ProxyDesktopSessionResponse
+	6,  // 17: teleport.transport.v1.TransportService.ProxyCluster:output_type -> teleport.transport.v1.ProxyClusterResponse
+	14, // [14:18] is the sub-list for method output_type
+	10, // [10:14] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_teleport_transport_v1_transport_service_proto_init() }
@@ -665,11 +837,11 @@ func file_teleport_transport_v1_transport_service_proto_init() {
 	if File_teleport_transport_v1_transport_service_proto != nil {
 		return
 	}
-	file_teleport_transport_v1_transport_service_proto_msgTypes[0].OneofWrappers = []any{
+	file_teleport_transport_v1_transport_service_proto_msgTypes[3].OneofWrappers = []any{
 		(*ProxySSHRequest_Ssh)(nil),
 		(*ProxySSHRequest_Agent)(nil),
 	}
-	file_teleport_transport_v1_transport_service_proto_msgTypes[1].OneofWrappers = []any{
+	file_teleport_transport_v1_transport_service_proto_msgTypes[4].OneofWrappers = []any{
 		(*ProxySSHResponse_Ssh)(nil),
 		(*ProxySSHResponse_Agent)(nil),
 	}
@@ -679,7 +851,7 @@ func file_teleport_transport_v1_transport_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_teleport_transport_v1_transport_service_proto_rawDesc), len(file_teleport_transport_v1_transport_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -36,12 +36,40 @@ service TransportService {
   // raw SSH payload to be processed by an x/crypto/ssh.Client or x/crypto/ssh.Server.
   rpc ProxySSH(stream ProxySSHRequest) returns (stream ProxySSHResponse);
 
+  // ProxyDesktopSession establishes a connection to the target desktop over a bidirectional stream.
+  //
+  // The client must wrap the connection into [tdp.NewConn] to be able to read individual messages.
+  // To initialize the connection, the first message should be
+  rpc ProxyDesktopSession(stream ProxyDesktopSessionRequest) returns (stream ProxyDesktopSessionResponse);
+
   // ProxyCluster establishes a connection to the target cluster.
   //
   // The client must first send a ProxyClusterRequest with the desired cluster name before the
   // connection is established. After which the connection can be used to construct a new
   // auth.Client to the tunneled cluster.
   rpc ProxyCluster(stream ProxyClusterRequest) returns (stream ProxyClusterResponse);
+}
+
+// Request message for a proxied desktop session.
+message ProxyDesktopSessionRequest {
+  // Specifies the target desktop and associated cluster.
+  TargetDesktop dial_target = 1;
+  // Encapsulated desktop stream payload.
+  bytes data = 2;
+}
+
+// Identifies the destination desktop within a specific cluster.
+message TargetDesktop {
+  // Name of the desktop to connect to.
+  string desktop_name = 1;
+  // Name of the cluster that the desktop belongs to.
+  string cluster = 2;
+}
+
+// Response message for a proxied desktop session.
+message ProxyDesktopSessionResponse {
+  // Encapsulated desktop stream payload.
+  bytes data = 1;
 }
 
 // Request for ProxySSH

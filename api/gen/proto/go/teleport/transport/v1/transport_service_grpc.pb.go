@@ -33,9 +33,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	TransportService_GetClusterDetails_FullMethodName = "/teleport.transport.v1.TransportService/GetClusterDetails"
-	TransportService_ProxySSH_FullMethodName          = "/teleport.transport.v1.TransportService/ProxySSH"
-	TransportService_ProxyCluster_FullMethodName      = "/teleport.transport.v1.TransportService/ProxyCluster"
+	TransportService_GetClusterDetails_FullMethodName   = "/teleport.transport.v1.TransportService/GetClusterDetails"
+	TransportService_ProxySSH_FullMethodName            = "/teleport.transport.v1.TransportService/ProxySSH"
+	TransportService_ProxyDesktopSession_FullMethodName = "/teleport.transport.v1.TransportService/ProxyDesktopSession"
+	TransportService_ProxyCluster_FullMethodName        = "/teleport.transport.v1.TransportService/ProxyCluster"
 )
 
 // TransportServiceClient is the client API for TransportService service.
@@ -58,6 +59,11 @@ type TransportServiceClient interface {
 	// will be populated if SSH Agent forwarding is enabled for the connection. SSH frames contain
 	// raw SSH payload to be processed by an x/crypto/ssh.Client or x/crypto/ssh.Server.
 	ProxySSH(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ProxySSHRequest, ProxySSHResponse], error)
+	// ProxyDesktopSession establishes a connection to the target desktop over a bidirectional stream.
+	//
+	// The client must wrap the connection into [tdp.NewConn] to be able to read individual messages.
+	// To initialize the connection, the first message should be
+	ProxyDesktopSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ProxyDesktopSessionRequest, ProxyDesktopSessionResponse], error)
 	// ProxyCluster establishes a connection to the target cluster.
 	//
 	// The client must first send a ProxyClusterRequest with the desired cluster name before the
@@ -97,9 +103,22 @@ func (c *transportServiceClient) ProxySSH(ctx context.Context, opts ...grpc.Call
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type TransportService_ProxySSHClient = grpc.BidiStreamingClient[ProxySSHRequest, ProxySSHResponse]
 
+func (c *transportServiceClient) ProxyDesktopSession(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ProxyDesktopSessionRequest, ProxyDesktopSessionResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &TransportService_ServiceDesc.Streams[1], TransportService_ProxyDesktopSession_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ProxyDesktopSessionRequest, ProxyDesktopSessionResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type TransportService_ProxyDesktopSessionClient = grpc.BidiStreamingClient[ProxyDesktopSessionRequest, ProxyDesktopSessionResponse]
+
 func (c *transportServiceClient) ProxyCluster(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ProxyClusterRequest, ProxyClusterResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &TransportService_ServiceDesc.Streams[1], TransportService_ProxyCluster_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &TransportService_ServiceDesc.Streams[2], TransportService_ProxyCluster_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +149,11 @@ type TransportServiceServer interface {
 	// will be populated if SSH Agent forwarding is enabled for the connection. SSH frames contain
 	// raw SSH payload to be processed by an x/crypto/ssh.Client or x/crypto/ssh.Server.
 	ProxySSH(grpc.BidiStreamingServer[ProxySSHRequest, ProxySSHResponse]) error
+	// ProxyDesktopSession establishes a connection to the target desktop over a bidirectional stream.
+	//
+	// The client must wrap the connection into [tdp.NewConn] to be able to read individual messages.
+	// To initialize the connection, the first message should be
+	ProxyDesktopSession(grpc.BidiStreamingServer[ProxyDesktopSessionRequest, ProxyDesktopSessionResponse]) error
 	// ProxyCluster establishes a connection to the target cluster.
 	//
 	// The client must first send a ProxyClusterRequest with the desired cluster name before the
@@ -151,6 +175,9 @@ func (UnimplementedTransportServiceServer) GetClusterDetails(context.Context, *G
 }
 func (UnimplementedTransportServiceServer) ProxySSH(grpc.BidiStreamingServer[ProxySSHRequest, ProxySSHResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ProxySSH not implemented")
+}
+func (UnimplementedTransportServiceServer) ProxyDesktopSession(grpc.BidiStreamingServer[ProxyDesktopSessionRequest, ProxyDesktopSessionResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method ProxyDesktopSession not implemented")
 }
 func (UnimplementedTransportServiceServer) ProxyCluster(grpc.BidiStreamingServer[ProxyClusterRequest, ProxyClusterResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ProxyCluster not implemented")
@@ -201,6 +228,13 @@ func _TransportService_ProxySSH_Handler(srv interface{}, stream grpc.ServerStrea
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type TransportService_ProxySSHServer = grpc.BidiStreamingServer[ProxySSHRequest, ProxySSHResponse]
 
+func _TransportService_ProxyDesktopSession_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(TransportServiceServer).ProxyDesktopSession(&grpc.GenericServerStream[ProxyDesktopSessionRequest, ProxyDesktopSessionResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type TransportService_ProxyDesktopSessionServer = grpc.BidiStreamingServer[ProxyDesktopSessionRequest, ProxyDesktopSessionResponse]
+
 func _TransportService_ProxyCluster_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(TransportServiceServer).ProxyCluster(&grpc.GenericServerStream[ProxyClusterRequest, ProxyClusterResponse]{ServerStream: stream})
 }
@@ -224,6 +258,12 @@ var TransportService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ProxySSH",
 			Handler:       _TransportService_ProxySSH_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ProxyDesktopSession",
+			Handler:       _TransportService_ProxyDesktopSession_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

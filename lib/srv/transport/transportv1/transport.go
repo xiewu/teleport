@@ -50,6 +50,7 @@ import (
 type Dialer interface {
 	DialSite(ctx context.Context, cluster string, clientSrcAddr, clientDstAddr net.Addr) (net.Conn, error)
 	DialHost(ctx context.Context, clientSrcAddr, clientDstAddr net.Addr, host, port, cluster string, checker services.AccessChecker, agentGetter teleagent.Getter, singer agentless.SignerCreator) (net.Conn, error)
+	DialDesktop(ctx context.Context, clientSrcAddr, clientDstAddr net.Addr, desktopName, cluster string, checker services.AccessChecker) (net.Conn, error)
 }
 
 // ConnectionMonitor monitors authorized connections and terminates them when
@@ -206,9 +207,77 @@ func (c clusterStream) Send(frame []byte) error {
 	return trace.Wrap(c.stream.Send(&transportv1pb.ProxyClusterResponse{Frame: &transportv1pb.Frame{Payload: frame}}))
 }
 
-// ProxySSH establishes a connection to a host and proxies both the SSH and SSH
-// Agent protocol over the stream. The first request from the client must contain
-// a valid dial target before the connection can be established.
+func (s *Service) ProxyDesktopSession(stream transportv1pb.TransportService_ProxyDesktopSessionServer) (err error) {
+	ctx := stream.Context()
+
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return trace.BadParameter("unable to find peer")
+	}
+
+	authzContext, err := s.cfg.authzContextFn(p.AuthInfo)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	// Wait for the first request to arrive with the dial request.
+	req, err := stream.Recv()
+	if err != nil {
+		return trace.Wrap(err, "failed receiving first message")
+	}
+
+	// Validate the target.
+	if req.DialTarget == nil {
+		return trace.BadParameter("first message must contain a dial target")
+	}
+	desktopName := req.DialTarget.GetDesktopName()
+	cluster := req.DialTarget.GetCluster()
+
+	s.cfg.Logger.DebugContext(ctx, "Attempting to connect to desktop", "desktop", desktopName)
+
+	clientDst, err := getDestinationAddress(p.Addr, s.cfg.LocalAddr)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	desktopConn, err := s.cfg.Dialer.DialDesktop(ctx, p.Addr, clientDst, desktopName, cluster, authzContext.Checker)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	clientConn, err := streamutils.NewReadWriter(clientStream{stream})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	err = utils.ProxyConn(ctx, clientConn, desktopConn)
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		err = nil
+	}
+	return trace.Wrap(err)
+}
+
+type clientStream struct {
+	stream transportv1pb.TransportService_ProxyDesktopSessionServer
+}
+
+func (s clientStream) Send(p []byte) error {
+	return trace.Wrap(s.stream.Send(&transportv1pb.ProxyDesktopSessionResponse{Data: p}))
+}
+
+func (s clientStream) Recv() ([]byte, error) {
+	frame, err := s.stream.Recv()
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	if frame.GetData() == nil {
+		return nil, trace.BadParameter("received invalid message")
+	}
+
+	return frame.GetData(), nil
+}
+
 func (s *Service) ProxySSH(stream transportv1pb.TransportService_ProxySSHServer) (err error) {
 	ctx := stream.Context()
 

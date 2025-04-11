@@ -446,6 +446,16 @@ func (c *Client) ClusterDetails(ctx context.Context) (ClusterDetails, error) {
 	return ClusterDetails{FIPS: details.FipsEnabled}, nil
 }
 
+// ProxyDesktopSession establishes a connection to the target desktop over a bidirectional stream.
+func (c *Client) ProxyDesktopSession(ctx context.Context) (grpc.BidiStreamingClient[transportv1pb.ProxyDesktopSessionRequest, transportv1pb.ProxyDesktopSessionResponse], error) {
+	session, err := c.transport.ProxyDesktopSession(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return session, nil
+}
+
 // Ping measures the round trip latency of sending a message to the Proxy.
 func (c *Client) Ping(ctx context.Context) error {
 	// TODO(tross): Update to call Ping when it is added to the transport service.

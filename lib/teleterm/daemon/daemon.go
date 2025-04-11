@@ -21,6 +21,9 @@ package daemon
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"io"
+	"net"
 	"os/exec"
 	"sync"
 	"time"
@@ -32,16 +35,20 @@ import (
 
 	apiclient "github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/client/proto"
+	"github.com/gravitational/teleport/api/constants"
 	accesslistv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/accesslist/v1"
 	devicepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/devicetrust/v1"
 	kubeproto "github.com/gravitational/teleport/api/gen/proto/go/teleport/kube/v1"
+	transportv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/transport/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/accesslist"
+	streamutils "github.com/gravitational/teleport/api/utils/grpc/stream"
 	api "github.com/gravitational/teleport/gen/proto/go/teleport/lib/teleterm/v1"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/client/sso"
 	dtauthn "github.com/gravitational/teleport/lib/devicetrust/authn"
+	"github.com/gravitational/teleport/lib/srv/desktop/tdp"
 	"github.com/gravitational/teleport/lib/teleterm/api/uri"
 	"github.com/gravitational/teleport/lib/teleterm/clusters"
 	"github.com/gravitational/teleport/lib/teleterm/cmd"
@@ -49,6 +56,7 @@ import (
 	"github.com/gravitational/teleport/lib/teleterm/services/unifiedresources"
 	"github.com/gravitational/teleport/lib/teleterm/services/userpreferences"
 	usagereporter "github.com/gravitational/teleport/lib/usagereporter/daemon"
+	"github.com/gravitational/teleport/lib/utils"
 )
 
 const (
@@ -204,6 +212,170 @@ func (s *Service) AddCluster(ctx context.Context, webProxyAddress string) (*clus
 	}
 
 	return cluster, nil
+}
+
+// CreateDesktopConnection
+func (s *Service) CreateDesktopConnection(stream grpc.BidiStreamingServer[api.ConnectDesktopRequest, api.ConnectDesktopResponse], uri uri.ResourceURI, desktopName, login string ) error {
+	ctx := stream.Context()
+
+	cluster, clusterClient, err := s.ResolveClusterURI(uri)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	proxyClient, err := s.GetCachedClient(ctx, cluster.URI)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	cert, err := clusterClient.IssueUserCertsWithMFA(ctx, client.ReissueParams{
+		RouteToCluster: clusterClient.SiteName,
+		RequesterName:  proto.UserCertsRequest_UNSPECIFIED,
+		TTL:            clusterClient.KeyTTL,
+		RouteToDesktop: proto.RouteToWindowsDesktop{
+			WindowsDesktop: desktopName,
+			Login:          login,
+		},
+	})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	serverStream, err := proxyClient.ProxyClient.ProxyDesktopSession(ctx)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	err = serverStream.Send(&transportv1.ProxyDesktopSessionRequest{
+		DialTarget: &transportv1.TargetDesktop{
+			DesktopName: desktopName,
+			Cluster:     clusterClient.SiteName,
+		},
+	})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	desktopCert, err := cert.DesktopTLSCert(desktopName)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	clusterTLSConfig, err := clusterClient.LoadTLSConfigForClusters([]string{clusterClient.SiteName})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	desktopReadWriter, err := streamutils.NewReadWriter(desktopStream{stream: serverStream})
+	if err != nil {
+		return err
+	}
+
+	conn := streamutils.NewConn(desktopReadWriter, nil, nil)
+	tlsConf := &tls.Config{
+		ServerName:   desktopName + ".desktop." + constants.APIDomain,
+		Certificates: []tls.Certificate{desktopCert},
+		RootCAs:      clusterTLSConfig.RootCAs,
+	}
+	desktopTLSTunnel := tls.Client(conn, tlsConf)
+	if err := desktopTLSTunnel.Handshake(); err != nil {
+		return trace.Wrap(err)
+	}
+
+	tdpConn := tdp.NewConn(desktopTLSTunnel)
+	// Now that we have a connection to the Windows Desktop Service, we can
+	// send the username.
+	err = tdpConn.WriteMessage(tdp.ClientUsername{Username: login})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	err = proxyTdpConn(desktopTLSTunnel, tdpConn, stream)
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		err = nil
+	}
+	return trace.Wrap(err)
+}
+
+type desktopStream struct {
+	stream grpc.BidiStreamingClient[transportv1.ProxyDesktopSessionRequest, transportv1.ProxyDesktopSessionResponse]
+}
+
+func (s desktopStream) Send(p []byte) error {
+	err := s.stream.Send(&transportv1.ProxyDesktopSessionRequest{Data: p})
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		_, err := s.stream.Recv()
+		return trace.Wrap(err)
+	}
+	return trace.Wrap(err)
+}
+
+func (s desktopStream) Recv() ([]byte, error) {
+	frame, err := s.stream.Recv()
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	if frame.GetData() == nil {
+		return nil, trace.BadParameter("received invalid message")
+	}
+
+	return frame.GetData(), nil
+}
+
+// proxyTdpConn proxies messages between upstream tdp connection and downstream bidi streams
+func proxyTdpConn(
+	upstreamConn net.Conn,
+	upstreamConnTdp *tdp.Conn,
+	downstreamStream grpc.BidiStreamingServer[api.ConnectDesktopRequest, api.ConnectDesktopResponse],
+) error {
+	errCh := make(chan error, 2)
+
+	// Upstream → Downstream (tdp.Conn → gRPC)
+	go func() {
+		for {
+			readMsg, err := upstreamConnTdp.ReadMessage()
+			if err != nil {
+				errCh <- err
+				return
+			}
+
+			encoded, err := readMsg.Encode()
+			if err != nil {
+				errCh <- err
+				return;
+			}
+
+			msg := &api.ConnectDesktopResponse{Data: encoded}
+			if err := downstreamStream.Send(msg); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+
+	// Downstream → Upstream (gRPC → net.Conn)
+	go func() {
+		for {
+			resp, err := downstreamStream.Recv()
+			switch {
+			case utils.IsOKNetworkError(err):
+				errCh <- nil
+				return
+			case err != nil:
+				errCh <- err
+				return
+			}
+
+			_, err = upstreamConn.Write(resp.Data.Data)
+			if err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+
+	// Wait for one side to finish
+	return <-errCh
 }
 
 // RemoveCluster removes cluster
