@@ -26,6 +26,7 @@ import {
   ResourceUri,
   routing,
   ServerUri,
+  WindowsDesktopUri,
 } from 'teleterm/ui/uri';
 
 export class AccessRequestsService {
@@ -303,10 +304,17 @@ export type ResourceRequest =
         uri: AppUri;
         samlApp: boolean;
       };
+    }
+  | {
+      kind: 'windows_desktop';
+      resource: {
+        uri: WindowsDesktopUri;
+      };
     };
 
 type SharedResourceAccessRequestKind =
   | 'app'
+  | 'windows_desktop'
   | 'db'
   | 'node'
   | 'kube_cluster'
@@ -348,6 +356,16 @@ export function extractResourceRequestProperties({
     case 'kube': {
       const { kubeId } = routing.parseKubeUri(resource.uri).params;
       return { kind: 'kube_cluster', id: kubeId, name: kubeId };
+    }
+    case 'windows_desktop': {
+      const { windowsDesktopId } = routing.parseWindowsDesktopUri(
+        resource.uri
+      ).params;
+      return {
+        kind: 'windows_desktop',
+        id: windowsDesktopId,
+        name: windowsDesktopId,
+      };
     }
     default:
       kind satisfies never;
@@ -479,6 +497,17 @@ export function toResourceRequest({
           }),
         },
         kind: 'kube',
+      };
+    case 'windows_desktop':
+      return {
+        resource: {
+          uri: routing.getWindowsDesktopUri({
+            rootClusterId,
+            leafClusterId,
+            windowsDesktopId: resourceId,
+          }),
+        },
+        kind: 'windows_desktop',
       };
     default:
       kind satisfies never;

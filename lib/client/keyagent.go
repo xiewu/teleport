@@ -531,6 +531,15 @@ func (a *LocalKeyAgent) AddAppKeyRing(keyRing *KeyRing) error {
 	return a.addKeyRing(keyRing)
 }
 
+// AddDesktopKeyRing activates a new signed desktop key by adding it into the keystore.
+// key must contain at least one desktop credential. ssh cert is not required.
+func (a *LocalKeyAgent) AddDesktopKeyRing(keyRing *KeyRing) error {
+	if len(keyRing.DesktopTLSCredentials) == 0 {
+		return trace.BadParameter("key ring must contain at least one Desktop access certificate")
+	}
+	return a.addKeyRing(keyRing)
+}
+
 // addKeyRing activates a new signed session key ring by adding it into the keystore.
 func (a *LocalKeyAgent) addKeyRing(keyRing *KeyRing) error {
 	if keyRing == nil {

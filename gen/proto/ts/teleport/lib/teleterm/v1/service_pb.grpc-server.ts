@@ -21,6 +21,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
+import { ConnectDesktopResponse } from "./service_pb";
+import { ConnectDesktopRequest } from "./service_pb";
 import { GetAppResponse } from "./service_pb";
 import { GetAppRequest } from "./service_pb";
 import { AuthenticateWebDeviceResponse } from "./service_pb";
@@ -396,6 +398,13 @@ export interface ITerminalService extends grpc.UntypedServiceImplementation {
      * @generated from protobuf rpc: GetApp(teleport.lib.teleterm.v1.GetAppRequest) returns (teleport.lib.teleterm.v1.GetAppResponse);
      */
     getApp: grpc.handleUnaryCall<GetAppRequest, GetAppResponse>;
+    /**
+     * ConnectDesktop returns details of an app resource. It does not include information about AWS roles and
+     * FQDN.
+     *
+     * @generated from protobuf rpc: ConnectDesktop(stream teleport.lib.teleterm.v1.ConnectDesktopRequest) returns (stream teleport.lib.teleterm.v1.ConnectDesktopResponse);
+     */
+    connectDesktop: grpc.handleBidiStreamingCall<ConnectDesktopRequest, ConnectDesktopResponse>;
 }
 /**
  * @grpc/grpc-js definition for the protobuf service teleport.lib.teleterm.v1.TerminalService.
@@ -818,5 +827,15 @@ export const terminalServiceDefinition: grpc.ServiceDefinition<ITerminalService>
         requestDeserialize: bytes => GetAppRequest.fromBinary(bytes),
         responseSerialize: value => Buffer.from(GetAppResponse.toBinary(value)),
         requestSerialize: value => Buffer.from(GetAppRequest.toBinary(value))
+    },
+    connectDesktop: {
+        path: "/teleport.lib.teleterm.v1.TerminalService/ConnectDesktop",
+        originalName: "ConnectDesktop",
+        requestStream: true,
+        responseStream: true,
+        responseDeserialize: bytes => ConnectDesktopResponse.fromBinary(bytes),
+        requestDeserialize: bytes => ConnectDesktopRequest.fromBinary(bytes),
+        responseSerialize: value => Buffer.from(ConnectDesktopResponse.toBinary(value)),
+        requestSerialize: value => Buffer.from(ConnectDesktopRequest.toBinary(value))
     }
 };

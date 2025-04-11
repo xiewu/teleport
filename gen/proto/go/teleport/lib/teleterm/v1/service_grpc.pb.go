@@ -77,6 +77,7 @@ const (
 	TerminalService_UpdateUserPreferences_FullMethodName             = "/teleport.lib.teleterm.v1.TerminalService/UpdateUserPreferences"
 	TerminalService_AuthenticateWebDevice_FullMethodName             = "/teleport.lib.teleterm.v1.TerminalService/AuthenticateWebDevice"
 	TerminalService_GetApp_FullMethodName                            = "/teleport.lib.teleterm.v1.TerminalService/GetApp"
+	TerminalService_ConnectDesktop_FullMethodName                    = "/teleport.lib.teleterm.v1.TerminalService/ConnectDesktop"
 )
 
 // TerminalServiceClient is the client API for TerminalService service.
@@ -217,6 +218,9 @@ type TerminalServiceClient interface {
 	// GetApp returns details of an app resource. It does not include information about AWS roles and
 	// FQDN.
 	GetApp(ctx context.Context, in *GetAppRequest, opts ...grpc.CallOption) (*GetAppResponse, error)
+	// ConnectDesktop returns details of an app resource. It does not include information about AWS roles and
+	// FQDN.
+	ConnectDesktop(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConnectDesktopRequest, ConnectDesktopResponse], error)
 }
 
 type terminalServiceClient struct {
@@ -650,6 +654,19 @@ func (c *terminalServiceClient) GetApp(ctx context.Context, in *GetAppRequest, o
 	return out, nil
 }
 
+func (c *terminalServiceClient) ConnectDesktop(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConnectDesktopRequest, ConnectDesktopResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &TerminalService_ServiceDesc.Streams[2], TerminalService_ConnectDesktop_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ConnectDesktopRequest, ConnectDesktopResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type TerminalService_ConnectDesktopClient = grpc.BidiStreamingClient[ConnectDesktopRequest, ConnectDesktopResponse]
+
 // TerminalServiceServer is the server API for TerminalService service.
 // All implementations must embed UnimplementedTerminalServiceServer
 // for forward compatibility.
@@ -788,6 +805,9 @@ type TerminalServiceServer interface {
 	// GetApp returns details of an app resource. It does not include information about AWS roles and
 	// FQDN.
 	GetApp(context.Context, *GetAppRequest) (*GetAppResponse, error)
+	// ConnectDesktop returns details of an app resource. It does not include information about AWS roles and
+	// FQDN.
+	ConnectDesktop(grpc.BidiStreamingServer[ConnectDesktopRequest, ConnectDesktopResponse]) error
 	mustEmbedUnimplementedTerminalServiceServer()
 }
 
@@ -920,6 +940,9 @@ func (UnimplementedTerminalServiceServer) AuthenticateWebDevice(context.Context,
 }
 func (UnimplementedTerminalServiceServer) GetApp(context.Context, *GetAppRequest) (*GetAppResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetApp not implemented")
+}
+func (UnimplementedTerminalServiceServer) ConnectDesktop(grpc.BidiStreamingServer[ConnectDesktopRequest, ConnectDesktopResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method ConnectDesktop not implemented")
 }
 func (UnimplementedTerminalServiceServer) mustEmbedUnimplementedTerminalServiceServer() {}
 func (UnimplementedTerminalServiceServer) testEmbeddedByValue()                         {}
@@ -1662,6 +1685,13 @@ func _TerminalService_GetApp_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TerminalService_ConnectDesktop_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(TerminalServiceServer).ConnectDesktop(&grpc.GenericServerStream[ConnectDesktopRequest, ConnectDesktopResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type TerminalService_ConnectDesktopServer = grpc.BidiStreamingServer[ConnectDesktopRequest, ConnectDesktopResponse]
+
 // TerminalService_ServiceDesc is the grpc.ServiceDesc for TerminalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1837,6 +1867,12 @@ var TerminalService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "TransferFile",
 			Handler:       _TerminalService_TransferFile_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "ConnectDesktop",
+			Handler:       _TerminalService_ConnectDesktop_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "teleport/lib/teleterm/v1/service.proto",

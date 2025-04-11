@@ -251,6 +251,11 @@ func (c *ClusterClient) generateUserCerts(ctx context.Context, cachePolicy CertC
 			PrivateKey: newUserKeys.kube,
 			Cert:       certs.TLS,
 		}
+	case proto.UserCertsRequest_WindowsDesktop:
+		keyRing.DesktopTLSCredentials[params.RouteToDesktop.WindowsDesktop] = TLSCredential{
+			PrivateKey: newUserKeys.desktop,
+			Cert:       certs.TLS,
+		}
 	}
 
 	return keyRing, nil
@@ -379,6 +384,12 @@ func (c *ClusterClient) prepareUserCertsRequest(ctx context.Context, params Reis
 			return nil, nil, trace.Wrap(err)
 		}
 		newUserKeys.db = tlsSubjectKey
+	case proto.UserCertsRequest_WindowsDesktop:
+		tlsSubjectKey, err = keyRing.generateSubjectTLSKey(ctx, c.tc, cryptosuites.UserTLS)
+		if err != nil {
+			return nil, nil, trace.Wrap(err)
+		}
+		newUserKeys.desktop = tlsSubjectKey
 	default:
 		// Assume we're reissuing the base SSH and TLS certs, reuse the existing
 		// private keys.
@@ -418,6 +429,7 @@ func (c *ClusterClient) prepareUserCertsRequest(ctx context.Context, params Reis
 		DropAccessRequests:               params.DropAccessRequests,
 		RouteToDatabase:                  params.RouteToDatabase,
 		RouteToApp:                       params.RouteToApp,
+		RouteToWindowsDesktop:            params.RouteToDesktop,
 		NodeName:                         params.NodeName,
 		Usage:                            params.usage(),
 		Format:                           c.tc.CertificateFormat,
@@ -451,6 +463,8 @@ func (c *ClusterClient) performSessionMFACeremony(ctx context.Context, rootClien
 		promptOpts = append(promptOpts, mfa.WithPromptReasonSessionMFA("Database", params.RouteToDatabase.ServiceName))
 	case params.RouteToApp.Name != "":
 		promptOpts = append(promptOpts, mfa.WithPromptReasonSessionMFA("Application", params.RouteToApp.Name))
+	case params.RouteToDesktop.WindowsDesktop != "":
+		promptOpts = append(promptOpts, mfa.WithPromptReasonSessionMFA("Windows Desktop", params.RouteToDesktop.WindowsDesktop))
 	}
 
 	keyRing, _, err = PerformSessionMFACeremony(ctx, PerformSessionMFACeremonyParams{
@@ -620,7 +634,7 @@ type PerformSessionMFACeremonyParams struct {
 }
 
 type newUserKeys struct {
-	ssh, tls, app, db, kube *keys.PrivateKey
+	ssh, tls, app, db, kube, desktop *keys.PrivateKey
 }
 
 // PerformSessionMFACeremony issues single-use certificates via GenerateUserCerts,
@@ -732,6 +746,14 @@ func PerformSessionMFACeremony(ctx context.Context, params PerformSessionMFACere
 			keyRing.AppTLSCredentials[certsReq.RouteToApp.Name] = TLSCredential{
 				Cert:       newCerts.TLS,
 				PrivateKey: params.newUserKeys.app,
+			}
+		case proto.UserCertsRequest_WindowsDesktop:
+			if keyRing.DesktopTLSCredentials == nil {
+				keyRing.DesktopTLSCredentials = make(map[string]TLSCredential)
+			}
+			keyRing.DesktopTLSCredentials[certsReq.RouteToWindowsDesktop.WindowsDesktop] = TLSCredential{
+				Cert:       newCerts.TLS,
+				PrivateKey: params.newUserKeys.desktop,
 			}
 		default:
 			return nil, nil, trace.BadParameter("server returned a TLS certificate but cert request usage was %s", certsReq.Usage)

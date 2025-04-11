@@ -794,6 +794,13 @@ func (id *Identity) Subject() (pkix.Name, error) {
 				Value: id.RouteToDatabase.Database,
 			})
 	}
+	if id.RouteToDatabase.Database != "" {
+		subject.ExtraNames = append(subject.ExtraNames,
+			pkix.AttributeTypeAndValue{
+				Type:  DatabaseNameASN1ExtensionOID,
+				Value: id.RouteToDatabase.Database,
+			})
+	}
 	for i := range id.RouteToDatabase.Roles {
 		subject.ExtraNames = append(subject.ExtraNames,
 			pkix.AttributeTypeAndValue{

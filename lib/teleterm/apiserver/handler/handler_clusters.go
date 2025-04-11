@@ -20,6 +20,8 @@ package handler
 
 import (
 	"context"
+	"github.com/gravitational/teleport/lib/teleterm/api/uri"
+	"google.golang.org/grpc"
 
 	"github.com/gravitational/trace"
 
@@ -89,6 +91,26 @@ func (s *Handler) GetCluster(ctx context.Context, req *api.GetClusterRequest) (*
 	apiRootClusterWithDetails, err := newAPIRootClusterWithDetails(cluster)
 
 	return apiRootClusterWithDetails, trace.Wrap(err)
+}
+
+// GetCluster returns a cluster
+func (s *Handler) ConnectDesktop(stream grpc.BidiStreamingServer[api.ConnectDesktopRequest, api.ConnectDesktopResponse]) error {
+	rcv, err := stream.Recv()
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	parsed, err := uri.Parse(rcv.Init.DesktopUri)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	err = s.DaemonService.CreateDesktopConnection(stream, parsed.GetClusterURI(), parsed.GetWindowsDesktopName(), rcv.Init.Login)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	return nil
 }
 
 func newAPIRootCluster(cluster *clusters.Cluster) *api.Cluster {

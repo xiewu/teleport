@@ -35,14 +35,20 @@ const SENSITIVE_PROPERTIES = [
   'commands',
 ];
 
+const OMITTED_METHODS = new Set([
+  // There are tens of requests/responses per-second, they would fill out the logfile immediately.
+  'ConnectDesktop',
+]);
+
 export function loggingInterceptor(logger: Logger): RpcInterceptor {
   return {
     interceptUnary: (next, method, input, options) => {
       const output = next(method, input, options);
-      const { logRequest, logResponse, logError } = makeMethodLogger(
-        logger,
-        method
-      );
+      const methodLogger = makeMethodLogger(logger, method);
+      if (!methodLogger) {
+        return output;
+      }
+      const { logRequest, logResponse, logError } = methodLogger;
 
       logRequest(input);
       output
@@ -53,10 +59,11 @@ export function loggingInterceptor(logger: Logger): RpcInterceptor {
     },
     interceptClientStreaming: (next, method, options) => {
       const output = next(method, options);
-      const { logRequest, logResponse, logError } = makeMethodLogger(
-        logger,
-        method
-      );
+      const methodLogger = makeMethodLogger(logger, method);
+      if (!methodLogger) {
+        return output;
+      }
+      const { logRequest, logResponse, logError } = methodLogger;
 
       const originalSend = output.requests.send.bind(output.requests);
       output.requests.send = message => {
@@ -71,10 +78,11 @@ export function loggingInterceptor(logger: Logger): RpcInterceptor {
     },
     interceptServerStreaming: (next, method, input, options) => {
       const output = next(method, input, options);
-      const { logRequest, logResponse, logError } = makeMethodLogger(
-        logger,
-        method
-      );
+      const methodLogger = makeMethodLogger(logger, method);
+      if (!methodLogger) {
+        return output;
+      }
+      const { logRequest, logResponse, logError } = methodLogger;
 
       logRequest(input);
       output.responses.onNext((message, error) => {
@@ -90,10 +98,11 @@ export function loggingInterceptor(logger: Logger): RpcInterceptor {
     },
     interceptDuplex: (next, method, options) => {
       const output = next(method, options);
-      const { logRequest, logResponse, logError } = makeMethodLogger(
-        logger,
-        method
-      );
+      const methodLogger = makeMethodLogger(logger, method);
+      if (!methodLogger) {
+        return output;
+      }
+      const { logRequest, logResponse, logError } = methodLogger;
 
       const originalSend = output.requests.send.bind(output.requests);
       output.requests.send = message => {
@@ -142,6 +151,10 @@ function makeMethodLogger(logger: Logger, method: MethodInfo<object, object>) {
   // Service name and method name are separated with a space and not a slash on purpose.
   // This way the Chromium console can break down the log message more easily on narrower widths.
   const methodDesc = `${method.service.typeName} ${method.name}`;
+
+  if (OMITTED_METHODS.has(method.name)) {
+    return;
+  }
 
   return {
     logRequest: (input: object) => {

@@ -658,7 +658,7 @@ type CertOption interface {
 }
 
 // WithAllCerts lists all known CertOptions.
-var WithAllCerts = []CertOption{WithSSHCerts{}, WithKubeCerts{}, WithDBCerts{}, WithAppCerts{}}
+var WithAllCerts = []CertOption{WithSSHCerts{}, WithKubeCerts{}, WithDBCerts{}, WithAppCerts{}, WithDesktopCerts{}}
 
 // WithSSHCerts is a CertOption for handling SSH certificates.
 type WithSSHCerts struct{}
@@ -744,7 +744,6 @@ func (o WithDBCerts) deleteFromKeyRing(keyRing *KeyRing) {
 type WithAppCerts struct {
 	appName string
 }
-
 func (o WithAppCerts) updateKeyRing(keyDir string, idx KeyRingIndex, keyRing *KeyRing, opts ...keys.ParsePrivateKeyOpt) error {
 	credentialDir := keypaths.AppCredentialDir(keyDir, idx.ProxyHost, idx.Username, idx.ClusterName)
 	credsByName, err := getCredentialsByName(credentialDir, opts...)
@@ -770,6 +769,38 @@ func (o WithAppCerts) pathsToDelete(keyDir string, idx KeyRingIndex) []string {
 
 func (o WithAppCerts) deleteFromKeyRing(keyRing *KeyRing) {
 	keyRing.AppTLSCredentials = make(map[string]TLSCredential)
+}
+
+// WithDesktopCerts is a CertOption for handling desktop access certificates.
+type WithDesktopCerts struct {
+	desktopName string
+}
+
+func (o WithDesktopCerts) updateKeyRing(keyDir string, idx KeyRingIndex, keyRing *KeyRing, opts ...keys.ParsePrivateKeyOpt) error {
+	credentialDir := keypaths.DesktopCredentialDir(keyDir, idx.ProxyHost, idx.Username, idx.ClusterName)
+	credsByName, err := getCredentialsByName(credentialDir, opts...)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	keyRing.DesktopTLSCredentials = credsByName
+	return nil
+}
+
+func (o WithDesktopCerts) pathsToDelete(keyDir string, idx KeyRingIndex) []string {
+	if idx.ClusterName == "" {
+		return []string{keypaths.DesktopDir(keyDir, idx.ProxyHost, idx.Username)}
+	}
+	if o.desktopName == "" {
+		return []string{keypaths.DesktopCredentialDir(keyDir, idx.ProxyHost, idx.Username, idx.ClusterName)}
+	}
+	return []string{
+		keypaths.DesktopCertPath(keyDir, idx.ProxyHost, idx.Username, idx.ClusterName, o.desktopName),
+		keypaths.DesktopKeyPath(keyDir, idx.ProxyHost, idx.Username, idx.ClusterName, o.desktopName),
+	}
+}
+
+func (o WithDesktopCerts) deleteFromKeyRing(keyRing *KeyRing) {
+	keyRing.DesktopTLSCredentials = make(map[string]TLSCredential)
 }
 
 type MemKeyStore struct {
@@ -850,6 +881,8 @@ func (ms *MemKeyStore) GetKeyRing(idx KeyRingIndex, _ hardwarekey.Service, opts 
 			retKeyRing.DBTLSCredentials = keyRing.DBTLSCredentials
 		case WithAppCerts:
 			retKeyRing.AppTLSCredentials = keyRing.AppTLSCredentials
+		case WithDesktopCerts:
+			retKeyRing.DesktopTLSCredentials = keyRing.DesktopTLSCredentials
 		}
 	}
 

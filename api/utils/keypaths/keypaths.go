@@ -57,6 +57,8 @@ const (
 	dbDirSuffix = "-db"
 	// kubeDirSuffix is the suffix of a sub-directory where kube TLS certs are stored.
 	kubeDirSuffix = "-kube"
+	// desktopDirSuffix is the suffix of a subdirectory where desktop TLS certs are stored.
+	desktopDirSuffix = "-desktop"
 	// kubeConfigSuffix is the suffix of a kubeconfig file stored under the keys directory.
 	kubeConfigSuffix = "-kubeconfig"
 	// fileNameKubeCredLock is file name of lockfile used to prevent excessive login attempts.
@@ -257,12 +259,27 @@ func AppDir(baseDir, proxy, username string) string {
 	return filepath.Join(ProxyKeyDir(baseDir, proxy), username+appDirSuffix)
 }
 
+// AppDir returns the path to the user's app directory
+// for the given proxy.
+//
+// <baseDir>/keys/<proxy>/<username>-app
+func DesktopDir(baseDir, proxy, username string) string {
+	return filepath.Join(ProxyKeyDir(baseDir, proxy), username+desktopDirSuffix)
+}
+
 // AppCredentialDir returns the path to the user's app credential directory for
 // the given proxy and cluster.
 //
 // <baseDir>/keys/<proxy>/<username>-app/<cluster>
 func AppCredentialDir(baseDir, proxy, username, cluster string) string {
 	return filepath.Join(AppDir(baseDir, proxy, username), cluster)
+}
+// AppCredentialDir returns the path to the user's app credential directory for
+// the given proxy and cluster.
+//
+// <baseDir>/keys/<proxy>/<username>-app/<cluster>
+func DesktopCredentialDir(baseDir, proxy, username, cluster string) string {
+	return filepath.Join(DesktopDir(baseDir, proxy, username), cluster)
 }
 
 // AppCertPath returns the path to the user's TLS certificate
@@ -272,6 +289,13 @@ func AppCredentialDir(baseDir, proxy, username, cluster string) string {
 func AppCertPath(baseDir, proxy, username, cluster, appname string) string {
 	return filepath.Join(AppCredentialDir(baseDir, proxy, username, cluster), appname+FileExtTLSCert)
 }
+// AppCertPath returns the path to the user's TLS certificate
+// for the given proxy, cluster, and app.
+//
+// <baseDir>/keys/<proxy>/<username>-app/<cluster>/<appname>.crt
+func DesktopCertPath(baseDir, proxy, username, cluster, appname string) string {
+	return filepath.Join(DesktopCredentialDir(baseDir, proxy, username, cluster), appname+FileExtTLSCert)
+}
 
 // AppKeyPath returns the path to the user's private key for the given proxy,
 // cluster, and app.
@@ -279,6 +303,14 @@ func AppCertPath(baseDir, proxy, username, cluster, appname string) string {
 // <baseDir>/keys/<proxy>/<username>-app/<cluster>/<appname>.key
 func AppKeyPath(baseDir, proxy, username, cluster, appname string) string {
 	return filepath.Join(AppCredentialDir(baseDir, proxy, username, cluster), appname+fileExtTLSKey)
+}
+
+// AppKeyPath returns the path to the user's private key for the given proxy,
+// cluster, and app.
+//
+// <baseDir>/keys/<proxy>/<username>-app/<cluster>/<appname>.key
+func DesktopKeyPath(baseDir, proxy, username, cluster, appname string) string {
+	return filepath.Join(DesktopCredentialDir(baseDir, proxy, username, cluster), appname+fileExtTLSKey)
 }
 
 // AppLocalCAPath returns the path to a self-signed localhost CA for the given

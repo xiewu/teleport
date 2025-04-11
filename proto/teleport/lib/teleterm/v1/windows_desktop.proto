@@ -1,6 +1,6 @@
-/**
+/*
  * Teleport
- * Copyright (C) 2023  Gravitational, Inc.
+ * Copyright (C) 2024 Gravitational, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -16,11 +16,24 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-export * from './documentsService';
-export * from './types';
-export * from './documentsUtils';
-export * from './connectToDatabase';
-export * from './connectToServer';
-export * from './connectToKube';
-export * from './connectToApp';
-export * from './connectToWindowsDesktop';
+syntax = "proto3";
+
+package teleport.lib.teleterm.v1;
+
+import "teleport/lib/teleterm/v1/label.proto";
+
+option go_package = "github.com/gravitational/teleport/gen/proto/go/teleport/lib/teleterm/v1;teletermv1";
+
+// App describes an windows desktop resource.
+message WindowsDesktop {
+  // uri uniquely identifies a windows desktop within Teleport Connect.
+  string uri = 1;
+  // name is the name of the desktop.
+  string name = 2;
+  // address without the port.
+  string addr = 3;
+  //logins
+  repeated string logins = 4;
+  // labels is a list of labels for the app.
+  repeated Label labels = 5;
+}

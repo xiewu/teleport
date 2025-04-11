@@ -258,11 +258,13 @@ export class TdpClient extends EventEmitter {
   private async initWasm() {
     // select the wasm log level
     let wasmLogLevel = LogType.OFF;
-    if (import.meta.env.MODE === 'development') {
-      wasmLogLevel = LogType.TRACE;
+    // if (import.meta.env.MODE === 'development') {
+    //   wasmLogLevel = LogType.TRACE;
+    // }
+    if (!window['wasm_ready']) {
+      await init();
+      window['wasm_ready'] = true;
     }
-
-    await init();
     init_wasm_log(wasmLogLevel);
   }
 
@@ -663,6 +665,7 @@ export class TdpClient extends EventEmitter {
   }
 
   sendMouseWheelScroll(axis: ScrollAxis, delta: number) {
+    console.log('send!!');
     this.send(this.codec.encodeMouseWheelScroll(axis, delta));
   }
 

@@ -134,6 +134,7 @@ type ReissueParams struct {
 	DropAccessRequests []string
 	RouteToDatabase    proto.RouteToDatabase
 	RouteToApp         proto.RouteToApp
+	RouteToDesktop     proto.RouteToWindowsDesktop
 
 	// ExistingCreds is a gross hack for lib/web/terminal.go to pass in
 	// existing user credentials. The TeleportClient in lib/web/terminal.go
@@ -177,6 +178,10 @@ func (p ReissueParams) usage() proto.UserCertsRequest_CertUsage {
 		// App means a request for a TLS certificate for access to a specific
 		// web app, as specified by RouteToApp.
 		return proto.UserCertsRequest_App
+	case p.RouteToDesktop.WindowsDesktop != "":
+		// App means a request for a TLS certificate for access to a specific
+		// web app, as specified by RouteToApp.
+		return proto.UserCertsRequest_WindowsDesktop
 	default:
 		// All means a request for both SSH and TLS certificates for the
 		// overall user session. These certificates are not specific to any SSH
@@ -196,6 +201,8 @@ func (p ReissueParams) isMFARequiredRequest(sshLogin string) (*proto.IsMFARequir
 		req.Target = &proto.IsMFARequiredRequest_Database{Database: &p.RouteToDatabase}
 	case p.RouteToApp.Name != "":
 		req.Target = &proto.IsMFARequiredRequest_App{App: &p.RouteToApp}
+	case p.RouteToDesktop.WindowsDesktop != "":
+		req.Target = &proto.IsMFARequiredRequest_WindowsDesktop{WindowsDesktop: &p.RouteToDesktop}
 	default:
 		return nil, trace.BadParameter("reissue params have no valid MFA target")
 	}

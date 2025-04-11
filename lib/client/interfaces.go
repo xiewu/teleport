@@ -129,6 +129,9 @@ type KeyRing struct {
 	// AppTLSCredentials are TLS credentials for application access.
 	// Map key is the application name.
 	AppTLSCredentials map[string]TLSCredential
+	// AppTLSCredentials are TLS credentials for destkop access.
+	// Map key is the application name.
+	DesktopTLSCredentials map[string]TLSCredential
 	// TrustedCerts is a list of trusted certificate authorities
 	TrustedCerts []authclient.TrustedCerts
 }
@@ -520,6 +523,15 @@ func (k *KeyRing) AppTLSCert(appName string) (tls.Certificate, error) {
 	cred, ok := k.AppTLSCredentials[appName]
 	if !ok {
 		return tls.Certificate{}, trace.NotFound("TLS certificate for application %q not found", appName)
+	}
+	return cred.TLSCertificate()
+}
+
+// AppTLSCert returns the tls.Certificate for authentication against a named app.
+func (k *KeyRing) DesktopTLSCert(desktopName string) (tls.Certificate, error) {
+	cred, ok := k.DesktopTLSCredentials[desktopName]
+	if !ok {
+		return tls.Certificate{}, trace.NotFound("TLS certificate for desktop %q not found", desktopName)
 	}
 	return cred.TLSCertificate()
 }
