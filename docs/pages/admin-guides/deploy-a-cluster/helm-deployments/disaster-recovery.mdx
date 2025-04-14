@@ -40,9 +40,8 @@ Teleport](./aws/#step-47-configure-tls-certificates-for-teleport).
 
 ### Cluster state backend (assuming DynamoDB)  
 
-The Teleport cluster state backend stores certificate authorities and dynamic
-resources {/*TODO: anything else?*/}. The most critical part of a disaster
-recovery plan is to maintain a backup of the cluster state backend. 
+The Teleport cluster state backend stores critical data such as certificate
+authorities and dynamic resources. 
 
 With a backup available, the Teleport Auth Service can supply an existing
 certificate authority to sign certificates for cluster components. If you
