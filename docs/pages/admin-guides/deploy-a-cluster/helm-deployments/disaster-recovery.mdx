@@ -66,10 +66,17 @@ EKS cluster:
 $ kubectl -n teleport exec -i deployment/teleport-cluster-auth -- tctl get all --with-secrets > state.yaml
 ```
 
-{/*TODO: Hugo: "For KMS users, backing up their cluster might be harder than
-"tctl get all" once in a while, or running an hourly DynamoDB to s3 export. They
-must replicate the keys to the other region. See
-https://docs.aws.amazon.com/kms/latest/developerguide/multi-region-keys-overview.html" */}
+If the Teleport Auth Service in your cluster uses Amazon Key Management Service
+for certificate authority private keys, you must replicate your keys to the new
+AWS region before reinstalling the `teleport-cluster` Helm chart. See the [AWS
+documentation](https://docs.aws.amazon.com/kms/latest/developerguide/multi-region-keys-overview.html")
+for information about using KMS keys in multiple regions.
+
+{/* TODO: How would a user enable KMS in the teleport-cluster Helm chart? I
+don't see `ca_key_params` in the Auth Service values, which you need to enable
+KMS:
+https://goteleport.com/docs/admin-guides/deploy-a-cluster/aws-kms/#step-23-configure-your-auth-service-to-use-kms-keys
+*/}
 
 {/*Hugo: "AFAIK, Unlike what its name says, "tctl get all" doesn't get call
 resources in the backend. I'm not familiar with dynamo but I would expect many
