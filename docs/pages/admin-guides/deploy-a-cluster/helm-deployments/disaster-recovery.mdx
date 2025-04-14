@@ -78,9 +78,18 @@ KMS:
 https://goteleport.com/docs/admin-guides/deploy-a-cluster/aws-kms/#step-23-configure-your-auth-service-to-use-kms-keys
 */}
 
-{/*Hugo: "AFAIK, Unlike what its name says, "tctl get all" doesn't get call
+{/*TODO Hugo: "AFAIK, Unlike what its name says, "tctl get all" doesn't get call
 resources in the backend. I'm not familiar with dynamo but I would expect many
-resources to go missing."*/}
+resources to go missing."
+
+ResourceCommand.GetAll is defined in `tool/tctl/common/resource_command.go`. It
+ranges over the result of `services.GetResourceMarshalerKinds`, which is a
+slice of keys of `resourceMarshalers`. We populate `resourceMarshalers` in
+`RegisterResourceMarshaler` (`lib/services/resource.go`). We register resource
+marshalers in `init` (lib/services/resource.go).
+
+TODO: May want to generate a list of `tctl get all` resources and create a
+partial. We can include that in the backup/restore guide too.*/}
 
 ### Route 53: Updating DNS records to point to the new cluster.  
 
