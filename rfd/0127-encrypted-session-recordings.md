@@ -168,10 +168,13 @@ Where the recordings are collected is largely unimportant to the encryption
 strategy, but whether or not they are handled async or sync has different
 requirements.
 
-In sync modes the session recording data is written immediately to long term
-storage without intermediate disk writes. This means we can simply instantiate
-an age encryptor at the start of the session and encrypt the recording data as
-it's sent to long term storage.
+In sync modes the session recording data is written immediately to the auth
+service without intermediate disk writes. The auth service then handles
+batching and multipart upload of events to long term storage. In order to
+ensure resilience to partial uploads of parts, each batch will need to be
+encrypted individually on the auth service. This will likely mean wrapping the
+`gzipWriter` [used by slices](https://github.com/gravitational/teleport/blob/master/lib/events/stream.go#L669)
+with an `age` encryption writer.
 
 In async modes the session recording data is written to intermediate `.part`
 files. These files are collected until they're ready for upload and are then
@@ -181,6 +184,13 @@ encryptor that can proxy writes across multiple files. This will require
 maintaining a concurrency-safe mapping of in-progress uploads to encrypted
 writers which incurs a bit of added complexity. However it intentionally avoids
 any sort of intermediate key management which seems a worthwhile tradeoff.
+Because the data is already encrypted, exploding the final `.tar` file back
+into events to be uploaded to the auth service is not possible. Instead the
+auth service must accept a simple binary upload the `.tar` file which it can
+then proxy to long term storage. When using S3 compatible long term storage,
+the auth service will need to use the `PutObject` API rather than performing a
+multipart upload. This is to prevent any loss of parts that would make
+decryption impossible.
 
 ### Protocols
 
