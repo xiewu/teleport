@@ -111,9 +111,9 @@ primary region to the backup region. See the [Multi-Region
 Blueprint](../multi-region-blueprint.mdx#setting-up-multi-region-aws-s3-replication)
 guide for information on setting up multi-region S3 bucket replication.
 
-{/*TODO: do you need to preserve a backup of session recordings? What about
-backing up to another solution (near-online or offline), then applying the backup
-to a new S3 bucket?/*}
+{/*TODO: do you need to maintain a continuous backup of session recordings? What
+about backing up to another solution (near-online or offline), then applying the
+backup to a new S3 bucket?/*}
 
 ### Auth Service/Proxy Service:   
 
@@ -167,17 +167,37 @@ remained functional, or that come back online, can also become disruptive.
    are sticky and they will happily stay connected to the broken cluster, even
    days after the DNS entry got changed." */}
 
-### Recovery time objective  
-{/*TODO: Expect 15-30m of recovery time to redeploy to a new region  
+### Testing your disaster recovery procedure
 
- Hugo: "This sounds very optimistic, I would not expect anyone to achieve this
- in less than an hour. Deploying the chart already takes several minutes to go
- from nothing to a ready Teleport cluster. If they are using cert-manager it can
- take up to 10 minutes."*/}
+We strongly recommended testing your disaster recovery plan. Schedule time to
+stop your Teleport cluster in one region and redeploy in another one using your
+backup of the Auth Service cluster state backend, then ensure that users can
+continue to connect to Teleport-protected resources.
 
- {/* TODO: Shortening the RTO:  
-      - Restoring tables in the new region prior to redeploying Teleport  
-      - Having the Auth Service, Proxy Service, and DynamoDB already running in the new region*/}
+Common causes of disaster recovery failures include:
+- **Misconfigured IAM settings:** The Teleport Auth Service in your first region
+  can access its backend, for example, but in the second region, the Auth
+  Service has a role with insufficient permissions.
+- **Misconfigured backend connections:** The Teleport Auth Service is configured
+  with an incorrect cluster state backend URL in the new region, meaning that
+  when it starts up, it fails to retrieve its existing CAs and dynamic
+  resources, and bootstraps instead with a self-signed certificate.
+
+### Shortening the recovery time objective
+
+You can expect the disaster recovery procedure outlined in this guide to take at
+least an hour, though the precise details depend on your infrastructure and
+oragnization. To arrive at an exact benchmark, we strongly recommend [testing
+your disaster recovery procedure](#testing-your-disaster-recovery-procedure).
+
+You can take measures to shorten the recovery time objective of your disaster
+recovery procedure. Possibilities include:
+
+- Restore your cluster state and audit event backend tables from backup prior to
+  reinstalling the `teleport-cluster` Helm chart.
+- Have the Auth Service, Proxy Service, and backend services running in the new
+  region. Read about the architecture of a multi-region Teleport deployment in
+  the [Multi-Region Blueprint](../multi-region-blueprint.mdx) guide.
 
 ### Imposing a change freeze during the disaster recovery window  
 
@@ -193,18 +213,4 @@ From the outline:
 
 */}
 
-### Test your disaster recovery procedure
 
-We strongly recommended testing your disaster recovery plan. Schedule time to
-stop your Teleport cluster in one region and redeploy in another one using your
-backup of the Auth Service cluster state backend, then ensure that users can
-continue to connect to Teleport-protected resources.
-
-Common causes of disaster recovery failures include:
-- **Misconfigured IAM settings:** The Teleport Auth Service in your first region
-  can access its backend, for example, but in the second region, the Auth
-  Service has a role with insufficient permissions.
-- **Misconfigured backend connections:** The Teleport Auth Service is configured
-  with an incorrect cluster state backend URL in the new region, meaning that
-  when it starts up, it fails to retrieve its existing CAs and dynamic
-  resources, and bootstraps instead with a self-signed certificate.
