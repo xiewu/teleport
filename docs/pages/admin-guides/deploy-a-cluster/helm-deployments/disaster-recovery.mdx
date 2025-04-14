@@ -103,14 +103,17 @@ ensure that Route 53 DNS records point to the new cluster.
 
 (!docs/pages/includes/self-hosted-helm-dns.mdx!)
 
-### Session recording backend (assuming S3)  
+### Session recording backend
 
-{/*TODO: Hugo: There's no global S3 bucket. You can create one by creating
-transfer rules. This is described in the multi-region blueprint.
-*/}
+This guide assumes that you are using Amazon S3 for your session recording
+backend. You can use S3 replication rules to create continuous backups from your
+primary region to the backup region. See the [Multi-Region
+Blueprint](../multi-region-blueprint.mdx#setting-up-multi-region-aws-s3-replication)
+guide for information on setting up multi-region S3 bucket replication.
 
-{/*TODO: Hugo: I think you might be confusing audit event and session records.
-We need both S3 for recording, and Dynamo for events.*/}
+{/*TODO: do you need to preserve a backup of session recordings? What about
+backing up to another solution (near-online or offline), then applying the backup
+to a new S3 bucket?/*}
 
 ### Auth Service/Proxy Service:   
 
