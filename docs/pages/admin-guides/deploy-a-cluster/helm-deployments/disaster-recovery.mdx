@@ -27,9 +27,16 @@ time it takes to redeploy the Auth Service and Proxy Service in the new region.
 
 ### Load balancer  
 
-{/* TODO: Hugo: "If you are using ACM, you might need to create the certificate
-in ACM before. The same way you will need to create the S3 bucket, dynamodb
-backend, and IAM roles prior running "helm install"." */}
+The `teleport-cluster` Helm chart deploys a Kubernetes service that, by default,
+has the `LoadBalancer` type. Reinstalling the Helm chart in your new AWS region
+recreates the load balancer. If you are using AWS Certificate Manager or
+`cert-manager` to provision TLS credentials for your load balancer, you must
+create a new certificate and private key before installing the chart in the new
+region.
+
+For guidance on configuring your EKS cluster to use ACM and `cert-manager` with
+the Teleport Proxy Service load balancer, see [Configure TLS certificates for
+Teleport](./aws/#step-47-configure-tls-certificates-for-teleport).
 
 ### Cluster state backend (assuming DynamoDB)  
 
