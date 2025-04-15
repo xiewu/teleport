@@ -147,6 +147,9 @@ export enum IntegrationStatusCode {
   OtherError = 2,
   Unauthorized = 3,
   SlackNotInChannel = 10,
+  OktaSSOConfigError = 20,
+  OktaUserSyncConfigError = 21,
+  OktaAppGroupSyncConfigError = 22,
   Draft = 100,
 }
 
@@ -158,6 +161,8 @@ export function getStatusCodeTitle(code: IntegrationStatusCode): string {
       return 'Running';
     case IntegrationStatusCode.Unauthorized:
       return 'Unauthorized';
+    case IntegrationStatusCode.OktaUserSyncConfigError:
+      return 'Configuration error';
     case IntegrationStatusCode.SlackNotInChannel:
       return 'Bot not invited to channel';
     case IntegrationStatusCode.Draft:
@@ -173,7 +178,13 @@ export function getStatusCodeDescription(
   switch (code) {
     case IntegrationStatusCode.Unauthorized:
       return 'The integration was denied access. This could be a result of revoked authorization on the 3rd party provider. Try removing and re-connecting the integration.';
-
+    // TODO(kiosion): Finalize copy for these...
+    case IntegrationStatusCode.OktaSSOConfigError:
+      return "There was an error with the integration's SSO configuration.";
+    case IntegrationStatusCode.OktaUserSyncConfigError:
+      return "There was an error with the integration's User Sync configuration. Verify your API Services app in Okta has the necessary permissions granted and can access your SAML app, or try setting up User Sync again.";
+    case IntegrationStatusCode.OktaAppGroupSyncConfigError:
+      return "There was an error with the integration's App and Group Sync configuration. Verify you have provided Default Access List Owners, or try setting up App and Group Sync again.";
     case IntegrationStatusCode.SlackNotInChannel:
       return 'The Slack integration must be invited to the default channel in order to receive access request notifications.';
     default:

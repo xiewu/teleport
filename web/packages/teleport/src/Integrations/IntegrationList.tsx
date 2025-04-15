@@ -265,6 +265,9 @@ export enum Status {
   Success,
   Warning,
   Error,
+  OktaSSOConfigError = 20,
+  OktaUserSyncConfigError = 21,
+  OktaAppGroupSyncConfigError = 22,
 }
 
 const StatusLight = styled(Box)<{ status: Status }>`
@@ -276,7 +279,14 @@ const StatusLight = styled(Box)<{ status: Status }>`
     if (status === Status.Success) {
       return theme.colors.success.main;
     }
-    if (status === Status.Error) {
+    if (
+      [
+        Status.Error,
+        Status.OktaSSOConfigError,
+        Status.OktaUserSyncConfigError,
+        Status.OktaAppGroupSyncConfigError,
+      ].includes(status)
+    ) {
       return theme.colors.error.main;
     }
     if (status === Status.Warning) {
