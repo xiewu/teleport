@@ -106,14 +106,15 @@ ensure that Route 53 DNS records point to the new cluster.
 ### Session recording backend
 
 This guide assumes that you are using Amazon S3 for your session recording
-backend. You can use S3 replication rules to create continuous backups from your
+backend. To have access to your session recordings in the case of region-wide
+unavailability, you need to back up your session recordings to another region.
+When you redeploy the Teleport Auth Service to the new region, you can configure
+it to connet to an S3 bucket in the new region.
+
+You can use S3 replication rules to create continuous backups from your
 primary region to the backup region. See the [Multi-Region
 Blueprint](../multi-region-blueprint.mdx#setting-up-multi-region-aws-s3-replication)
 guide for information on setting up multi-region S3 bucket replication.
-
-{/*TODO: do you need to maintain a continuous backup of session recordings? What
-about backing up to another solution (near-online or offline), then applying the
-backup to a new S3 bucket?/*}
 
 ### Auth Service/Proxy Service:   
 
