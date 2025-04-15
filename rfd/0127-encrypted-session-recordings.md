@@ -42,7 +42,9 @@ defaults without requiring customization. The formal spec can be found
 [here](https://age-encryption.org/v1). Officially supported key algorithms are
 limited to X25519 (recommended by the spec), Ed25519, and RSA. Support for
 other algorithms would either have to be requested from the upstream or
-manually implemented as a custom plugin.
+manually implemented as a custom plugin. The algorithms employed by `age` are
+not currently compatible with FIPS, which means configuring encrypted sessions
+while in FIPS mode will result in failed startup.
 
 Below is a high level diagram showing how `age` encryption and decryption work:
 ![age diagram](assets/0127-age-high-level.png)
@@ -143,16 +145,49 @@ message SessionRecordingConfigV2 {
 ```proto
 // api/proto/teleport/clusterconfig/v1/clusterconfig_service.proto
 
+// existing messages omitted
+
+message RotateSessionRecordingConfigRequest {}
+message RotateSessionRecordingConfigResponse {}
+
 // ClusterConfigService provides methods to manage cluster configuration resources.
 service ClusterConfigService {
-  // existing messages and RPCs omitted
-
-  message RotateSessionRecordingConfigRequest {}
-  message RotateSessionRecordingConfigResponse {}
+  // existing RPCs omitted
 
   // RotateSessionRecordingConfigKeys rotates the keys associated with encrypting and
   // decrypting session recordings.
   rpc RotateSessionRecordingConfig(RotateSessionRecordingConfigRequest) returns (RotateSessionRecordingConfigResponse);
+}
+```
+
+```proto
+// api/proto/teleport/legacy/client/proto/authservice.proto
+
+// ClusterConfigService provides methods to manage cluster configuration resources.
+service ClusterConfigService {
+  // existing messages omitted
+
+  // EncryptedSessionRecordingChunk is an individual chunk of an encrypted 
+  // session recording .tar file.
+  message EncryptedSessionRecordingChunk {
+    // SessionID the recording relates to.
+    string SessionID = 1;
+    // ChunkIndex is the ordered index applied to the chunk.
+    int64 ChunkIndex = 2;
+    // Chunk is the encrypted chunk of session recording data being uploaded.
+    bytes Chunk = 3;
+  }
+
+  message UploadEncryptedSessionRecordingResponse {}
+
+  service AuthService {
+    // existing RPCs omitted
+
+    // UploadEncryptedSessionRecording is used to upload encrypted .tar files
+    // containing session recording events into long term storage.
+    rpc UploadEncryptedSessionRecording(stream EncryptedSessionRecordingChunk) returns (UploadEncryptedSessionRecordingResponse);
+    
+  }
 }
 ```
 
@@ -186,11 +221,12 @@ writers which incurs a bit of added complexity. However it intentionally avoids
 any sort of intermediate key management which seems a worthwhile tradeoff.
 Because the data is already encrypted, exploding the final `.tar` file back
 into events to be uploaded to the auth service is not possible. Instead the
-auth service must accept a simple binary upload the `.tar` file which it can
-then proxy to long term storage. When using S3 compatible long term storage,
-the auth service will need to use the `PutObject` API rather than performing a
-multipart upload. This is to prevent any loss of parts that would make
-decryption impossible.
+auth service must accept a binary upload of the `.tar` file which it can
+then proxy to long term storage. This will be done using the
+`UploadEncryptedSessionRecording` streaming RPC. When using S3 compatible long
+term storage, the auth service will need to use the `PutObject` API rather than
+performing a multipart upload. This is to prevent any loss of parts that would
+make decryption impossible.
 
 ### Protocols
 
@@ -325,12 +361,14 @@ will be added as recipients.
 ### Decryption and Replay
 
 Because decryption will happen in the auth service before streaming to the
-client, the UX of replaying encrypted recordings is no different from
+client, the UX of replaying encrypted recordings is nearly identical to
 unencrypted recordings. The auth server will find and unwrap its active key in
 the `session_recording_config` using either the key's identifier within the KMS
 or the `host_uuid` attached to HSM derived keys. It will use that key to
 decrypt the data on the fly as it's streamed back to the client. This should be
-compatible with all replay clients, including web.
+compatible with all replay clients, including web. The only change to the
+client UX is that encrypted recording files can not be passed directly to
+`tsh play` because decryption is only possible within the auth service.
 
 If a recording was encrypted with a rotated key, the auth server will also need
 to search the list of rotated keys to find and unwrap the correct key. Public
