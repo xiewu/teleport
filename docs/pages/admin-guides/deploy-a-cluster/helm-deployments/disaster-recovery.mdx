@@ -66,6 +66,16 @@ EKS cluster:
 $ kubectl -n teleport exec -i deployment/teleport-cluster-auth -- tctl get all --with-secrets > state.yaml
 ```
 
+Note that the `tctl get all` command retrieves a predefines list of resource
+types from the Auth Service state backend, and does not necessarily retrieve all
+records from the backend. To ensure that your state backend in the new region is
+identical to the one in the current region, you should rely on continuous
+backups. If you want to retrieve or restore Auth Service resource state at a
+particular point in time, we recommend managing Teleport dynamic resources using
+infrastructure as code tools. See [Infrastructure as
+Code](../../infrastructure-as-code/infrastructure-as-code.mdx) for more
+information.
+
 If the Teleport Auth Service in your cluster uses Amazon Key Management Service
 for certificate authority private keys, you must replicate your keys to the new
 AWS region before reinstalling the `teleport-cluster` Helm chart. See the [AWS
@@ -76,20 +86,7 @@ for information about using KMS keys in multiple regions.
 don't see `ca_key_params` in the Auth Service values, which you need to enable
 KMS:
 https://goteleport.com/docs/admin-guides/deploy-a-cluster/aws-kms/#step-23-configure-your-auth-service-to-use-kms-keys
-*/}
-
-{/*TODO Hugo: "AFAIK, Unlike what its name says, "tctl get all" doesn't get call
-resources in the backend. I'm not familiar with dynamo but I would expect many
-resources to go missing."
-
-ResourceCommand.GetAll is defined in `tool/tctl/common/resource_command.go`. It
-ranges over the result of `services.GetResourceMarshalerKinds`, which is a
-slice of keys of `resourceMarshalers`. We populate `resourceMarshalers` in
-`RegisterResourceMarshaler` (`lib/services/resource.go`). We register resource
-marshalers in `init` (lib/services/resource.go).
-
-TODO: May want to generate a list of `tctl get all` resources and create a
-partial. We can include that in the backup/restore guide too.*/}
+-*/}
 
 ### Route 53: Updating DNS records to point to the new cluster.  
 
