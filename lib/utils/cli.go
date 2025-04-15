@@ -566,14 +566,7 @@ const DocsHelpTemplate = `{{define "FormatCommand" -}}
 
 {{end -}}
 
----
-title: {{.App.Name}} Reference
-description: Provides a comprehensive list of commands, flags, and arguments for the {{.App.Name}} CLI tool.
----
-
-This guide provides a comprehensive list of commands, flags, and arguments for
-{{template "FormatUsage" .App}}.
-
+usage: {{.App.Name}}{{template "FormatUsage" .App}}
 {{if .Context.Flags -}}
 Flags:
 {{.Context.Flags|FlagsToTwoColumns|FormatTwoColumns}}
