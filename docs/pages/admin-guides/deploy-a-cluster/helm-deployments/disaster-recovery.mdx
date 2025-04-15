@@ -134,7 +134,11 @@ Helm](docs/pages/admin-guides/deploy-a-cluster/helm-deployments/aws.mdx) so you
 can make sure that you have accounted for any third-party dependencies you need
 to manage in the new AWS region.
 
-{/* TODO Describe required IAM permissions for the Auth Service and Proxy Servicve  */}
+You also need to ensure that the roles used by the Auth Service and Proxy
+Service grnat the services permissions to access backends in the new region.
+Make sure that the trust policies associated with these roles grant access to
+principals in the new region.
+
 {/* TODO Kubernetes operator procedure Hugo: "The good thing is that the
 operator should not attempt to takeover Teleport resource created from the other
 cluster if no CR exist. So I think it's OK to deploy with the operator. They
