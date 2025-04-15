@@ -3024,13 +3024,15 @@ func (process *TeleportProcess) initSSH() error {
 			logger.WarnContext(process.ExitContext(), warn)
 		}
 
+		useLocalListener := cfg.SSH.ForceListenInTunnel || !conn.UseTunnel()
+
 		// Provide helpful log message if listen_addr or public_addr are not being
 		// used (tunnel is used to connect to cluster).
 		//
 		// If a tunnel is not being used, set the default here (could not be done in
 		// file configuration because at that time it's not known if server is
 		// joining cluster directly or through a tunnel).
-		if conn.UseTunnel() {
+		if !useLocalListener {
 			if !cfg.SSH.Addr.IsEmpty() {
 				logger.InfoContext(process.ExitContext(), "Connected to cluster over tunnel connection, ignoring listen_addr setting.")
 			}
@@ -3038,7 +3040,7 @@ func (process *TeleportProcess) initSSH() error {
 				logger.InfoContext(process.ExitContext(), "Connected to cluster over tunnel connection, ignoring public_addr setting.")
 			}
 		}
-		if !conn.UseTunnel() && cfg.SSH.Addr.IsEmpty() {
+		if useLocalListener && cfg.SSH.Addr.IsEmpty() {
 			cfg.SSH.Addr = *defaults.SSHServerListenAddr()
 		}
 
@@ -3157,7 +3159,7 @@ func (process *TeleportProcess) initSSH() error {
 		}
 
 		var agentPool *reversetunnel.AgentPool
-		if !conn.UseTunnel() {
+		if useLocalListener {
 			listener, err := process.importOrCreateListener(ListenerNodeSSH, cfg.SSH.Addr.Addr)
 			if err != nil {
 				return trace.Wrap(err)
@@ -3199,11 +3201,15 @@ func (process *TeleportProcess) initSSH() error {
 			}
 
 			go s.Serve(listener)
-		} else {
-			// Start the SSH server. This kicks off updating labels and starting the
-			// heartbeat.
-			if err := s.Start(); err != nil {
-				return trace.Wrap(err)
+		}
+
+		if conn.UseTunnel() {
+			if !useLocalListener {
+				// Start the SSH server. This kicks off updating labels and starting the
+				// heartbeat.
+				if err := s.Start(); err != nil {
+					return trace.Wrap(err)
+				}
 			}
 
 			var serverHandler reversetunnel.ServerHandler = s
