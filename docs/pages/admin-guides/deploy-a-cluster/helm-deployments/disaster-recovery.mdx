@@ -135,7 +135,7 @@ can make sure that you have accounted for any third-party dependencies you need
 to manage in the new AWS region.
 
 You also need to ensure that the roles used by the Auth Service and Proxy
-Service grnat the services permissions to access backends in the new region.
+Service grant the services permissions to access backends in the new region.
 Make sure that the trust policies associated with these roles grant access to
 principals in the new region.
 
@@ -143,7 +143,12 @@ principals in the new region.
 operator should not attempt to takeover Teleport resource created from the other
 cluster if no CR exist. So I think it's OK to deploy with the operator. They
 will need to re-create all the CRs in Kube, else they will have dangling
-Teleport resources."*/}
+Teleport resources."
+
+Note that the teleport-cluster chart includes the teleport-operator chart as a
+dependency, though only grants necessary permissions to the operator user if
+`operator.enabled` is true in the values.
+*/}
 
 1. Install the `teleport-cluster` Helm chart using the new values:
 
