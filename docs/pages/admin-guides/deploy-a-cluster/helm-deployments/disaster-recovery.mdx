@@ -116,9 +116,27 @@ primary region to the backup region. See the [Multi-Region
 Blueprint](../multi-region-blueprint.mdx#setting-up-multi-region-aws-s3-replication)
 guide for information on setting up multi-region S3 bucket replication.
 
-### Auth Service/Proxy Service:   
+### Auth Service/Proxy Service
 
-{/* TODO Make changes to the Helm values file to apply to the new region (e.g., change the region) */}
+When deploying the Teleport Auth Service and Proxy Service to the new region,
+you need to update the following fields in the Helm values file:
+
+- `aws.region`
+- `aws.backendTable`
+- `aws.auditLogTable`
+- `aws.sessionRecordingBucket`
+
+You may need to update other values to match third-party dependencies of the
+Teleport cluster. For example, if you plan to deploy `cert-manager` to handle
+Teleport Proxy Service certificates instead of Let's Encrypt, you need to set
+the `certManager.issuerName` field to match the name of the `cert-manager`
+Issuer in your Kubernetes cluster. 
+
+We recommend reading [Running an HA Teleport Cluster Using AWS, EKS, and
+Helm](docs/pages/admin-guides/deploy-a-cluster/helm-deployments/aws.mdx) so you
+can make sure that you have accounted for any third-party dependencies you need
+to manage in the new AWS region.
+
 {/* TODO Describe required IAM permissions for the Auth Service and Proxy Servicve  */}
 {/* TODO Kubernetes operator procedure Hugo: "The good thing is that the
 operator should not attempt to takeover Teleport resource created from the other
