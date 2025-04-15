@@ -539,3 +539,51 @@ func FormatAlert(alert types.ClusterAlert) string {
 	}
 	return buf.String()
 }
+
+// DocsHelpTemplate is a help text template for CLI reference documentation.
+// Based on LongHelpTemplate in alecthomas/kingpin. See:
+// https://github.com/alecthomas/kingpin/blob/68c06706edae8d9a6f7806dc575a5a9f47409821/templates.go#L197
+const DocsHelpTemplate = `{{define "FormatCommand" -}}
+{{if .FlagSummary}} {{.FlagSummary}}{{end -}}
+{{range .Args}}{{if not .Hidden}} {{if not .Required}}[{{end}}{{if .PlaceHolder}}{{.PlaceHolder}}{{else}}<{{.Name}}>{{end}}{{if .Value|IsCumulative}}...{{end}}{{if not .Required}}]{{end}}{{end}}{{end -}}
+{{end -}}
+
+{{define "FormatCommands" -}}
+{{range .FlattenedCommands -}}
+{{if not .Hidden -}}
+  {{.FullCommand}}{{template "FormatCommand" .}}
+{{.Help|Wrap 4}}
+{{with .Flags|FlagsToTwoColumns}}{{FormatTwoColumnsWithIndent . 4 2}}{{end}}
+{{end -}}
+{{end -}}
+{{end -}}
+
+{{define "FormatUsage" -}}
+{{template "FormatCommand" .}}{{if .Commands}} <command> [<args> ...]{{end}}
+{{if .Help}}
+{{.Help|Wrap 0 -}}
+{{end -}}
+
+{{end -}}
+
+---
+title: {{.App.Name}} Reference
+description: Provides a comprehensive list of commands, flags, and arguments for the {{.App.Name}} CLI tool.
+---
+
+This guide provides a comprehensive list of commands, flags, and arguments for
+{{template "FormatUsage" .App}}.
+
+{{if .Context.Flags -}}
+Flags:
+{{.Context.Flags|FlagsToTwoColumns|FormatTwoColumns}}
+{{end -}}
+{{if .Context.Args -}}
+Args:
+{{.Context.Args|ArgsToTwoColumns|FormatTwoColumns}}
+{{end -}}
+{{if .App.Commands -}}
+Commands:
+{{template "FormatCommands" .App}}
+{{end -}}
+`
