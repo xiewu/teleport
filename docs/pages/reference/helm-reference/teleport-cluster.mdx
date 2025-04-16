@@ -16,7 +16,7 @@ The `teleport-cluster` chart runs three Teleport services, split into two sets o
 | Teleport service | Running in | Purpose | Documentation |
 | - | - | - | - |
 | `auth_service` | auth `Deployment` | Authenticates users and hosts, and issues certificates. | [Auth documentation](../architecture/authentication.mdx)
-| `kubernetes_service` | auth `Deployment` | Provides secure access to the Kubernetes<br/>cluster where the Teleport cluster is hosted. | [Kubernetes Access documentation](../../enroll-resources/kubernetes-access/introduction.mdx) |
+| `kubernetes_service` | auth `Deployment` | Provides secure access to the Kubernetes<br/>cluster where the Teleport cluster is hosted. | [Enrolling Kubernetes clusters](../../enroll-resources/kubernetes-access/introduction.mdx) |
 | `proxy_service` | proxy `Deployment` | Runs the externally-facing parts of a Teleport<br/>cluster, such as the web UI, SSH proxy and reverse tunnel service. | [Proxy documentation](../architecture/proxy.mdx) |
 
 <Admonition type="tip" title="Additional Kubernetes Clusters and Teleport Services">
@@ -40,12 +40,6 @@ Get started with a guide for each mode:
 | `gcp` | Leverages GCP managed services to store data. | [Running an HA Teleport cluster using a Google Cloud GKE cluster](../../admin-guides/deploy-a-cluster/helm-deployments/gcp.mdx) |
 | `azure` | Leverages Azure managed services to store data. | [Running an HA Teleport cluster using a Microsoft Azure AKS cluster](../../admin-guides/deploy-a-cluster/helm-deployments/azure.mdx) |
 | `scratch` (v12 and above) | Generates empty Teleport configuration. User must pass their own config. This is discouraged, use `standalone` mode with [`auth.teleportConfig`](#authteleportconfig) and [`proxy.teleportConfig`](#proxyteleportconfig) instead. | [Running a Teleport cluster with a custom config](../../admin-guides/deploy-a-cluster/helm-deployments/custom.mdx) |
-
-<Admonition type="note" title="Custom mode removal">
-`custom` mode has been removed in Teleport version 12. See the [version 12
-migration guide](../../admin-guides/deploy-a-cluster/helm-deployments/migration-v12.mdx) for
-more information.
-</Admonition>
 
 <Admonition type="warning" title="Version Compatibility">
 The chart is versioned with Teleport. No compatibility guarantees are ensured
@@ -76,9 +70,12 @@ load balancer address of your Teleport cluster.
 You will need to manually add a DNS A record pointing `teleport.example.com` to
 the IP, or a CNAME record pointing to the hostname of the Kubernetes load balancer.
 
-<Details title="Using Application Access?">
+<details>
+<summary>Enrolling applications with Teleport?</summary>
+
 (!docs/pages/includes/dns-app-access.mdx!)
-</Details>
+
+</details>
 </Admonition>
 
 <Admonition type="warning">
@@ -109,11 +106,13 @@ This is merged with chart-scoped values and takes precedence in case of conflict
 For example, to override the [`postStart`](#postStart) value only for auth pods:
 ```yaml
 # By default all pods postStart command should be "echo starting"
-postStart: ["echo", "starting"]
+postStart:
+  command: ["echo", "starting"]
 
 auth:
   # But we override the `postStart` value specifically for auth pods
-  postStart: ["curl", "http://hook"]
+  postStart:
+    command: ["curl", "http://hook"]
   imagePullPolicy: Always
 ```
 
@@ -193,11 +192,13 @@ For example, to override the [`postStart`](#postStart) value only for Teleport P
 and annotate the Kubernetes Service deployed for the Teleport Proxy Service:
 ```yaml
 # By default all pods postStart command should be "echo starting"
-postStart: ["echo", "starting"]
+postStart:
+  command: ["echo", "starting"]
 
 proxy:
   # But we override the `postStart` value specifically for proxy pods
-  postStart: ["curl", "http://hook"]
+  postStart:
+    command: ["curl", "http://hook"]
   imagePullPolicy: Always
 
   # We also annotate only the Kubernetes Service sending traffic to Proxy Service pods.
@@ -301,12 +302,16 @@ Defaults to Teleport's binary default when empty: `best_effort`.
 
 ### `authentication.secondFactor`
 
+<Admonition type="warning">
+Deprecated, you should use [`authentication.secondFactors`](#authenticationsecondfactors) instead.
+</Admonition>
+
 | Type     | Default value | Required? | `teleport.yaml` equivalent                  |
 |----------|---------------|-----------|---------------------------------------------|
-| `string` | `otp`         | Yes       | `auth_service.authentication.second_factor` |
+| `string` | none          | Yes       | `auth_service.authentication.second_factor` |
 
-`authentication.secondFactor` controls the second factor used for local user authentication. Possible values supported by this chart
-are `on`, `otp`, and `webauthn`.
+`authentication.secondFactor` configures multi-factor authentication for local users.
+Possible values supported by this chart are `on`, `otp`, and `webauthn`.
 
 When set to `on` or `webauthn`, the `authenticationSecondFactor.webauthn` section can also be used.
 The configured `rp_id` defaults to `clusterName`.
@@ -329,9 +334,40 @@ For example, if users are accessing the cluster with the domain
 Changing the RP ID will invalidate all already registered webauthn second factors.
 </Admonition>
 
+### `authentication.secondFactors`
+
+| Type    | Default value         | Required? | `teleport.yaml` equivalent                   |
+|---------|-----------------------|-----------|----------------------------------------------|
+| `array` | `["otp", "webauthn"]` | No        | `auth_service.authentication.second_factors` |
+
+`authentication.secondFactors` configures multi-factor authentication types.
+Supported item values are `otp`, `sso`, and `webauthn`.
+
+`authentication.secondFactors` takes precedence over any value that is set in `authentication.secondFactor`.
+If `webauthn` is passed, the `authentication.webauthn` section can also be used.
+The configured `rp_id` defaults to `clusterName`.
+
+<Admonition type="warning">
+If you set `publicAddr` for users to access the cluster under a domain different
+to [`clusterName`](#clusterName), you must manually set the webauthn [Relying
+Party Identifier (RP
+ID)](https://www.w3.org/TR/webauthn-2/#relying-party-identifier). If you don't,
+RP ID will default to `clusterName` and users will fail to register second
+factors.
+
+You can do this by setting the value
+`auth.teleportConfig.auth_service.authentication.webauthn.rp_id`.
+
+RP ID must be both a valid domain, and part of the full domain users are connecting to.
+For example, if users are accessing the cluster with the domain
+"teleport.example.com", RP ID can be "teleport.example.com" or "example.com".
+
+Changing the RP ID will invalidate all already registered webauthn second factors.
+</Admonition>
+
 ### `authentication.webauthn`
 
-See [Second Factor - WebAuthn](../../admin-guides/access-controls/guides/webauthn.mdx) for more details.
+See [Harden your Cluster Against IdP Compromises](../../admin-guides/access-controls/guides/webauthn.mdx) for more details.
 
 #### `authentication.webauthn.attestationAllowedCas`
 
@@ -616,6 +652,22 @@ $ kubectl --namespace teleport create secret generic license --from-file=/path/t
   enterprise: true
   ```
 
+### `licenseSecretName`
+
+| Type     | Default value  |
+|----------|----------------|
+| `string` | `license`      |
+
+`licenseSecretName` controls Kubernetes secret name for the Enterprise license.
+
+By using this value you will update the Kubernetes volume specification to mount Secret based volume to the container using custom name.
+
+`values.yaml` example:
+
+  ```yaml
+  licenseSecretName: enterprise-license
+  ```
+
 ## `installCRDs`
 
 | Type   | Default value |
@@ -639,6 +691,63 @@ the same Kubernetes cluster or installing the CRDs on your own you should not ha
 
 ## `operator`
 
+### `operator.annotations.deployment`
+
+| Type     | Default value |
+|----------|---------------|
+| `object` | `{}`          |
+
+[Kubernetes reference](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/)
+
+Kubernetes annotations which should be applied to the `Deployment` created by the chart.
+
+`values.yaml` example:
+
+  ```yaml
+  operator:
+    annotations:
+      deployment:
+        kubernetes.io/annotation: value
+  ```
+
+### `operator.annotations.pod`
+
+| Type     | Default value |
+|----------|---------------|
+| `object` | `{}`          |
+
+[Kubernetes reference](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/)
+
+Kubernetes annotations which should be applied to the `Pod` created by the chart.
+
+`values.yaml` example:
+
+  ```yaml
+  operator:
+    annotations:
+      pod:
+        kubernetes.io/annotation: value
+  ```
+
+### `operator.annotations.serviceAccount`
+
+| Type     | Default value |
+|----------|---------------|
+| `object` | `{}`          |
+
+[Kubernetes reference](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/)
+
+Kubernetes annotations which should be applied to the `ServiceAccount` created by the chart.
+
+`values.yaml` example:
+
+  ```yaml
+  operator:
+    annotations:
+      serviceAccount:
+        kubernetes.io/annotation: value
+  ```
+
 ### `operator.enabled`
 
 | Type   | Default value |
@@ -655,7 +764,7 @@ If you are deploying multiple releases of the Helm chart in the same cluster you
 
   ```yaml
   operator:
-   enabled: true
+    enabled: true
   ```
 
 ### `operator.image`
@@ -674,6 +783,44 @@ This setting requires [`operator.enabled`](#operatorenabled).
   ```yaml
   operator:
     image: my.docker.registry/teleport-operator-image-name
+  ```
+
+### `operator.labels.deployment`
+
+| Type     | Default value |
+|----------|---------------|
+| `object` | `{}`          |
+
+[Kubernetes reference](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
+
+Kubernetes labels which should be applied to the `Deployment` created by the chart.
+
+`values.yaml` example:
+
+  ```yaml
+  operator:
+    labels:
+      deployment:
+        label: value
+  ```
+
+### `operator.labels.pod`
+
+| Type     | Default value |
+|----------|---------------|
+| `object` | `{}`          |
+
+[Kubernetes reference](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
+
+Kubernetes labels which should be applied to the `Pod` created by the chart.
+
+`values.yaml` example:
+
+  ```yaml
+  operator:
+    labels:
+      pod:
+        label: value
   ```
 
 ### `operator.resources`
@@ -878,7 +1025,7 @@ to inject your custom configuration.
 
 `podMonitor` controls [the PodMonitor CR (from monitoring.coreos.com/v1)
 ](https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api.md#monitoring.coreos.com/v1.PodMonitor)
-that monitors the workload (Auth and Proxy Services) deployed by the chart.
+that monitors the workload (Auth Service and Proxy Service) deployed by the chart.
 This custom resource configures Prometheus and makes it scrape Teleport metrics.
 
 The CRD is deployed by the prometheus-operator and allows workload to
@@ -915,7 +1062,8 @@ Those labels are used to be selected by a specific Prometheus instance.
 
 ## `persistence`
 
-<Details title="Read this if using Kubernetes 1.23+ on EKS">
+<details>
+<summary>Read this if using Kubernetes 1.23+ on EKS</summary>
 
 Changes in Kubernetes 1.23+ mean that persistent volumes will not automatically be provisioned in AWS EKS clusters
 without additional configuration.
@@ -923,7 +1071,7 @@ without additional configuration.
 See [AWS documentation on the EBS CSI driver](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html) for more details.
 This driver addon must be configured to use persistent volumes in EKS clusters after Kubernetes 1.23.
 
-</Details>
+</details>
 
 ### `persistence.enabled`
 
@@ -1404,9 +1552,9 @@ You should create the secret in the same namespace as Teleport using a command l
 kubectl create secret generic my-root-ca --from-file=ca.pem=/path/to/root-ca.pem
 ```
 
-<Notice type="warning" title="Root CA filename">
+<Admonition type="warning" title="Root CA filename">
   The filename used for the root CA in the secret must be `ca.pem`.
-</Notice>
+</Admonition>
 
 `values.yaml` example:
 
@@ -1573,6 +1721,42 @@ Kubernetes affinity to set for pod assignments.
             values:
             - teleport
   ```
+
+## `disableTopologySpreadConstraints`
+
+| Type      | Default value | Required? |
+|-----------|---------------|-----------|
+| `boolean` | `false`       | No        |
+
+Turns off the topology spread constraints.
+The feature is automatically turned off on Kubernetes versions below 1.18.
+
+## `topologySpreadConstraints`
+
+| Type   | Default value   | Required? |
+|--------|-----------------|-----------|
+| `list` | see description | No        |
+
+Configures custom [Pod topology spread constraints
+](https://kubernetes.io/fr/docs/concepts/workloads/pods/pod-topology-spread-constraints/)
+
+When unset, the chart defaults to a soft topology spread constraint
+that tries to spread pods across hosts and zones.
+
+Default value:
+```
+topologySpreadConstraints
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels: # dynamically computed
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels: # dynamically computed
+```
 
 ## `annotations`
 ### `annotations.config`
@@ -1772,6 +1956,14 @@ is true.
 | `object` | `{}`          |
 
 `extraLabels.job` are labels to set on the Job run by the Helm hook.
+
+### `extraLabels.jobPod`
+
+| Type     | Default value |
+|----------|---------------|
+| `object` | `{}`          |
+
+`extraLabels.jobPod` are labels to set on the Pods created by the Job run by the Helm hook.
 
 ### `extraLabels.persistentVolumeClaim`
 
@@ -2206,3 +2398,46 @@ Kubernetes timeouts for the liveness and readiness probes.
   ```yaml
   probeTimeoutSeconds: 5
   ```
+
+## `readinessProbe`
+
+`readinessProbe` configures the readiness probe settings.
+This can be tuned to keep proxy pods ready even when the auth is unavailable.
+
+The default values mark the pod unready after one minute of failing readiness probe.
+
+### `readinessProbe.initialDelaySeconds`
+
+| Type      | Default value |
+|-----------|---------------|
+| `integer` | `5`           |
+
+`readinessProbe.initialDelaySeconds` controls the number of seconds after the container has started before
+liveness probes are initiated. More info [in the Kubernetes documentation
+](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle#container-probes)
+
+### `readinessProbe.periodSeconds`
+| Type      | Default value |
+|-----------|---------------|
+| `integer` | `5`           |
+
+`readinessProbe.periodSeconds` controls how often (in seconds) to perform the probe. Minimum value is 1.
+
+### `readinessProbe.failureThreshold`
+
+| Type      | Default value |
+|-----------|---------------|
+| `integer` | `12`          |
+
+`readinessProbe.failureThreshold` is the minimum consecutive failures for the probe to be considered failed
+after having succeeded. Minimum value is 1.
+failureThreshold: 12
+
+## `readinessProbe.successThreshold`
+
+| Type      | Default value |
+|-----------|---------------|
+| `integer` | `1`           |
+
+`readinessProbe.successThreshold` is the minimum consecutive successes for the probe to be considered
+successful after having failed. Minimum value is 1.

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Box, ButtonSecondary, Text, Flex } from 'design';
+import { Box, ButtonSecondary, Flex, Text } from 'design';
 
 import { LinearProgress } from 'teleterm/ui/components/LinearProgress';
 
@@ -29,11 +29,13 @@ export default function PromptSsoStatus(props: Props) {
         </Text>
         <LinearProgress />
       </Box>
-      <ButtonSecondary onClick={props.onCancel}>Cancel</ButtonSecondary>
+      {props.onCancel && (
+        <ButtonSecondary onClick={props.onCancel}>Cancel</ButtonSecondary>
+      )}
     </Flex>
   );
 }
 
 export type Props = {
-  onCancel(): void;
+  onCancel?(): void;
 };

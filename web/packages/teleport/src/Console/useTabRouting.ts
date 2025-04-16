@@ -16,10 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
-import { useRouteMatch, useParams, useLocation } from 'react-router';
+import { useMemo } from 'react';
+import { useLocation, useParams, useRouteMatch } from 'react-router';
 
-import cfg, { UrlKubeExecParams, UrlSshParams } from 'teleport/config';
+import cfg, {
+  UrlDbConnectParams,
+  UrlKubeExecParams,
+  UrlSshParams,
+} from 'teleport/config';
 import { ParticipantMode } from 'teleport/services/session';
 
 import ConsoleContext from './consoleContext';
@@ -35,29 +39,37 @@ export default function useRouting(ctx: ConsoleContext) {
   const joinSshRouteMatch = useRouteMatch<UrlSshParams>(
     cfg.routes.consoleSession
   );
+  const joinKubeExecRouteMatch = useRouteMatch<UrlKubeExecParams>(
+    cfg.routes.kubeExecSession
+  );
+  const dbConnectMatch = useRouteMatch<UrlDbConnectParams>(
+    cfg.routes.dbConnect
+  );
 
   // Ensure that each URL has corresponding document
-  React.useMemo(() => {
+  useMemo(() => {
     if (ctx.getActiveDocId(pathname) !== -1) {
       return;
     }
+
+    const participantMode = getParticipantMode(search);
 
     // When no document matches current URL that means we need to
     // create one base on URL parameters.
     if (sshRouteMatch) {
       ctx.addSshDocument(sshRouteMatch.params);
     } else if (joinSshRouteMatch) {
-      // Extract the mode param from the URL if it is present.
-      const searchParams = new URLSearchParams(search);
-      const mode = searchParams.get('mode');
-      if (mode) {
-        joinSshRouteMatch.params.mode = mode as ParticipantMode;
-      }
+      joinSshRouteMatch.params.mode = participantMode;
       ctx.addSshDocument(joinSshRouteMatch.params);
     } else if (nodesRouteMatch) {
       ctx.addNodeDocument(clusterId);
     } else if (kubeExecRouteMatch) {
       ctx.addKubeExecDocument(kubeExecRouteMatch.params);
+    } else if (joinKubeExecRouteMatch) {
+      joinKubeExecRouteMatch.params.mode = participantMode;
+      ctx.addKubeExecDocument(joinKubeExecRouteMatch.params);
+    } else if (dbConnectMatch) {
+      ctx.addDbDocument(dbConnectMatch.params);
     }
   }, [ctx, pathname]);
 
@@ -65,4 +77,12 @@ export default function useRouting(ctx: ConsoleContext) {
     clusterId,
     activeDocId: ctx.getActiveDocId(pathname),
   };
+}
+
+function getParticipantMode(search: string): ParticipantMode | undefined {
+  const searchParams = new URLSearchParams(search);
+  const mode = searchParams.get('mode');
+  if (mode === 'observer' || mode === 'moderator' || mode === 'peer') {
+    return mode;
+  }
 }

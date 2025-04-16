@@ -16,20 +16,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
 import Table from 'design/DataTable';
 import { FetchStatus } from 'design/DataTable/types';
 
+import cfg from 'teleport/config';
 import {
   DisableableCell as Cell,
-  StatusCell,
   ItemStatus,
-  RadioCell,
-  Labels,
   labelMatcher,
+  Labels,
+  RadioCell,
+  StatusCell,
 } from 'teleport/Discover/Shared';
-
-import cfg from 'teleport/config';
 
 import { CheckedEksCluster } from './EnrollEksCluster';
 
@@ -142,7 +140,7 @@ function disabledStates(
     };
   }
 
-  if (cfg.isCloud && !item.endpointPublicAddress) {
+  if (cfg.isCloud && !item.endpointPublicAccess) {
     return {
       disabled: true,
       disabledText:

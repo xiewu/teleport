@@ -35,7 +35,10 @@ import (
 
 // beginSSOMFAChallenge creates a new SSO MFA auth request and session data for the given user and sso device.
 func (a *Server) beginSSOMFAChallenge(ctx context.Context, user string, sso *types.SSOMFADevice, ssoClientRedirectURL string, ext *mfav1.ChallengeExtensions) (*proto.SSOChallenge, error) {
-	chal := new(proto.SSOChallenge)
+	chal := &proto.SSOChallenge{
+		Device: sso,
+	}
+
 	switch sso.ConnectorType {
 	case constants.SAML:
 		resp, err := a.CreateSAMLAuthRequestForMFA(ctx, types.SAMLAuthRequest{
@@ -83,14 +86,14 @@ func (a *Server) verifySSOMFASession(ctx context.Context, username, sessionID, t
 	const notFoundErrMsg = "mfa sso session data not found"
 	mfaSess, err := a.GetSSOMFASessionData(ctx, sessionID)
 	if trace.IsNotFound(err) {
-		return nil, trace.AccessDenied(notFoundErrMsg)
+		return nil, trace.AccessDenied("%s", notFoundErrMsg)
 	} else if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
 	// Verify the user's name and sso device matches.
 	if mfaSess.Username != username {
-		return nil, trace.AccessDenied(notFoundErrMsg)
+		return nil, trace.AccessDenied("%s", notFoundErrMsg)
 	}
 
 	// Check if the MFA session matches the user's SSO MFA settings.

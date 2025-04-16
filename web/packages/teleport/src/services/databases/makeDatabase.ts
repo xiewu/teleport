@@ -18,7 +18,7 @@
 
 import { formatDatabaseInfo } from 'shared/services/databases';
 
-import { Aws, Database, DatabaseService } from './types';
+import { Aws, Database, DatabaseServer, DatabaseService } from './types';
 
 export function makeDatabase(json: any): Database {
   const { name, desc, protocol, type, aws, requiresRequest } = json;
@@ -51,9 +51,12 @@ export function makeDatabase(json: any): Database {
     labels,
     names: json.database_names || [],
     users: json.database_users || [],
+    roles: json.database_roles || [],
     hostname: json.hostname,
     aws: madeAws,
     requiresRequest,
+    supportsInteractive: json.supports_interactive || false,
+    autoUsersEnabled: json.auto_users_enabled || false,
   };
 }
 
@@ -90,4 +93,18 @@ function combineResourceMatcherLabels(
   });
 
   return labelMap;
+}
+
+export function makeDatabaseServer(json: any): DatabaseServer {
+  const { spec, status } = json;
+
+  return {
+    hostname: spec?.hostname,
+    hostId: spec?.host_id,
+    targetHealth: status &&
+      status.target_health && {
+        status: status.target_health.status,
+        reason: status.target_health.transition_error,
+      },
+  };
 }

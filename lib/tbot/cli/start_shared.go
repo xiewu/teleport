@@ -153,29 +153,29 @@ func (s *sharedStartArgs) ApplyConfig(cfg *config.BotConfig, l *slog.Logger) err
 	}
 
 	if s.CertificateTTL != 0 {
-		if cfg.CertificateTTL != 0 {
+		if cfg.CredentialLifetime.TTL != 0 {
 			l.WarnContext(
 				context.TODO(),
 				"CLI parameters are overriding configuration",
 				"flag", "certificate-ttl",
-				"config_value", cfg.CertificateTTL,
+				"config_value", cfg.CredentialLifetime.TTL,
 				"cli_value", s.CertificateTTL,
 			)
 		}
-		cfg.CertificateTTL = s.CertificateTTL
+		cfg.CredentialLifetime.TTL = s.CertificateTTL
 	}
 
 	if s.RenewalInterval != 0 {
-		if cfg.RenewalInterval != 0 {
+		if cfg.CredentialLifetime.RenewalInterval != 0 {
 			l.WarnContext(
 				context.TODO(),
 				"CLI parameters are overriding configuration",
 				"flag", "renewal-interval",
-				"config_value", cfg.RenewalInterval,
+				"config_value", cfg.CredentialLifetime.RenewalInterval,
 				"cli_value", s.RenewalInterval,
 			)
 		}
-		cfg.RenewalInterval = s.RenewalInterval
+		cfg.CredentialLifetime.RenewalInterval = s.RenewalInterval
 	}
 
 	if s.DiagAddr != "" {
@@ -286,4 +286,28 @@ func (s *sharedDestinationArgs) BuildDestination() (bot.Destination, error) {
 	}
 
 	return dest, nil
+}
+
+// CommandMode is a simple enum to help shared start/configure command
+// substitute the correct verb based on whether they are being used for "start"
+// or "configure" actions.
+type CommandMode int
+
+const (
+	// CommandModeStart indicates a command instance will be used for
+	// `tbot start ...`
+	CommandModeStart CommandMode = iota
+
+	// CommandModeConfigure indicates a command instance will be used for
+	// `tbot configure ...`
+	CommandModeConfigure
+)
+
+func (c CommandMode) String() string {
+	switch c {
+	case CommandModeConfigure:
+		return "Configures"
+	default:
+		return "Starts"
+	}
 }

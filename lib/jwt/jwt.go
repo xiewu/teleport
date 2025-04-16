@@ -32,7 +32,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coreos/go-oidc"
 	"github.com/go-jose/go-jose/v3"
 	"github.com/go-jose/go-jose/v3/cryptosigner"
 	"github.com/go-jose/go-jose/v3/jwt"
@@ -280,6 +279,15 @@ type SignParamsJWTSVID struct {
 	// Issuer is the value that should be included in the `iss` claim of the
 	// created token.
 	Issuer string
+
+	// SetExpiry overrides the expiry time of the token. This causes the value
+	// of TTL to be ignored.
+	SetExpiry time.Time
+	// SetIssuedAt overrides the issued at time of the token.
+	SetIssuedAt time.Time
+
+	// PrivateClaims are any additional claims that should be added to the JWT.
+	PrivateClaims map[string]any
 }
 
 // SignJWTSVID signs a JWT SVID token.
@@ -311,6 +319,12 @@ func (k *Key) SignJWTSVID(p SignParamsJWTSVID) (string, error) {
 		// understand OIDC.
 		Issuer: p.Issuer,
 	}
+	if !p.SetIssuedAt.IsZero() {
+		claims.IssuedAt = jwt.NewNumericDate(p.SetIssuedAt)
+	}
+	if !p.SetExpiry.IsZero() {
+		claims.Expiry = jwt.NewNumericDate(p.SetExpiry)
+	}
 
 	// > 2.2. Key ID:
 	// >The kid header is optional.
@@ -332,7 +346,34 @@ func (k *Key) SignJWTSVID(p SignParamsJWTSVID) (string, error) {
 	// We will omit the inclusion of the type header until we can validate the
 	// ramifications of including it.
 
-	return k.sign(claims, opts)
+	// > 3. JWT Claims:
+	//
+	// > Registered claims not described in this document, in addition to
+	// > private claims, MAY be used as implementers see fit.
+	var rawClaims any = claims
+	if len(p.PrivateClaims) != 0 {
+		// This is slightly awkward. We take a round-trip through json.Marshal
+		// and json.Unmarshal to get a version of the claims we can add to.
+		marshaled, err := json.Marshal(rawClaims)
+		if err != nil {
+			return "", trace.Wrap(err, "marshaling claims")
+		}
+		var unmarshaled map[string]any
+		if err := json.Unmarshal(marshaled, &unmarshaled); err != nil {
+			return "", trace.Wrap(err, "unmarshaling claims")
+		}
+
+		// Only inject claims that don't conflict with an existing primary claim
+		// such as sub or aud.
+		for k, v := range p.PrivateClaims {
+			if _, ok := unmarshaled[k]; !ok {
+				unmarshaled[k] = v
+			}
+		}
+		rawClaims = unmarshaled
+	}
+
+	return k.sign(rawClaims, opts)
 }
 
 // SignEntraOIDC signs a JWT for the Entra ID Integration.
@@ -639,11 +680,18 @@ type Claims struct {
 	Traits wrappers.Traits `json:"traits"`
 }
 
+// IDToken allows introspecting claims from an OpenID Connect
+// ID Token.
+type IDToken interface {
+	// Claims unmarshals the raw JSON payload of the ID Token into a provided struct.
+	Claims(v any) error
+}
+
 // CheckNotBefore ensures the token was not issued in the future.
 // https://www.rfc-editor.org/rfc/rfc7519#section-4.1.5
 // 4.1.5.  "nbf" (Not Before) Claim
 // TODO(strideynet): upstream support for `nbf` into the go-oidc lib.
-func CheckNotBefore(now time.Time, leeway time.Duration, token *oidc.IDToken) error {
+func CheckNotBefore(now time.Time, leeway time.Duration, token IDToken) error {
 	claims := struct {
 		NotBefore *JSONTime `json:"nbf"`
 	}{}

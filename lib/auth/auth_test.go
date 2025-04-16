@@ -19,6 +19,7 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/x509"
@@ -34,7 +35,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
+	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
 	"github.com/gravitational/license"
@@ -55,6 +56,7 @@ import (
 	mfav1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/mfa/v1"
 	notificationsv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/notifications/v1"
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/api/types/accesslist"
 	apievents "github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/api/types/header"
 	"github.com/gravitational/teleport/api/types/installers"
@@ -63,6 +65,7 @@ import (
 	"github.com/gravitational/teleport/api/types/wrappers"
 	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/api/utils/sshutils"
+	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/auth/keystore"
 	"github.com/gravitational/teleport/lib/auth/testauthority"
@@ -79,6 +82,7 @@ import (
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/services/local"
 	"github.com/gravitational/teleport/lib/services/suite"
+	"github.com/gravitational/teleport/lib/sshca"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
 )
@@ -145,9 +149,22 @@ func newTestPack(
 	}
 	p.a.SetLockWatcher(lockWatcher)
 
-	// set cluster name
-	err = p.a.SetClusterName(p.clusterName)
+	urc, err := services.NewUnifiedResourceCache(ctx, services.UnifiedResourceCacheConfig{
+		Clock: p.a.clock,
+		ResourceWatcherConfig: services.ResourceWatcherConfig{
+			Component: teleport.ComponentAuth,
+			Client:    p.a,
+		},
+		ResourceGetter: p.a,
+	})
 	if err != nil {
+		return p, trace.Wrap(err)
+	}
+
+	p.a.SetUnifiedResourcesCache(urc)
+
+	// set cluster name
+	if err := p.a.SetClusterName(p.clusterName); err != nil {
 		return p, trace.Wrap(err)
 	}
 
@@ -190,10 +207,6 @@ func newTestPack(
 		return p, trace.Wrap(err)
 	}
 	if err := p.a.UpsertCertAuthority(ctx, suite.NewTestCA(types.OpenSSHCA, p.clusterName.GetClusterName())); err != nil {
-		return p, trace.Wrap(err)
-	}
-
-	if err := p.a.UpsertNamespace(types.DefaultNamespace()); err != nil {
 		return p, trace.Wrap(err)
 	}
 
@@ -307,7 +320,7 @@ func TestSessions(t *testing.T) {
 			require.NoError(t, err)
 			assert.Empty(t, out.GetSSHPriv())
 			assert.Empty(t, out.GetTLSPriv())
-			assert.Empty(t, cmp.Diff(ws, out,
+			assert.Empty(t, gocmp.Diff(ws, out,
 				cmpopts.IgnoreFields(types.Metadata{}, "Revision"),
 				cmpopts.IgnoreFields(types.WebSessionSpecV2{}, "Priv", "TLSPriv")))
 
@@ -668,6 +681,7 @@ func TestAuthenticateSSHUser(t *testing.T) {
 		RouteToCluster:   s.clusterName.GetClusterName(),
 		TeleportCluster:  s.clusterName.GetClusterName(),
 		PrivateKeyPolicy: keys.PrivateKeyPolicyNone,
+		UserType:         "local",
 	}
 	gotID, err := tlsca.FromSubject(gotTLSCert.Subject, gotTLSCert.NotAfter)
 	require.NoError(t, err)
@@ -702,6 +716,7 @@ func TestAuthenticateSSHUser(t *testing.T) {
 		RouteToCluster:    "leaf.localhost",
 		TeleportCluster:   s.clusterName.GetClusterName(),
 		PrivateKeyPolicy:  keys.PrivateKeyPolicyNone,
+		UserType:          "local",
 	}
 	gotID, err = tlsca.FromSubject(gotTLSCert.Subject, gotTLSCert.NotAfter)
 	require.NoError(t, err)
@@ -719,6 +734,16 @@ func TestAuthenticateSSHUser(t *testing.T) {
 	require.NoError(t, err)
 	_, err = s.a.UpsertKubernetesServer(ctx, kubeServer)
 	require.NoError(t, err)
+
+	// Wait for cache propagation of the kubernetes resources before proceeding with the tests.
+	require.Eventually(t, func() bool {
+		for ks := range s.a.UnifiedResourceCache.KubernetesServers(ctx, services.UnifiedResourcesIterateParams{}) {
+			if ks.GetCluster().GetName() == kubeCluster.GetName() {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond)
 
 	// Login specifying a valid kube cluster. It should appear in the TLS cert.
 	resp, err = s.a.AuthenticateSSHUser(ctx, authclient.AuthenticateSSHRequest{
@@ -747,6 +772,7 @@ func TestAuthenticateSSHUser(t *testing.T) {
 		RouteToCluster:    s.clusterName.GetClusterName(),
 		TeleportCluster:   s.clusterName.GetClusterName(),
 		PrivateKeyPolicy:  keys.PrivateKeyPolicyNone,
+		UserType:          "local",
 	}
 	gotID, err = tlsca.FromSubject(gotTLSCert.Subject, gotTLSCert.NotAfter)
 	require.NoError(t, err)
@@ -780,6 +806,7 @@ func TestAuthenticateSSHUser(t *testing.T) {
 		RouteToCluster:   s.clusterName.GetClusterName(),
 		TeleportCluster:  s.clusterName.GetClusterName(),
 		PrivateKeyPolicy: keys.PrivateKeyPolicyNone,
+		UserType:         "local",
 	}
 	gotID, err = tlsca.FromSubject(gotTLSCert.Subject, gotTLSCert.NotAfter)
 	require.NoError(t, err)
@@ -812,6 +839,7 @@ func TestAuthenticateSSHUser(t *testing.T) {
 		RouteToCluster:    s.clusterName.GetClusterName(),
 		TeleportCluster:   s.clusterName.GetClusterName(),
 		PrivateKeyPolicy:  keys.PrivateKeyPolicyNone,
+		UserType:          "local",
 	}
 	gotID, err = tlsca.FromSubject(gotTLSCert.Subject, gotTLSCert.NotAfter)
 	require.NoError(t, err)
@@ -845,6 +873,7 @@ func TestAuthenticateSSHUser(t *testing.T) {
 		RouteToCluster:   s.clusterName.GetClusterName(),
 		TeleportCluster:  s.clusterName.GetClusterName(),
 		PrivateKeyPolicy: keys.PrivateKeyPolicyNone,
+		UserType:         "local",
 	}
 	gotID, err = tlsca.FromSubject(gotTLSCert.Subject, gotTLSCert.NotAfter)
 	require.NoError(t, err)
@@ -1164,8 +1193,9 @@ func TestLocalControlStream(t *testing.T) {
 func TestUpdateConfig(t *testing.T) {
 	t.Parallel()
 	s := newAuthSuite(t)
+	ctx := context.Background()
 
-	cn, err := s.a.GetClusterName()
+	cn, err := s.a.GetClusterName(ctx)
 	require.NoError(t, err)
 	require.Equal(t, cn.GetClusterName(), s.clusterName.GetClusterName())
 	st, err := s.a.GetStaticTokens()
@@ -1205,7 +1235,7 @@ func TestUpdateConfig(t *testing.T) {
 
 	// check first auth server and make sure it returns the correct values
 	// (original cluster name, new static tokens)
-	cn, err = s.a.GetClusterName()
+	cn, err = s.a.GetClusterName(ctx)
 	require.NoError(t, err)
 	require.Equal(t, cn.GetClusterName(), s.clusterName.GetClusterName())
 	st, err = s.a.GetStaticTokens()
@@ -1255,7 +1285,7 @@ func TestTrustedClusterCRUDEventEmitted(t *testing.T) {
 	// test create event for switch case: when tc exists but enabled is false
 	tc.SetEnabled(false)
 
-	_, err = s.a.UpsertTrustedCluster(ctx, tc)
+	_, err = s.a.UpsertTrustedClusterV2(ctx, tc)
 	require.NoError(t, err)
 	require.Equal(t, events.TrustedClusterCreateEvent, s.mockEmitter.LastEvent().GetType())
 	createEvt := s.mockEmitter.LastEvent().(*apievents.TrustedClusterCreate)
@@ -1265,7 +1295,7 @@ func TestTrustedClusterCRUDEventEmitted(t *testing.T) {
 	// test create event for switch case: when tc exists but enabled is true
 	tc.SetEnabled(true)
 
-	_, err = s.a.UpsertTrustedCluster(ctx, tc)
+	_, err = s.a.UpsertTrustedClusterV2(ctx, tc)
 	require.NoError(t, err)
 	require.Equal(t, events.TrustedClusterCreateEvent, s.mockEmitter.LastEvent().GetType())
 	createEvt = s.mockEmitter.LastEvent().(*apievents.TrustedClusterCreate)
@@ -1536,7 +1566,7 @@ func TestServer_AugmentContextUserCertificates(t *testing.T) {
 	const devCred = "devicecred1"
 
 	advanceClock := func(d time.Duration) {
-		if fc, ok := testServer.Clock().(clockwork.FakeClock); ok {
+		if fc, ok := testServer.Clock().(*clockwork.FakeClock); ok {
 			fc.Advance(d)
 		}
 	}
@@ -1649,7 +1679,7 @@ func TestServer_AugmentContextUserCertificates(t *testing.T) {
 				AssetTag:     test.opts.DeviceExtensions.AssetTag,
 				CredentialId: test.opts.DeviceExtensions.CredentialID,
 			}
-			if diff := cmp.Diff(want, got); diff != "" {
+			if diff := gocmp.Diff(want, got); diff != "" {
 				t.Errorf("certEvent.Identity.DeviceExtensions mismatch (-want +got)\n%s", diff)
 			}
 		}
@@ -2295,12 +2325,12 @@ func TestServer_ExtendWebSession_deviceExtensions(t *testing.T) {
 		// Assert TLS extensions.
 		_, newIdentity := parseX509PEMAndIdentity(t, newSession.GetTLSCert())
 		wantExts := tlsca.DeviceExtensions(*deviceExts)
-		if diff := cmp.Diff(wantExts, newIdentity.DeviceExtensions); diff != "" {
+		if diff := gocmp.Diff(wantExts, newIdentity.DeviceExtensions); diff != "" {
 			t.Errorf("newSession.TLSCert DeviceExtensions mismatch (-want +got)\n%s", diff)
 		}
 
 		// Assert SSH extensions.
-		if diff := cmp.Diff(wantExts, parseSSHDeviceExtensions(t, newSession.GetPub())); diff != "" {
+		if diff := gocmp.Diff(wantExts, parseSSHDeviceExtensions(t, newSession.GetPub())); diff != "" {
 			t.Errorf("newSession.Pub DeviceExtensions mismatch (-want +got)\n%s", diff)
 		}
 	})
@@ -2539,7 +2569,7 @@ func TestGenerateUserCertWithCertExtension(t *testing.T) {
 	// Validate audit event.
 	lastEvent := p.mockEmitter.LastEvent()
 	require.IsType(t, &apievents.CertificateCreate{}, lastEvent)
-	require.Empty(t, cmp.Diff(
+	require.Empty(t, gocmp.Diff(
 		&apievents.CertificateCreate{
 			Metadata: apievents.Metadata{
 				Type: events.CertificateCreateEvent,
@@ -2639,7 +2669,7 @@ func TestGenerateUserCertWithLocks(t *testing.T) {
 		mfaVerified:    mfaID,
 		sshPublicKey:   sshPubKey,
 		tlsPublicKey:   tlsPubKey,
-		activeRequests: services.RequestIDs{AccessRequests: []string{requestID}},
+		activeRequests: []string{requestID},
 		deviceExtensions: DeviceExtensions{
 			DeviceID:     deviceID,
 			AssetTag:     "assettag1",
@@ -2752,9 +2782,10 @@ func TestGenerateUserCertWithUserLoginState(t *testing.T) {
 	sshCert, err := sshutils.ParseCertificate(resp.SSH)
 	require.NoError(t, err)
 
-	roles, err := services.UnmarshalCertRoles(sshCert.Extensions[teleport.CertExtensionTeleportRoles])
+	sshIdent, err := sshca.DecodeIdentity(sshCert)
 	require.NoError(t, err)
-	require.Equal(t, []string{role.GetName()}, roles)
+
+	require.Equal(t, []string{role.GetName()}, sshIdent.Roles)
 
 	traits := wrappers.Traits{}
 	err = wrappers.UnmarshalTraits([]byte(sshCert.Extensions[teleport.CertExtensionTeleportTraits]), &traits)
@@ -2811,9 +2842,9 @@ func TestGenerateUserCertWithUserLoginState(t *testing.T) {
 	sshCert, err = sshutils.ParseCertificate(resp.SSH)
 	require.NoError(t, err)
 
-	roles, err = services.UnmarshalCertRoles(sshCert.Extensions[teleport.CertExtensionTeleportRoles])
+	sshIdent, err = sshca.DecodeIdentity(sshCert)
 	require.NoError(t, err)
-	require.Equal(t, []string{role.GetName(), "uls-role1", "uls-role2"}, roles)
+	require.Equal(t, []string{role.GetName(), "uls-role1", "uls-role2"}, sshIdent.Roles)
 
 	traits = wrappers.Traits{}
 	err = wrappers.UnmarshalTraits([]byte(sshCert.Extensions[teleport.CertExtensionTeleportTraits]), &traits)
@@ -2986,6 +3017,86 @@ func TestGenerateUserCertWithHardwareKeySupport(t *testing.T) {
 			require.NoError(t, err)
 			_, err = p.a.UpsertAuthPreference(ctx, authPref)
 			require.NoError(t, err)
+
+			_, err = p.a.generateUserCert(ctx, certReq)
+			tt.assertErr(t, err)
+		})
+	}
+}
+
+func TestGenerateKubernetesUserCert(t *testing.T) {
+	ctx := context.Background()
+	p, err := newTestPack(ctx, t.TempDir())
+	require.NoError(t, err)
+
+	user, _, err := CreateUserAndRole(p.a, "test-user", []string{}, nil)
+	require.NoError(t, err)
+
+	rc, err := types.NewRemoteCluster("leaf")
+	require.NoError(t, err)
+	_, err = p.a.CreateRemoteCluster(ctx, rc)
+	require.NoError(t, err)
+
+	kubeCluster, err := types.NewKubernetesClusterV3(types.Metadata{Name: "kube-cluster"}, types.KubernetesClusterSpecV3{})
+	require.NoError(t, err)
+	kubeServer, err := types.NewKubernetesServerV3FromCluster(kubeCluster, "foo", "1")
+	require.NoError(t, err)
+	_, err = p.a.UpsertKubernetesServer(ctx, kubeServer)
+	require.NoError(t, err)
+
+	// Wait for cache propagation of the kubernetes resources before proceeding with the tests.
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		gotNames := map[string]struct{}{}
+		for ks, err := range p.a.UnifiedResourceCache.KubernetesServers(ctx, services.UnifiedResourcesIterateParams{}) {
+			if !assert.NoError(t, err) {
+				return
+			}
+
+			gotNames[ks.GetCluster().GetName()] = struct{}{}
+		}
+		assert.Contains(t, gotNames, kubeCluster.GetName(), "missing kube cluster")
+	}, 15*time.Second, 100*time.Millisecond)
+
+	accessInfo := services.AccessInfoFromUserState(user)
+	accessChecker, err := services.NewAccessChecker(accessInfo, p.clusterName.GetClusterName(), p.a)
+	require.NoError(t, err)
+
+	_, sshPubKey, _, tlsPubKey := newSSHAndTLSKeyPairs(t)
+
+	for _, tt := range []struct {
+		name              string
+		teleportCluster   string
+		kubernetesCluster string
+		assertErr         require.ErrorAssertionFunc
+	}{
+		{
+			name:              "leaf clusters not validated",
+			teleportCluster:   "leaf",
+			kubernetesCluster: "foo",
+			assertErr:         require.NoError,
+		},
+		{
+			name:              "kubernetes cluster not registered",
+			teleportCluster:   p.clusterName.GetClusterName(),
+			kubernetesCluster: "foo",
+			assertErr:         require.Error,
+		},
+		{
+			name:              "kubernetes cluster registered",
+			teleportCluster:   p.clusterName.GetClusterName(),
+			kubernetesCluster: kubeCluster.GetName(),
+			assertErr:         require.NoError,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			certReq := certRequest{
+				user:              user,
+				checker:           accessChecker,
+				sshPublicKey:      sshPubKey,
+				tlsPublicKey:      tlsPubKey,
+				routeToCluster:    tt.teleportCluster,
+				kubernetesCluster: tt.kubernetesCluster,
+			}
 
 			_, err = p.a.generateUserCert(ctx, certReq)
 			tt.assertErr(t, err)
@@ -3761,15 +3872,15 @@ func newTestServices(t *testing.T) Services {
 	require.NoError(t, err)
 
 	return Services{
-		TrustInternal:           local.NewCAService(bk),
-		PresenceInternal:        local.NewPresenceService(bk),
-		Provisioner:             local.NewProvisioningService(bk),
-		Identity:                identityService,
-		Access:                  local.NewAccessService(bk),
-		DynamicAccessExt:        local.NewDynamicAccessService(bk),
-		ClusterConfiguration:    configService,
-		Events:                  local.NewEventsService(bk),
-		AuditLogSessionStreamer: events.NewDiscardAuditLog(),
+		TrustInternal:                local.NewCAService(bk),
+		PresenceInternal:             local.NewPresenceService(bk),
+		Provisioner:                  local.NewProvisioningService(bk),
+		Identity:                     identityService,
+		Access:                       local.NewAccessService(bk),
+		DynamicAccessExt:             local.NewDynamicAccessService(bk),
+		ClusterConfigurationInternal: configService,
+		Events:                       local.NewEventsService(bk),
+		AuditLogSessionStreamer:      events.NewDiscardAuditLog(),
 	}
 }
 
@@ -3795,15 +3906,15 @@ func compareDevices(t *testing.T, ignoreUpdateAndCounter bool, got []*types.MFAD
 	}
 
 	// Ignore LastUsed and SignatureCounter?
-	var opts []cmp.Option
+	var opts []gocmp.Option
 	if ignoreUpdateAndCounter {
-		opts = append(opts, cmp.FilterPath(func(path cmp.Path) bool {
+		opts = append(opts, gocmp.FilterPath(func(path gocmp.Path) bool {
 			p := path.String()
 			return p == "LastUsed" || p == "Device.Webauthn.SignatureCounter"
-		}, cmp.Ignore()))
+		}, gocmp.Ignore()))
 	}
 
-	if diff := cmp.Diff(want, got, opts...); diff != "" {
+	if diff := gocmp.Diff(want, got, opts...); diff != "" {
 		t.Errorf("compareDevices mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -4334,6 +4445,116 @@ func TestCleanupNotifications(t *testing.T) {
 	}, 3*time.Second, 100*time.Millisecond)
 }
 
+func TestCreateAccessListReminderNotifications(t *testing.T) {
+	ctx := context.Background()
+
+	modules.SetTestModules(t, &modules.TestModules{
+		TestBuildType: modules.BuildEnterprise,
+		TestFeatures: modules.Features{
+			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{
+				entitlements.Identity: {Enabled: true},
+			},
+		},
+	})
+
+	// Setup test auth server
+	testServer := newTestTLSServer(t)
+	authServer := testServer.Auth()
+
+	testRole, err := types.NewRole("test", types.RoleSpecV6{
+		Allow: types.RoleConditions{
+			Logins:         []string{"user"},
+			ReviewRequests: &types.AccessReviewConditions{},
+		},
+	})
+	require.NoError(t, err)
+	_, err = authServer.UpsertRole(ctx, testRole)
+	require.NoError(t, err)
+
+	testUsername := "user1"
+	user, err := types.NewUser(testUsername)
+	require.NoError(t, err)
+	user.SetRoles([]string{"test"})
+	_, err = authServer.UpsertUser(ctx, user)
+	require.NoError(t, err)
+
+	client, err := testServer.NewClient(TestUser(testUsername))
+	require.NoError(t, err)
+
+	// Helper to create access lists with specific next audit dates
+	createAccessList := func(t *testing.T, name string, nextAuditDate time.Time) {
+		al, err := accesslist.NewAccessList(header.Metadata{
+			Name: name,
+		}, accesslist.Spec{
+			Title:       fmt.Sprintf("Access List %s", name),
+			Description: fmt.Sprintf("Test access list %s", name),
+			Owners: []accesslist.Owner{{
+				Name:           testUsername,
+				Description:    "",
+				MembershipKind: "",
+			}},
+			Audit: accesslist.Audit{
+				NextAuditDate: nextAuditDate,
+				Recurrence:    accesslist.Recurrence{},
+				Notifications: accesslist.Notifications{},
+			},
+			Grants: accesslist.Grants{
+				Roles: []string{"grant"},
+			},
+		})
+		require.NoError(t, err)
+
+		_, err = authServer.UpsertAccessList(ctx, al)
+		require.NoError(t, err)
+	}
+
+	// Create access lists with different expiry times
+	accessLists := []struct {
+		name      string
+		dueInDays int
+	}{
+		// These should trigger a single "due in less than 14 days" notification.
+		{name: "al-due-13d", dueInDays: 13},
+		{name: "al-due-12d", dueInDays: 12},
+		// This should trigger a "due in less than 7 days" notification.
+		{name: "al-due-5d", dueInDays: 5},
+		// This should trigger a "due in less than 3 days" notification.
+		{name: "al-due-2d", dueInDays: 2},
+		// This should trigger an "overdue by more than 3 days" notification.
+		{name: "al-overdue-4d", dueInDays: -4},
+		// This should trigger an "overdue by more than 7 days" notification.
+		{name: "al-overdue-10d", dueInDays: -10},
+		// This should not trigger a notification.
+		{name: "al-due-60d", dueInDays: 60},
+		// This should trigger a "due today" notification.
+		{name: "al-overdue-today", dueInDays: 0},
+	}
+
+	for _, al := range accessLists {
+		createAccessList(t, al.name, authServer.clock.Now().Add(time.Duration(al.dueInDays)*24*time.Hour))
+	}
+
+	// Run CreateAccessListReminderNotifications()
+	authServer.CreateAccessListReminderNotifications(ctx)
+
+	// Check notifications
+	resp, err := client.ListNotifications(ctx, &notificationsv1.ListNotificationsRequest{
+		PageSize: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Notifications, 6)
+
+	// Run CreateAccessListReminderNotifications() again to verify no duplicates are created if it's run again.
+	authServer.CreateAccessListReminderNotifications(ctx)
+
+	// Check notifications again, counts should remain the same.
+	resp, err = client.ListNotifications(ctx, &notificationsv1.ListNotificationsRequest{
+		PageSize: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Notifications, 6)
+}
+
 func TestServer_GetAnonymizationKey(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -4437,4 +4658,191 @@ func newGlobalNotificationWithExpiry(t *testing.T, title string, expires *timest
 	}
 
 	return &notification
+}
+
+// TestServerHostnameSanitization tests that persisting servers with
+// "invalid" hostnames results in the hostname being sanitized and the
+// illegal name being placed in a label.
+func TestServerHostnameSanitization(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	srv, err := NewTestAuthServer(TestAuthServerConfig{Dir: t.TempDir()})
+	require.NoError(t, err)
+
+	cases := []struct {
+		name            string
+		hostname        string
+		addr            string
+		invalidHostname bool
+		invalidAddr     bool
+	}{
+		{
+			name:     "valid dns hostname",
+			hostname: "llama.example.com",
+		},
+		{
+			name:     "valid friendly hostname",
+			hostname: "llama",
+		},
+		{
+			name:     "uuid hostname",
+			hostname: uuid.NewString(),
+		},
+		{
+			name:     "uuid dns hostname",
+			hostname: uuid.NewString() + ".example.com",
+		},
+		{
+			name:     "valid dns hostname with multi-dots",
+			hostname: "llama..example.com",
+		},
+		{
+			name:            "empty hostname",
+			hostname:        "",
+			invalidHostname: true,
+		},
+		{
+			name:            "exceptionally long hostname",
+			hostname:        strings.Repeat("a", serverHostnameMaxLen*2),
+			invalidHostname: true,
+		},
+		{
+			name:            "spaces in hostname",
+			hostname:        "the quick brown fox jumps over the lazy dog",
+			invalidHostname: true,
+		},
+		{
+			name:            "invalid addr",
+			hostname:        "..",
+			addr:            "..:2345",
+			invalidHostname: true,
+			invalidAddr:     true,
+		},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			for _, subKind := range []string{types.KindNode, types.SubKindOpenSSHNode} {
+				t.Run(subKind, func(t *testing.T) {
+					server := &types.ServerV2{
+						Kind:    types.KindNode,
+						SubKind: subKind,
+						Metadata: types.Metadata{
+							Name: uuid.NewString(),
+						},
+						Spec: types.ServerSpecV2{
+							Hostname: test.hostname,
+							Addr:     cmp.Or(test.addr, "abcd:1234"),
+						},
+					}
+					if subKind == types.KindNode {
+						server.SubKind = ""
+					}
+
+					_, err = srv.AuthServer.UpsertNode(ctx, server)
+					require.NoError(t, err)
+
+					replacedValue, _ := server.GetLabel("teleport.internal/invalid-hostname")
+					if !test.invalidHostname {
+						assert.Equal(t, test.hostname, server.GetHostname())
+						assert.Empty(t, replacedValue)
+						return
+					}
+
+					assert.Equal(t, test.hostname, replacedValue)
+					switch subKind {
+					case types.SubKindOpenSSHNode:
+						host, _, err := net.SplitHostPort(server.GetAddr())
+						assert.NoError(t, err)
+						if !test.invalidAddr {
+							// If the address is valid, then the hostname should be set
+							// to the host of the addr field.
+							assert.Equal(t, host, server.GetHostname())
+						} else {
+							// If the address is not valid, then the hostname should be
+							// set to a UUID.
+							assert.NotEqual(t, host, server.GetHostname())
+							assert.NotEqual(t, server.GetName(), server.GetHostname())
+
+							_, err := uuid.Parse(server.GetHostname())
+							require.NoError(t, err)
+						}
+					default:
+						assert.Equal(t, server.GetName(), server.GetHostname())
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestValidServerHostname(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		hostname string
+		want     bool
+	}{
+		{
+			name:     "valid dns hostname",
+			hostname: "llama.example.com",
+			want:     true,
+		},
+		{
+			name:     "valid friendly hostname",
+			hostname: "llama",
+			want:     true,
+		},
+		{
+			name:     "uuid hostname",
+			hostname: uuid.NewString(),
+			want:     true,
+		},
+		{
+			name:     "valid hostname with multi-dashes",
+			hostname: "llama--example.com",
+			want:     true,
+		},
+		{
+			name:     "valid hostname with multi-dots",
+			hostname: "llama..example.com",
+			want:     true,
+		},
+		{
+			name:     "valid hostname with numbers",
+			hostname: "llama9",
+			want:     true,
+		},
+		{
+			name:     "hostname with invalid characters",
+			hostname: "llama?!$",
+			want:     false,
+		},
+		{
+			name:     "super long hostname",
+			hostname: strings.Repeat("a", serverHostnameMaxLen*2),
+			want:     false,
+		},
+		{
+			name:     "hostname with spaces",
+			hostname: "the quick brown fox jumps over the lazy dog",
+			want:     false,
+		},
+		{
+			name:     "hostname with ;",
+			hostname: "llama;example.com",
+			want:     false,
+		},
+		{
+			name:     "empty hostname",
+			hostname: "",
+			want:     false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := validServerHostname(tt.hostname)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }

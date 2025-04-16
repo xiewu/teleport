@@ -20,12 +20,14 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -33,9 +35,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coreos/go-oidc/oauth2"
 	"github.com/gravitational/trace"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
@@ -44,7 +44,7 @@ import (
 	"github.com/gravitational/teleport/api/constants"
 	"github.com/gravitational/teleport/api/types"
 	apiutils "github.com/gravitational/teleport/api/utils"
-	"github.com/gravitational/teleport/api/utils/keys"
+	"github.com/gravitational/teleport/api/utils/keys/hardwarekey"
 	"github.com/gravitational/teleport/api/utils/tlsutils"
 	"github.com/gravitational/teleport/lib/automaticupgrades"
 	"github.com/gravitational/teleport/lib/backend"
@@ -896,6 +896,8 @@ type PKCS11 struct {
 	// Trailing newlines will be removed, other whitespace will be left. Set
 	// this or Pin to set the pin.
 	PINPath string `yaml:"pin_path,omitempty"`
+	// MaxSessions is the upper limit of sessions allowed by the HSM.
+	MaxSessions int `yaml:"max_sessions"`
 }
 
 // GoogleCloudKMS configures Google Cloud Key Management Service to to be used for
@@ -924,6 +926,11 @@ type AWSKMS struct {
 		// Enabled configures new keys to be multi-region.
 		Enabled bool
 	} `yaml:"multi_region,omitempty"`
+	// Tags are key/value pairs used as AWS resource tags. The 'TeleportCluster'
+	// tag is added automatically if not specified in the set of tags. Changing tags
+	// after Teleport has already created KMS keys may require manually updating
+	// the tags of existing keys.
+	Tags map[string]string `yaml:"tags,omitempty"`
 }
 
 // TrustedCluster struct holds configuration values under "trusted_clusters" key
@@ -1037,7 +1044,7 @@ type AuthenticationConfig struct {
 	DefaultSessionTTL types.Duration `yaml:"default_session_ttl"`
 
 	// Deprecated. HardwareKey.PIVSlot should be used instead.
-	PIVSlot keys.PIVSlot `yaml:"piv_slot,omitempty"`
+	PIVSlot hardwarekey.PIVSlotKeyString `yaml:"piv_slot,omitempty"`
 
 	// HardwareKey holds settings related to hardware key support.
 	// Requires Teleport Enterprise.
@@ -1045,6 +1052,9 @@ type AuthenticationConfig struct {
 
 	// SignatureAlgorithmSuite is the configured signature algorithm suite for the cluster.
 	SignatureAlgorithmSuite types.SignatureAlgorithmSuite `yaml:"signature_algorithm_suite"`
+
+	// StableUNIXUserConfig is [types.AuthPreferenceSpecV2.StableUnixUserConfig].
+	StableUNIXUserConfig *StableUNIXUserConfig `yaml:"stable_unix_user_config,omitempty"`
 }
 
 // Parse returns valid types.AuthPreference instance.
@@ -1079,7 +1089,7 @@ func (a *AuthenticationConfig) Parse() (types.AuthPreference, error) {
 	switch {
 	case a.HardwareKey != nil:
 		if a.PIVSlot != "" {
-			log.Warn(`Both "piv_slot" and "hardware_key" settings were populated, using "hardware_key" setting.`)
+			slog.WarnContext(context.Background(), `Both "piv_slot" and "hardware_key" settings were populated, using "hardware_key" setting`)
 		}
 		h, err = a.HardwareKey.Parse()
 		if err != nil {
@@ -1097,12 +1107,17 @@ func (a *AuthenticationConfig) Parse() (types.AuthPreference, error) {
 	}
 
 	if a.SecondFactor != "" && a.SecondFactors != nil {
-		log.Warn(`` +
-			`second_factor and second_factors are both set. second_factors will take precedence. ` +
-			`second_factor should be unset to remove this warning.`)
+		const msg = `second_factor and second_factors are both set. second_factors will take precedence. ` +
+			`second_factor should be unset to remove this warning.`
+		slog.WarnContext(context.Background(), msg)
 	}
 
-	return types.NewAuthPreferenceFromConfigFile(types.AuthPreferenceSpecV2{
+	stableUNIXUserConfig, err := a.StableUNIXUserConfig.Parse()
+	if err != nil {
+		return nil, trace.Wrap(err, "failed to parse stable_unix_user_config")
+	}
+
+	ap, err := types.NewAuthPreferenceFromConfigFile(types.AuthPreferenceSpecV2{
 		Type:                    a.Type,
 		SecondFactor:            a.SecondFactor,
 		SecondFactors:           a.SecondFactors,
@@ -1118,7 +1133,17 @@ func (a *AuthenticationConfig) Parse() (types.AuthPreference, error) {
 		DefaultSessionTTL:       a.DefaultSessionTTL,
 		HardwareKey:             h,
 		SignatureAlgorithmSuite: a.SignatureAlgorithmSuite,
+		StableUnixUserConfig:    stableUNIXUserConfig,
 	})
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	if err := services.ValidateAuthPreference(ap); err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return ap, nil
 }
 
 type UniversalSecondFactor struct {
@@ -1159,10 +1184,10 @@ func (w *Webauthn) Parse() (*types.Webauthn, error) {
 		return nil, trace.BadParameter("webauthn.attestation_denied_cas: %v", err)
 	}
 	if w.Disabled {
-		log.Warnf(`` +
-			`The "webauthn.disabled" setting is marked for removal and currently has no effect. ` +
+		const msg = `The "webauthn.disabled" setting is marked for removal and currently has no effect. ` +
 			`Please update your configuration to use WebAuthn. ` +
-			`Refer to https://goteleport.com/docs/access-controls/guides/webauthn/`)
+			`Refer to https://goteleport.com/docs/admin-guides/access-controls/guides/webauthn/`
+		slog.WarnContext(context.Background(), msg)
 	}
 	return &types.Webauthn{
 		// Allow any RPID to go through, we rely on
@@ -1252,7 +1277,7 @@ func (dt *DeviceTrust) Parse() (*types.DeviceTrust, error) {
 type HardwareKey struct {
 	// PIVSlot is a PIV slot that Teleport clients should use instead of the
 	// default based on private key policy. For example, "9a" or "9e".
-	PIVSlot keys.PIVSlot `yaml:"piv_slot,omitempty"`
+	PIVSlot hardwarekey.PIVSlotKeyString `yaml:"piv_slot,omitempty"`
 
 	// SerialNumberValidation contains optional settings for hardware key
 	// serial number validation, including whether it is enabled.
@@ -1302,6 +1327,33 @@ func (h *HardwareKeySerialNumberValidation) Parse() (*types.HardwareKeySerialNum
 	}, nil
 }
 
+// StableUNIXUserConfig is [types.StableUNIXUserConfig].
+type StableUNIXUserConfig struct {
+	// Enabled is [types.StableUNIXUserConfig.Enabled].
+	Enabled bool `yaml:"enabled"`
+	// FirstUID is [types.StableUNIXUserConfig.FirstUid].
+	FirstUID int32 `yaml:"first_uid"`
+	// LastUID is [types.StableUNIXUserConfig.LastUid].
+	LastUID int32 `yaml:"last_uid"`
+}
+
+func (s *StableUNIXUserConfig) Parse() (*types.StableUNIXUserConfig, error) {
+	if s == nil {
+		return nil, nil
+	}
+
+	c := &types.StableUNIXUserConfig{
+		Enabled:  s.Enabled,
+		FirstUid: s.FirstUID,
+		LastUid:  s.LastUID,
+	}
+
+	if err := services.ValidateStableUNIXUserConfig(c); err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return c, nil
+}
+
 // HostedPlugins defines 'auth_service/plugins' Enterprise extension
 type HostedPlugins struct {
 	Enabled        bool                 `yaml:"enabled"`
@@ -1321,7 +1373,7 @@ func (p *PluginOAuthProviders) Parse() (servicecfg.PluginOAuthProviders, error) 
 		if err != nil {
 			return out, trace.Wrap(err)
 		}
-		out.Slack = slack
+		out.SlackCredentials = slack
 	}
 	return out, nil
 }
@@ -1335,7 +1387,7 @@ type OAuthClientCredentials struct {
 	ClientSecret string `yaml:"client_secret"`
 }
 
-func (o *OAuthClientCredentials) Parse() (*oauth2.ClientCredentials, error) {
+func (o *OAuthClientCredentials) Parse() (*servicecfg.OAuthClientCredentials, error) {
 	if o.ClientID == "" || o.ClientSecret == "" {
 		return nil, trace.BadParameter("both client_id and client_secret paths must be specified")
 	}
@@ -1354,9 +1406,9 @@ func (o *OAuthClientCredentials) Parse() (*oauth2.ClientCredentials, error) {
 	}
 	clientSecret = strings.TrimSpace(string(content))
 
-	return &oauth2.ClientCredentials{
-		ID:     clientID,
-		Secret: clientSecret,
+	return &servicecfg.OAuthClientCredentials{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
 	}, nil
 }
 
@@ -1519,6 +1571,10 @@ type GCPMatcher struct {
 type AccessGraphSync struct {
 	// AWS is the AWS configuration for the AccessGraph Sync service.
 	AWS []AccessGraphAWSSync `yaml:"aws,omitempty"`
+	// Azure is the Azure configuration for the AccessGraph Sync service.
+	Azure []AccessGraphAzureSync `yaml:"azure,omitempty"`
+	// PollInterval is the frequency at which to poll for AWS resources
+	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
 }
 
 // AccessGraphAWSSync represents the configuration for the AWS AccessGraph Sync service.
@@ -1530,6 +1586,12 @@ type AccessGraphAWSSync struct {
 	// ExternalID is the AWS external ID to use when assuming a role for
 	// database discovery in an external AWS account.
 	ExternalID string `yaml:"external_id,omitempty"`
+}
+
+// AccessGraphAzureSync represents the configuration for the Azure AccessGraph Sync service.
+type AccessGraphAzureSync struct {
+	// SubscriptionID is the Azure subscription ID configured for syncing
+	SubscriptionID string `yaml:"subscription_id,omitempty"`
 }
 
 // CommandLabel is `command` section of `ssh_service` in the config file
@@ -2027,9 +2089,21 @@ type App struct {
 	// be part of the authentication redirect flow and authenticate along side this app.
 	RequiredApps []string `yaml:"required_apps,omitempty"`
 
+	// UseAnyProxyPublicAddr will rebuild this app's fqdn based on the proxy public addr that the
+	// request originated from. This should be true if your proxy has multiple proxy public addrs and you
+	// want the app to be accessible from any of them. If `public_addr` is explicitly set in the app spec,
+	// setting this value to true will overwrite that public address in the web UI.
+	UseAnyProxyPublicAddr bool `yaml:"use_any_proxy_public_addr"`
+
 	// CORS defines the Cross-Origin Resource Sharing configuration for the app,
 	// controlling how resources are shared across different origins.
 	CORS *CORS `yaml:"cors,omitempty"`
+
+	// TCPPorts is a list of ports and port ranges that an app agent can forward connections to.
+	// Only applicable to TCP App Access.
+	// If this field is not empty, URI is expected to contain no port number and start with the tcp
+	// protocol.
+	TCPPorts []PortRange `yaml:"tcp_ports,omitempty"`
 }
 
 // CORS represents the configuration for Cross-Origin Resource Sharing (CORS)
@@ -2076,6 +2150,18 @@ type AppAWS struct {
 	ExternalID string `yaml:"external_id,omitempty"`
 }
 
+// PortRange describes a port range for TCP apps. The range starts with Port and ends with EndPort.
+// PortRange can be used to describe a single port in which case the Port field is the port and the
+// EndPort field is 0.
+type PortRange struct {
+	// Port describes the start of the range. It must be between 1 and 65535.
+	Port int `yaml:"port"`
+	// EndPort describes the end of the range, inclusive. When describing a port range, it must be
+	// greater than Port and less than or equal to 65535. When describing a single port, it must be
+	// set to 0.
+	EndPort int `yaml:"end_port,omitempty"`
+}
+
 // Proxy is a `proxy_service` section of the config file:
 type Proxy struct {
 	// Service is a generic service configuration section
@@ -2098,6 +2184,9 @@ type Proxy struct {
 	// as only admin knows whether service is in front of trusted load balancer
 	// or not.
 	ProxyProtocol string `yaml:"proxy_protocol,omitempty"`
+	// ProxyProtocolAllowDowngrade controls support for downgrading IPv6 source addresses in PROXY headers to pseudo IPv4
+	// addresses when connecting to an IPv4 destination
+	ProxyProtocolAllowDowngrade *types.BoolOption `yaml:"proxy_protocol_allow_downgrade,omitempty"`
 	// KubeProxy configures kubernetes protocol support of the proxy
 	Kube KubeProxy `yaml:"kubernetes,omitempty"`
 	// KubeAddr is a shorthand for enabling the Kubernetes endpoint without a

@@ -22,12 +22,12 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"log/slog"
 	"net"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/gravitational/trace"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -39,7 +39,6 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/auth"
 	"github.com/gravitational/teleport/lib/auth/authclient"
-	kubeproxy "github.com/gravitational/teleport/lib/kube/proxy"
 	testingkubemock "github.com/gravitational/teleport/lib/kube/proxy/testing/kube_server"
 	"github.com/gravitational/teleport/lib/limiter"
 	"github.com/gravitational/teleport/lib/modules"
@@ -65,11 +64,11 @@ func TestListKubernetesResources(t *testing.T) {
 	t.Cleanup(func() { kubeMock.Close() })
 
 	// creates a Kubernetes service with a configured cluster pointing to mock api server
-	testCtx := kubeproxy.SetupTestContext(
+	testCtx := SetupTestContext(
 		context.Background(),
 		t,
-		kubeproxy.TestConfig{
-			Clusters: []kubeproxy.KubeClusterConfig{{Name: kubeCluster, APIEndpoint: kubeMock.URL}},
+		TestConfig{
+			Clusters: []KubeClusterConfig{{Name: kubeCluster, APIEndpoint: kubeMock.URL}},
 		},
 	)
 	// close tests
@@ -83,7 +82,7 @@ func TestListKubernetesResources(t *testing.T) {
 		testCtx.Context,
 		t,
 		usernameWithFullAccess,
-		kubeproxy.RoleSpec{
+		RoleSpec{
 			Name:       usernameWithFullAccess,
 			KubeUsers:  kubeUsers,
 			KubeGroups: kubeGroups,
@@ -101,7 +100,7 @@ func TestListKubernetesResources(t *testing.T) {
 		testCtx.Context,
 		t,
 		usernameWithEnforceKubePodOrNamespace,
-		kubeproxy.RoleSpec{
+		RoleSpec{
 			Name:       usernameWithEnforceKubePodOrNamespace,
 			KubeUsers:  kubeUsers,
 			KubeGroups: kubeGroups,
@@ -120,7 +119,7 @@ func TestListKubernetesResources(t *testing.T) {
 		testCtx.Context,
 		t,
 		usernameWithEnforceKubeSecret,
-		kubeproxy.RoleSpec{
+		RoleSpec{
 			Name:       usernameWithEnforceKubeSecret,
 			KubeUsers:  kubeUsers,
 			KubeGroups: kubeGroups,
@@ -140,7 +139,7 @@ func TestListKubernetesResources(t *testing.T) {
 		testCtx.Context,
 		t,
 		usernameNoAccess,
-		kubeproxy.RoleSpec{
+		RoleSpec{
 			Name:       usernameNoAccess,
 			KubeUsers:  kubeUsers,
 			KubeGroups: kubeGroups,
@@ -622,7 +621,7 @@ func TestListKubernetesResources(t *testing.T) {
 }
 
 // initGRPCServer creates a grpc server serving on the provided listener.
-func initGRPCServer(t *testing.T, testCtx *kubeproxy.TestContext, listener net.Listener) {
+func initGRPCServer(t *testing.T, testCtx *TestContext, listener net.Listener) {
 	clusterName := testCtx.ClusterName
 	serverIdentity, err := auth.NewServerIdentity(testCtx.AuthServer, testCtx.HostID, types.RoleProxy)
 	require.NoError(t, err)
@@ -639,7 +638,7 @@ func initGRPCServer(t *testing.T, testCtx *kubeproxy.TestContext, listener net.L
 		AcceptedUsage: []string{teleport.UsageKubeOnly},
 	}
 
-	tlsConf := copyAndConfigureTLS(tlsConfig, logrus.New(), testCtx.AuthClient, clusterName)
+	tlsConf := copyAndConfigureTLS(tlsConfig, testCtx.AuthClient, clusterName)
 	creds, err := auth.NewTransportCredentials(auth.TransportCredentialsConfig{
 		TransportCredentials: credentials.NewTLS(tlsConf),
 		UserGetter:           authMiddleware,
@@ -693,7 +692,7 @@ func initGRPCServer(t *testing.T, testCtx *kubeproxy.TestContext, listener net.L
 
 // copyAndConfigureTLS can be used to copy and modify an existing *tls.Config
 // for Teleport application proxy servers.
-func copyAndConfigureTLS(config *tls.Config, log logrus.FieldLogger, accessPoint authclient.AccessCache, clusterName string) *tls.Config {
+func copyAndConfigureTLS(config *tls.Config, accessPoint authclient.AccessCache, clusterName string) *tls.Config {
 	tlsConfig := config.Clone()
 
 	// Require clients to present a certificate
@@ -703,7 +702,7 @@ func copyAndConfigureTLS(config *tls.Config, log logrus.FieldLogger, accessPoint
 	// client's certificate to verify the chain presented. If the client does not
 	// pass in the cluster name, this functions pulls back all CA to try and
 	// match the certificate presented against any CA.
-	tlsConfig.GetConfigForClient = authclient.WithClusterCAs(tlsConfig.Clone(), accessPoint, clusterName, log)
+	tlsConfig.GetConfigForClient = authclient.WithClusterCAs(tlsConfig.Clone(), accessPoint, clusterName, slog.Default())
 
 	return tlsConfig
 }

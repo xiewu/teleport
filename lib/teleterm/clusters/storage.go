@@ -25,7 +25,6 @@ import (
 
 	"github.com/gravitational/trace"
 
-	"github.com/gravitational/teleport/api/profile"
 	"github.com/gravitational/teleport/lib/client"
 	dtauthn "github.com/gravitational/teleport/lib/devicetrust/authn"
 	dtenroll "github.com/gravitational/teleport/lib/devicetrust/enroll"
@@ -43,7 +42,8 @@ func NewStorage(cfg Config) (*Storage, error) {
 
 // ListProfileNames returns just the names of profiles in s.Dir.
 func (s *Storage) ListProfileNames() ([]string, error) {
-	pfNames, err := profile.ListProfileNames(s.Dir)
+	profileStore := client.NewFSProfileStore(s.Dir)
+	pfNames, err := profileStore.ListProfiles()
 	return pfNames, trace.Wrap(err)
 }
 
@@ -112,11 +112,8 @@ func (s *Storage) ResolveCluster(resourceURI uri.ResourceURI) (*Cluster, *client
 
 // Remove removes a cluster
 func (s *Storage) Remove(ctx context.Context, profileName string) error {
-	if err := profile.RemoveProfile(s.Dir, profileName); err != nil {
-		return trace.Wrap(err)
-	}
-
-	return nil
+	profileStore := client.NewFSProfileStore(s.Dir)
+	return profileStore.DeleteProfile(profileName)
 }
 
 // Add adds a cluster
@@ -125,7 +122,7 @@ func (s *Storage) Remove(ctx context.Context, profileName string) error {
 // clusters.Cluster a regular struct with no extra behavior and a much smaller interface.
 // https://github.com/gravitational/teleport/issues/13278
 func (s *Storage) Add(ctx context.Context, webProxyAddress string) (*Cluster, *client.TeleportClient, error) {
-	profiles, err := profile.ListProfileNames(s.Dir)
+	profiles, err := s.ListProfileNames()
 	if err != nil {
 		return nil, nil, trace.Wrap(err)
 	}
@@ -179,13 +176,13 @@ func (s *Storage) addCluster(ctx context.Context, dir, webProxyAddress string) (
 		return nil, nil, trace.Wrap(err)
 	}
 
-	clusterLog := s.Log.WithField("cluster", clusterURI)
+	clusterLog := s.Logger.With("cluster", clusterURI)
 
 	pingResponseJSON, err := json.Marshal(pingResponse)
 	if err != nil {
-		clusterLog.WithError(err).Debugln("Could not marshal ping response to JSON")
+		clusterLog.DebugContext(ctx, "Could not marshal ping response to JSON", "error", err)
 	} else {
-		clusterLog.WithField("response", string(pingResponseJSON)).Debugln("Got ping response")
+		clusterLog.DebugContext(ctx, "Got ping response", "response", string(pingResponseJSON))
 	}
 
 	if err := clusterClient.SaveProfile(false); err != nil {
@@ -201,7 +198,7 @@ func (s *Storage) addCluster(ctx context.Context, dir, webProxyAddress string) (
 		clusterClient: clusterClient,
 		dir:           s.Dir,
 		clock:         s.Clock,
-		Log:           clusterLog,
+		Logger:        clusterLog,
 	}, clusterClient, nil
 }
 
@@ -241,10 +238,11 @@ func (s *Storage) fromProfile(profileName, leafClusterName string) (*Cluster, *c
 		dir:           s.Dir,
 		clock:         s.Clock,
 		statusError:   err,
-		Log:           s.Log.WithField("cluster", clusterURI),
+		Logger:        s.Logger.With("cluster", clusterURI),
 	}
 	if status != nil {
 		cluster.status = *status
+		cluster.SSOHost = status.SSOHost
 	}
 
 	return cluster, clusterClient, trace.Wrap(err)
@@ -257,7 +255,7 @@ func (s *Storage) loadProfileStatusAndClusterKey(clusterClient *client.TeleportC
 	_, err := clusterClient.LocalAgent().GetKeyRing(clusterNameForKey)
 	if err != nil {
 		if trace.IsNotFound(err) {
-			s.Log.Infof("No keys found for cluster %v.", clusterNameForKey)
+			s.Logger.InfoContext(context.Background(), "No keys found for cluster", "cluster", clusterNameForKey)
 		} else {
 			return nil, trace.Wrap(err)
 		}
@@ -285,7 +283,7 @@ func (s *Storage) makeDefaultClientConfig(rootClusterURI uri.ResourceURI) *clien
 	cfg.InsecureSkipVerify = s.InsecureSkipVerify
 	cfg.AddKeysToAgent = s.AddKeysToAgent
 	cfg.WebauthnLogin = s.WebauthnLogin
-	cfg.CustomHardwareKeyPrompt = s.HardwareKeyPromptConstructor(rootClusterURI)
+	cfg.CustomHardwareKeyPrompt = s.CustomHardwareKeyPrompt
 	cfg.DTAuthnRunCeremony = dtauthn.NewCeremony().Run
 	cfg.DTAutoEnroll = dtenroll.AutoEnroll
 	return cfg

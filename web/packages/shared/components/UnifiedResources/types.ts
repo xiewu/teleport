@@ -18,13 +18,24 @@
 
 import React from 'react';
 
-import { ResourceLabel } from 'teleport/services/agents';
-
-import { ResourceIconName } from 'design/ResourceIcon';
 import { Icon } from 'design/Icon';
-
-import { DbProtocol } from 'shared/services/databases';
+import { ResourceIconName } from 'design/ResourceIcon';
 import { NodeSubKind } from 'shared/services';
+import { DbProtocol } from 'shared/services/databases';
+
+import { ResourceLabel } from 'teleport/services/agents';
+import { AppSubKind, PermissionSet } from 'teleport/services/apps';
+
+/**
+ * status == '' is a result of an older agent that does not
+ * support the health check feature.
+ */
+export type ResourceStatus = 'healthy' | 'unhealthy' | 'unknown' | '';
+
+export type ResourceTargetHealth = {
+  status: ResourceStatus;
+  reason?: string;
+};
 
 export type UnifiedResourceApp = {
   kind: 'app';
@@ -37,6 +48,8 @@ export type UnifiedResourceApp = {
   friendlyName?: string;
   samlApp: boolean;
   requiresRequest?: boolean;
+  subKind?: AppSubKind;
+  permissionSets?: PermissionSet[];
 };
 
 export interface UnifiedResourceDatabase {
@@ -47,6 +60,7 @@ export interface UnifiedResourceDatabase {
   protocol: DbProtocol;
   labels: ResourceLabel[];
   requiresRequest?: boolean;
+  targetHealth?: ResourceTargetHealth;
 }
 
 export interface UnifiedResourceNode {
@@ -85,18 +99,34 @@ export type UnifiedResourceUserGroup = {
   requiresRequest?: boolean;
 };
 
+export interface UnifiedResourceGitServer {
+  kind: 'git_server';
+  id: string;
+  hostname: string;
+  labels: ResourceLabel[];
+  subKind: 'github';
+  github: {
+    organization: string;
+    integration: string;
+  };
+  requiresRequest?: boolean;
+}
+
 export type UnifiedResourceUi = {
   ActionButton: React.ReactElement;
 };
 
+export type UnifiedResourceDefinition =
+  | UnifiedResourceApp
+  | UnifiedResourceDatabase
+  | UnifiedResourceNode
+  | UnifiedResourceKube
+  | UnifiedResourceDesktop
+  | UnifiedResourceUserGroup
+  | UnifiedResourceGitServer;
+
 export type SharedUnifiedResource = {
-  resource:
-    | UnifiedResourceApp
-    | UnifiedResourceDatabase
-    | UnifiedResourceNode
-    | UnifiedResourceKube
-    | UnifiedResourceDesktop
-    | UnifiedResourceUserGroup;
+  resource: UnifiedResourceDefinition;
   ui: UnifiedResourceUi;
 };
 
@@ -126,6 +156,7 @@ export interface UnifiedResourceViewItem {
   cardViewProps: CardViewSpecificProps;
   listViewProps: ListViewSpecificProps;
   requiresRequest?: boolean;
+  status?: ResourceStatus;
 }
 
 export enum PinningSupport {
@@ -148,21 +179,20 @@ export type IncludedResourceMode =
   | 'accessible';
 
 export type ResourceItemProps = {
-  name: string;
-  primaryIconName: ResourceIconName;
-  SecondaryIcon: typeof Icon;
-  cardViewProps: CardViewSpecificProps;
-  listViewProps: ListViewSpecificProps;
-  labels: ResourceLabel[];
-  ActionButton: React.ReactElement;
   onLabelClick?: (label: ResourceLabel) => void;
   pinResource: () => void;
   selectResource: () => void;
   selected: boolean;
   pinned: boolean;
-  requiresRequest?: boolean;
   pinningSupport: PinningSupport;
   expandAllLabels: boolean;
+  viewItem: UnifiedResourceViewItem;
+  onShowStatusInfo(): void;
+  /**
+   * True, when the InfoGuideSidePanel is opened.
+   * Used as a flag to render different styling.
+   */
+  showingStatusInfo: boolean;
 };
 
 // Props that are needed for the Card view.
@@ -199,6 +229,11 @@ export type ResourceViewProps = {
   onPinResource: (resourceId: string) => void;
   pinningSupport: PinningSupport;
   isProcessing: boolean;
-  mappedResources: { item: UnifiedResourceViewItem; key: string }[];
+  mappedResources: {
+    item: UnifiedResourceViewItem;
+    key: string;
+    onShowStatusInfo(): void;
+    showingStatusInfo: boolean;
+  }[];
   expandAllLabels: boolean;
 };

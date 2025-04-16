@@ -111,6 +111,13 @@ const (
 	// EC2InstanceConnect is a key used for the EC2 Instance Connect service.
 	EC2InstanceConnect
 
+	// GitHubProxyCASSH represents the SSH key for GitHub proxy CAs.
+	GitHubProxyCASSH
+
+	// GitClient represents a key used to forward Git commands to Git services
+	// like GitHub.
+	GitClient
+
 	// keyPurposeMax is 1 greater than the last valid key purpose, used to test that all values less than this
 	// are valid for each suite.
 	keyPurposeMax
@@ -152,7 +159,9 @@ func (a Algorithm) String() string {
 type suite map[KeyPurpose]Algorithm
 
 var (
-	// legacy is the original algorithm suite, which exclusively uses RSA2048.
+	// legacy is the original algorithm suite, which exclusively uses RSA2048
+	// for features developed before ECDSA and Ed25519 support were added. New
+	// features should always use the new algorithms.
 	legacy = suite{
 		UserCATLS:               RSA2048,
 		UserCASSH:               RSA2048,
@@ -167,6 +176,7 @@ var (
 		SPIFFECATLS:             RSA2048,
 		SPIFFECAJWT:             RSA2048,
 		OktaCAJWT:               ECDSAP256,
+		GitHubProxyCASSH:        ECDSAP256,
 		UserSSH:                 RSA2048,
 		UserTLS:                 RSA2048,
 		DatabaseClient:          RSA2048,
@@ -182,11 +192,11 @@ var (
 		ProxyKubeClient:      RSA2048,
 		// EC2InstanceConnect has always used Ed25519 by default.
 		EC2InstanceConnect: Ed25519,
+		GitClient:          Ed25519,
 	}
 
 	// balancedV1 strikes a balance between security, compatibility, and
-	// performance. It uses ECDSA256, Ed25591, and 2048-bit RSA. It is not
-	// completely implemented yet.
+	// performance. It uses ECDSA256, Ed25591, and 2048-bit RSA.
 	balancedV1 = suite{
 		UserCATLS:               ECDSAP256,
 		UserCASSH:               Ed25519,
@@ -201,6 +211,7 @@ var (
 		SPIFFECATLS:             ECDSAP256,
 		SPIFFECAJWT:             RSA2048,
 		OktaCAJWT:               ECDSAP256,
+		GitHubProxyCASSH:        Ed25519,
 		UserSSH:                 Ed25519,
 		UserTLS:                 ECDSAP256,
 		DatabaseClient:          RSA2048,
@@ -212,11 +223,12 @@ var (
 		ProxyToDatabaseAgent:    ECDSAP256,
 		ProxyKubeClient:         ECDSAP256,
 		EC2InstanceConnect:      Ed25519,
+		GitClient:               Ed25519,
 	}
 
 	// fipsv1 is an algorithm suite tailored for FIPS compliance. It is based on
 	// the balancedv1 suite but replaces all instances of Ed25519 with ECDSA on
-	// the NIST P256 curve. It is not completely implemented yet.
+	// the NIST P256 curve.
 	fipsv1 = suite{
 		UserCATLS:               ECDSAP256,
 		UserCASSH:               ECDSAP256,
@@ -231,6 +243,7 @@ var (
 		SPIFFECATLS:             ECDSAP256,
 		SPIFFECAJWT:             RSA2048,
 		OktaCAJWT:               ECDSAP256,
+		GitHubProxyCASSH:        ECDSAP256,
 		UserSSH:                 ECDSAP256,
 		UserTLS:                 ECDSAP256,
 		DatabaseClient:          RSA2048,
@@ -242,13 +255,14 @@ var (
 		ProxyToDatabaseAgent:    ECDSAP256,
 		ProxyKubeClient:         ECDSAP256,
 		EC2InstanceConnect:      ECDSAP256,
+		GitClient:               ECDSAP256,
 	}
 
 	// hsmv1 in an algorithm suite tailored for clusters using an HSM or KMS
 	// service to back CA private material.  It is based on the balancedv1 suite
 	// but replaces Ed25519 with ECDSA on the NIST P256 curve *for CA keys
 	// only*. It is also valid to use the legacy or fipsv1 suites if your
-	// cluster uses an HSM or KMS. It is not completely implemented yet.
+	// cluster uses an HSM or KMS.
 	hsmv1 = suite{
 		UserCATLS:               ECDSAP256,
 		UserCASSH:               ECDSAP256,
@@ -263,6 +277,7 @@ var (
 		SPIFFECATLS:             ECDSAP256,
 		SPIFFECAJWT:             RSA2048,
 		OktaCAJWT:               ECDSAP256,
+		GitHubProxyCASSH:        ECDSAP256,
 		UserSSH:                 Ed25519,
 		UserTLS:                 ECDSAP256,
 		DatabaseClient:          RSA2048,
@@ -274,6 +289,7 @@ var (
 		ProxyToDatabaseAgent:    ECDSAP256,
 		ProxyKubeClient:         ECDSAP256,
 		EC2InstanceConnect:      Ed25519,
+		GitClient:               Ed25519,
 	}
 
 	allSuites = map[types.SignatureAlgorithmSuite]suite{
@@ -430,7 +446,7 @@ func GeneratePrivateKeyWithAlgorithm(alg Algorithm) (*keys.PrivateKey, error) {
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	privateKey, err := keys.NewSoftwarePrivateKey(key)
+	privateKey, err := keys.NewPrivateKey(key)
 	return privateKey, trace.Wrap(err)
 }
 

@@ -19,17 +19,20 @@
 package client
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 
 	"github.com/gravitational/trace"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/profile"
 	"github.com/gravitational/teleport/api/utils/keys"
+	"github.com/gravitational/teleport/api/utils/keys/hardwarekey"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/utils"
 )
@@ -41,32 +44,78 @@ import (
 // when using `tsh --add-keys-to-agent=only`, Store will be made up of an in-memory
 // key store and an FS (~/.tsh) profile and trusted certs store.
 type Store struct {
-	log *logrus.Entry
-
+	StoreConfig
 	KeyStore
 	TrustedCertsStore
 	ProfileStore
 }
 
-// NewMemClientStore initializes an FS backed client store with the given base dir.
-func NewFSClientStore(dirPath string) *Store {
-	dirPath = profile.FullProfilePath(dirPath)
-	return &Store{
-		log:               logrus.WithField(teleport.ComponentKey, teleport.ComponentKeyStore),
-		KeyStore:          NewFSKeyStore(dirPath),
-		TrustedCertsStore: NewFSTrustedCertsStore(dirPath),
-		ProfileStore:      NewFSProfileStore(dirPath),
+// StoreConfig contains shared config options for Store.
+type StoreConfig struct {
+	log          *slog.Logger
+	hwKeyService hardwarekey.Service
+}
+
+// StoreConfigOpt applies configuration options.
+type StoreConfigOpt func(o *StoreConfig)
+
+// WithHardwareKeyService sets the hardware key service.
+func WithHardwareKeyService(hwKeyService hardwarekey.Service) StoreConfigOpt {
+	return func(o *StoreConfig) {
+		o.hwKeyService = hwKeyService
 	}
 }
 
+// NewFSClientStore initializes an FS backed client store with the given base dir.
+//
+// [WithHardwareKeyService] should be provided in order to successfully create and
+// parse hardware private keys. It is not needed for tests and select commands
+// which do not interact with hardware keys
+func NewFSClientStore(dirPath string, opts ...StoreConfigOpt) *Store {
+	return newClientStore(
+		NewFSKeyStore(dirPath),
+		NewFSTrustedCertsStore(dirPath),
+		NewFSProfileStore(dirPath),
+		opts...,
+	)
+}
+
 // NewMemClientStore initializes a new in-memory client store.
-func NewMemClientStore() *Store {
-	return &Store{
-		log:               logrus.WithField(teleport.ComponentKey, teleport.ComponentKeyStore),
-		KeyStore:          NewMemKeyStore(),
-		TrustedCertsStore: NewMemTrustedCertsStore(),
-		ProfileStore:      NewMemProfileStore(),
+//
+// [WithHardwareKeyService] should be provided in order to successfully create and
+// parse hardware private keys. It is not needed for tests and select commands
+// which do not interact with hardware keys
+func NewMemClientStore(opts ...StoreConfigOpt) *Store {
+	return newClientStore(
+		NewMemKeyStore(),
+		NewMemTrustedCertsStore(),
+		NewMemProfileStore(),
+		opts...,
+	)
+}
+
+func newClientStore(ks KeyStore, tcs TrustedCertsStore, ps ProfileStore, opts ...StoreConfigOpt) *Store {
+	// Start with default config
+	config := StoreConfig{
+		log: slog.With(teleport.ComponentKey, teleport.ComponentKeyStore),
 	}
+
+	// Apply opts
+	for _, opt := range opts {
+		opt(&config)
+	}
+
+	return &Store{
+		StoreConfig:       config,
+		KeyStore:          ks,
+		TrustedCertsStore: tcs,
+		ProfileStore:      ps,
+	}
+}
+
+// NewHardwarePrivateKey create a new hardware private key with the given configuration in this client store.
+func (s *Store) NewHardwarePrivateKey(ctx context.Context, config hardwarekey.PrivateKeyConfig) (*keys.PrivateKey, error) {
+	return keys.NewHardwarePrivateKey(ctx, s.hwKeyService, config)
 }
 
 // AddKeyRing adds the given key ring to the key store. The key's trusted certificates are
@@ -81,27 +130,31 @@ func (s *Store) AddKeyRing(keyRing *KeyRing) error {
 	return nil
 }
 
-// SetCustomHardwareKeyPrompt sets a custom hardware key prompt
-// used to interact with a YubiKey private key.
-func (s *Store) SetCustomHardwareKeyPrompt(prompt keys.HardwareKeyPrompt) {
-	s.KeyStore.SetCustomHardwareKeyPrompt(prompt)
+// ErrNoProfile is returned by the client store when a specific profile is not found.
+var ErrNoProfile = &trace.NotFoundError{Message: "no profile"}
+
+// noCredentialsError is returned by the client store when a specific key is not found.
+// It unwraps to the original error to allow checks for underlying error types.
+// Use [IsNoCredentialsError] instead of checking for this type directly.
+type noCredentialsError struct {
+	wrappedError error
 }
 
-var (
-	// ErrNoCredentials is returned by the client store when a specific key is not found.
-	// This error can be used to determine whether a client should retrieve new credentials,
-	// like how it is used with lib/client.RetryWithRelogin.
-	ErrNoCredentials = &trace.NotFoundError{Message: "no credentials"}
+func newNoCredentialsError(wrappedError error) *noCredentialsError {
+	return &noCredentialsError{wrappedError}
+}
 
-	// ErrNoProfile is returned by the client store when a specific profile is not found.
-	// This error can be used to determine whether a client should retrieve new credentials,
-	// like how it is used with lib/client.RetryWithRelogin.
-	ErrNoProfile = &trace.NotFoundError{Message: "no profile"}
-)
+func (e *noCredentialsError) Error() string {
+	return fmt.Sprintf("no credentials: %v", e.wrappedError)
+}
+
+func (e *noCredentialsError) Unwrap() error {
+	return e.wrappedError
+}
 
 // IsNoCredentialsError returns whether the given error implies that the user should retrieve new credentials.
 func IsNoCredentialsError(err error) bool {
-	return errors.Is(err, ErrNoCredentials) || errors.Is(err, ErrNoProfile)
+	return errors.As(err, new(*noCredentialsError)) || errors.Is(err, ErrNoProfile)
 }
 
 // GetKeyRing gets the requested key ring with trusted the requested
@@ -109,18 +162,18 @@ func IsNoCredentialsError(err error) bool {
 // certs store. If the key ring is not found or is missing data (certificates, etc.),
 // then an ErrNoCredentials error is returned.
 func (s *Store) GetKeyRing(idx KeyRingIndex, opts ...CertOption) (*KeyRing, error) {
-	keyRing, err := s.KeyStore.GetKeyRing(idx, opts...)
+	keyRing, err := s.KeyStore.GetKeyRing(idx, s.hwKeyService, opts...)
 	if trace.IsNotFound(err) {
-		return nil, trace.Wrap(ErrNoCredentials, err.Error())
+		return nil, newNoCredentialsError(err)
 	} else if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	tlsCertExpiration, err := keyRing.TeleportTLSCertValidBefore()
+	// verify that the key ring has a TLS certificate
+	_, err = keyRing.TeleportTLSCertValidBefore()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	s.log.Debugf("Teleport TLS certificate valid until %q.", tlsCertExpiration)
 
 	// Validate the SSH certificate.
 	if keyRing.Cert != nil {
@@ -199,9 +252,11 @@ func (s *Store) ReadProfileStatus(profileName string) (*ProfileStatus, error) {
 				Username:    profile.Username,
 				Cluster:     profile.SiteName,
 				KubeEnabled: profile.KubeProxyAddr != "",
-				// Set ValidUntil to now to show that the keys are not available.
+				// Set ValidUntil to now and GetKeyRingError to show that the keys are not available.
 				ValidUntil:              time.Now(),
+				GetKeyRingError:         err,
 				SAMLSingleLogoutEnabled: profile.SAMLSingleLogoutEnabled,
+				SSOHost:                 profile.SSOHost,
 			}, nil
 		}
 		return nil, trace.Wrap(err)
@@ -217,6 +272,7 @@ func (s *Store) ReadProfileStatus(profileName string) (*ProfileStatus, error) {
 		SiteName:                profile.SiteName,
 		KubeProxyAddr:           profile.KubeProxyAddr,
 		SAMLSingleLogoutEnabled: profile.SAMLSingleLogoutEnabled,
+		SSOHost:                 profile.SSOHost,
 		IsVirtual:               !onDisk,
 	})
 }
@@ -247,7 +303,10 @@ func (s *Store) FullProfileStatus() (*ProfileStatus, []*ProfileStatus, error) {
 		}
 		status, err := s.ReadProfileStatus(profileName)
 		if err != nil {
-			s.log.WithError(err).Warnf("skipping profile %q due to error", profileName)
+			s.log.WarnContext(context.Background(), "skipping profile due to error",
+				"profile_name", profileName,
+				"error", err,
+			)
 			continue
 		}
 		profiles = append(profiles, status)

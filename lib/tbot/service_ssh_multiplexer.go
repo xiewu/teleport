@@ -21,6 +21,7 @@ package tbot
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -273,11 +274,18 @@ func (s *SSHMultiplexerService) setup(ctx context.Context) (
 	if err != nil {
 		return nil, nil, "", nil, trace.Wrap(err)
 	}
-	proxyAddr := proxyPing.Proxy.SSH.PublicAddr
-	proxyHost, _, err = net.SplitHostPort(proxyPing.Proxy.SSH.PublicAddr)
+	proxyAddr, err := proxyPing.proxySSHAddr()
 	if err != nil {
-		return nil, nil, "", nil, trace.Wrap(err)
+		return nil, nil, "", nil, trace.Wrap(err, "determining proxy ssh addr")
 	}
+	proxyHost, _, err = utils.SplitHostPort(proxyAddr)
+	if err != nil {
+		return nil, nil, "", nil, trace.BadParameter(
+			"proxy %+v has no usable public address: %v",
+			proxyAddr, err,
+		)
+	}
+
 	connUpgradeRequired := false
 	if proxyPing.Proxy.TLSRoutingEnabled {
 		connUpgradeRequired, err = s.alpnUpgradeCache.isUpgradeRequired(
@@ -341,7 +349,7 @@ func (s *SSHMultiplexerService) generateIdentity(ctx context.Context) (*identity
 		s.botAuthClient,
 		s.getBotIdentity(),
 		roles,
-		s.botCfg.CertificateTTL,
+		cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
 		nil,
 	)
 	if err != nil {
@@ -383,7 +391,8 @@ func (s *SSHMultiplexerService) identityRenewalLoop(
 	reloadCh, unsubscribe := s.reloadBroadcaster.subscribe()
 	defer unsubscribe()
 	err := runOnInterval(ctx, runOnIntervalConfig{
-		name: "identity-renewal",
+		service: s.String(),
+		name:    "identity-renewal",
 		f: func(ctx context.Context) error {
 			id, err := s.generateIdentity(ctx)
 			if err != nil {
@@ -392,7 +401,7 @@ func (s *SSHMultiplexerService) identityRenewalLoop(
 			s.identity.Set(id)
 			return s.writeArtifacts(ctx, proxyHost, authClient)
 		},
-		interval:   s.botCfg.RenewalInterval,
+		interval:   cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
 		retryLimit: renewalRetryLimit,
 		log:        s.log,
 		reloadCh:   reloadCh,
@@ -663,7 +672,7 @@ func (s *SSHMultiplexerService) handleConn(
 		host = cleanTargetHost(host, proxyHost, clusterName)
 		target = net.JoinHostPort(host, port)
 	} else {
-		node, err := resolveTargetHostWithClient(ctx, authClient, expanded.Search, expanded.Query)
+		node, err := resolveTargetHostWithClient(ctx, authClient.APIClient, expanded.Search, expanded.Query)
 		if err != nil {
 			return trace.Wrap(err, "resolving target host")
 		}

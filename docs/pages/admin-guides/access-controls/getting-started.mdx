@@ -4,6 +4,10 @@ description: Teleport Role-Based Access Control.
 tocDepth: 3
 ---
 
+In Teleport, any local, SSO, or robot user can be assigned one or several roles.
+Roles govern access to databases, SSH servers, Kubernetes clusters, Windows
+desktops, and web apps.
+
 Teleport RBAC (Role-Based Access Control) is a system for managing who can
 access what within your infrastructure. Instead of assigning permissions
 directly to users, you create roles that define sets of permissions, then assign
@@ -342,7 +346,9 @@ spec:
 
 #### Read-only auditor
 
-This role allows a user to read audit log entries:
+(!docs/pages/includes/create-role-using-web.mdx!)
+
+## Next steps
 
 ```yaml
 kind: role

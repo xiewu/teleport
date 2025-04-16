@@ -3,6 +3,9 @@ title: Database Access Configuration Reference
 description: Configuration reference for Teleport database access.
 ---
 
+This guide explains configuration options for the Teleport Database Service,
+which proxies user traffic between Teleport users and protected databases. 
+
 ## Database service configuration
 
 The following snippet shows full YAML configuration of a Database Service
@@ -29,7 +32,7 @@ connections using a unique port, specified with `mysql_public_addr` or `postgres
 
 ```yaml
 proxy_service:
-  enabled: "yes"
+  enabled: true
   # Database proxy is listening on the regular web proxy port.
   web_listen_addr: "0.0.0.0:443"
   # MySQL proxy is listening on a separate port and needs to be enabled
@@ -67,7 +70,7 @@ Cloud tenant address:
 
 ```yaml
 proxy_service:
-  enabled: "yes"
+  enabled: true
   # Database proxy is listening on the regular web proxy port.
   web_listen_addr: "0.0.0.0:3080"
   # MySQL proxy is listening on a separate port.

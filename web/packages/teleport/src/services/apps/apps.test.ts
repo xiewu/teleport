@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import cfg from 'teleport/config';
 import api from 'teleport/services/api';
 import apps from 'teleport/services/apps';
 
@@ -42,12 +43,14 @@ test('correct formatting of apps fetch response', async () => {
           '/web/launch/app-name.example.com/cluster-id/app-name.example.com',
         awsRoles: [],
         awsConsole: false,
-        isCloudOrTcpEndpoint: false,
+        isCloud: false,
+        isTcp: false,
         addrWithProtocol: 'https://app-name.example.com',
         userGroups: [],
         samlApp: false,
         samlAppSsoUrl: '',
         integration: '',
+        permissionSets: [],
       },
       {
         kind: 'app',
@@ -63,12 +66,14 @@ test('correct formatting of apps fetch response', async () => {
         launchUrl: '',
         awsRoles: [],
         awsConsole: false,
-        isCloudOrTcpEndpoint: true,
+        isCloud: true,
+        isTcp: false,
         addrWithProtocol: 'cloud://some-addr',
         userGroups: [],
         samlApp: false,
         samlAppSsoUrl: '',
         integration: '',
+        permissionSets: [],
       },
       {
         kind: 'app',
@@ -84,12 +89,14 @@ test('correct formatting of apps fetch response', async () => {
         launchUrl: '',
         awsRoles: [],
         awsConsole: false,
-        isCloudOrTcpEndpoint: true,
+        isCloud: false,
+        isTcp: true,
         addrWithProtocol: 'tcp://some-addr',
         userGroups: [],
         samlApp: false,
         samlAppSsoUrl: '',
         integration: '',
+        permissionSets: [],
       },
       {
         kind: 'app',
@@ -105,13 +112,16 @@ test('correct formatting of apps fetch response', async () => {
         launchUrl: '',
         awsRoles: [],
         awsConsole: false,
-        isCloudOrTcpEndpoint: '',
+        isCloud: false,
+        isTcp: false,
         addrWithProtocol: '',
         userGroups: [],
         samlApp: true,
         samlAppSsoUrl: 'http://localhost/enterprise/saml-idp/login/saml-app',
         samlAppPreset: 'gcp-workforce',
         integration: '',
+        permissionSets: [],
+        samlAppLaunchUrls: [{ url: 'https://example.com' }],
       },
     ],
     startKey: mockResponse.startKey,
@@ -142,6 +152,31 @@ test('null labels field in apps fetch response', async () => {
   expect(response.agents[0].labels).toEqual([]);
 });
 
+test('createAppSession', async () => {
+  const backend = jest.spyOn(api, 'post').mockResolvedValue({
+    fqdn: 'app-name.example.com',
+    cookieValue: 'cookie-value',
+    subjectCookieValue: 'subject-cookie-value',
+  });
+
+  const response = await apps.createAppSession({
+    fqdn: 'app-name.example.com',
+    cluster_name: 'example.com',
+    public_addr: 'app-name.example.com',
+  });
+
+  expect(response.fqdn).toEqual('app-name.example.com');
+
+  expect(backend).toHaveBeenCalledWith(
+    cfg.api.appSession,
+    expect.objectContaining({
+      fqdn: 'app-name.example.com',
+      cluster_name: 'example.com',
+      public_addr: 'app-name.example.com',
+    })
+  );
+});
+
 const mockResponse = {
   items: [
     {
@@ -170,6 +205,7 @@ const mockResponse = {
       description: 'SAML Application',
       samlApp: true,
       samlAppPreset: 'gcp-workforce',
+      samlAppLaunchUrls: [{ url: 'https://example.com' }],
     },
   ],
   startKey: 'mockKey',

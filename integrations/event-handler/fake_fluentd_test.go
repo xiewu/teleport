@@ -31,8 +31,6 @@ import (
 
 	"github.com/gravitational/trace"
 	"github.com/stretchr/testify/require"
-
-	"github.com/gravitational/teleport/integrations/lib/logger"
 )
 
 type FakeFluentd struct {
@@ -68,7 +66,7 @@ func NewFakeFluentd(t *testing.T) *FakeFluentd {
 
 // writeCerts generates and writes temporary mTLS keys
 func (f *FakeFluentd) writeCerts() error {
-	g, err := GenerateMTLSCerts([]string{"localhost"}, []string{}, time.Hour, 1024)
+	g, err := GenerateMTLSCerts([]string{"localhost"}, []string{"127.0.0.1"}, time.Hour, 1024)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -123,9 +121,10 @@ func (f *FakeFluentd) createServer() error {
 // GetClientConfig returns FlientdConfig to connect to this fake fluentd server instance
 func (f *FakeFluentd) GetClientConfig() FluentdConfig {
 	return FluentdConfig{
-		FluentdCA:   f.caCertPath,
-		FluentdCert: f.clientCertPath,
-		FluentdKey:  f.clientKeyPath,
+		FluentdCA:             f.caCertPath,
+		FluentdCert:           f.clientCertPath,
+		FluentdKey:            f.clientKeyPath,
+		FluentdMaxConnections: 3,
 	}
 }
 
@@ -149,7 +148,6 @@ func (f *FakeFluentd) GetURL() string {
 func (f *FakeFluentd) Respond(w http.ResponseWriter, r *http.Request) {
 	req, err := io.ReadAll(r.Body)
 	if err != nil {
-		logger.Standard().WithError(err).Error("FakeFluentd Respond() failed to read body")
 		fmt.Fprintln(w, "NOK")
 		return
 	}

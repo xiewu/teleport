@@ -23,6 +23,7 @@ UID := $$(id -u)
 GID := $$(id -g)
 NOROOT := -u $(UID):$(GID)
 
+include util.mk
 include versions.mk
 include arch.mk
 # BUILDBOX_VERSION, BUILDBOX and BUILDBOX_variant variables are included in images.mk
@@ -35,19 +36,7 @@ ifneq ("$(KUBECONFIG)","")
 DOCKERFLAGS := $(DOCKERFLAGS) -v $(KUBECONFIG):/mnt/kube/config -e KUBECONFIG=/mnt/kube/config -e TEST_KUBE=$(TEST_KUBE)
 endif
 
-# conditionally force the use of UID/GID 1000:1000 if we're running in Github Actions (in which case CI env var will be set)
 ifeq ("$(CI)","true")
-# The UID/GID of the runner user on ARC runners is 1001, not 1000
-# This var is currently only set for ARC runners via https://github.com/gravitational/cloud-terraform/pull/2473
-ifeq ("$(CI_SYSTEM)","ARC")
-UID := 1001
-GID := 1001
-NOROOT := -u 1001:1001
-else
-UID := 1000
-GID := 1000
-NOROOT := -u 1000:1000
-endif
 # if running in CI and the GOCACHE environment variable is not set, set it to a sensible default
 ifeq ("$(GOCACHE)",)
 GOCACHE := /go/cache
@@ -112,6 +101,7 @@ build-binaries-fips: buildbox-centos7-fips webassets
 #
 .PHONY: buildbox-thirdparty
 buildbox-thirdparty:
+	$(call LOG_GROUP_START)
 	docker buildx build \
 		--cache-from $(BUILDBOX_THIRDPARTY) \
 		--cache-to type=inline \
@@ -119,6 +109,7 @@ buildbox-thirdparty:
 		--tag $(BUILDBOX_THIRDPARTY) \
 		-f buildbox/Dockerfile-thirdparty \
 		buildbox
+	$(call LOG_GROUP_END)
 
 #
 # A generic build rule to build a stage of Dockerfile-thirdparty based
@@ -129,12 +120,14 @@ buildbox-thirdparty:
 #
 .PHONY: buildbox-thirdparty-stage
 buildbox-thirdparty-stage:
+	$(call LOG_GROUP_START)
 	docker buildx build \
 		--load \
 		--tag buildbox-thirdparty-$(STAGE):$(BUILDBOX_VERSION) \
 		-f buildbox/Dockerfile-thirdparty \
 		--target $(STAGE) \
 		buildbox
+	$(call LOG_GROUP_END)
 
 .PHONY: buildbox-thirdparty-crosstoolng
 buildbox-thirdparty-crosstoolng: STAGE=crosstoolng
@@ -154,6 +147,7 @@ buildbox-thirdparty-libs: buildbox-thirdparty-stage
 #
 .PHONY: buildbox-ng
 buildbox-ng:
+	$(call LOG_GROUP_START)
 	docker buildx build \
 		--build-arg THIRDPARTY_IMAGE=$(BUILDBOX_THIRDPARTY) \
 		--build-arg GOLANG_VERSION=$(GOLANG_VERSION) \
@@ -164,6 +158,7 @@ buildbox-ng:
 		--tag $(BUILDBOX_NG) \
 		-f buildbox/Dockerfile \
 		buildbox
+	$(call LOG_GROUP_END)
 
 # Builds a Docker container which is used for building official Teleport binaries
 # If running in CI and there is no image with the buildbox name:tag combination present locally,
@@ -173,6 +168,7 @@ buildbox-ng:
 #
 .PHONY:buildbox
 buildbox:
+	$(call LOG_GROUP_START)
 	docker buildx build \
 		--build-arg UID=$(UID) \
 		--build-arg GID=$(GID) \
@@ -192,6 +188,7 @@ buildbox:
 		--cache-from $(BUILDBOX) \
 		$(if $(PUSH),--push,--load) \
 		--tag $(BUILDBOX) .
+	$(call LOG_GROUP_END)
 
 # Builds a Docker buildbox for FIPS
 #
@@ -211,6 +208,7 @@ buildbox-fips: buildbox-centos7-fips
 #
 .PHONY:buildbox-centos7
 buildbox-centos7:
+	$(call LOG_GROUP_START)
 	$(REQUIRE_HOST_ARCH)
 	docker buildx build \
 		--target buildbox \
@@ -229,6 +227,7 @@ buildbox-centos7:
 		--cache-from $(BUILDBOX_CENTOS7) \
 		$(if $(PUSH),--push,--load) \
 		--tag $(BUILDBOX_CENTOS7) -f Dockerfile-centos7 .
+	$(call LOG_GROUP_END)
 
 #
 # Builds a Docker buildbox for CentOS 7 FIPS builds. This uses the same
@@ -239,6 +238,7 @@ buildbox-centos7:
 #
 .PHONY:buildbox-centos7-fips
 buildbox-centos7-fips:
+	$(call LOG_GROUP_START)
 	docker buildx build \
 		--target buildbox-fips \
 		--build-arg UID=$(UID) \
@@ -256,6 +256,7 @@ buildbox-centos7-fips:
 		--cache-from $(BUILDBOX_CENTOS7_FIPS) \
 		$(if $(PUSH),--push,--load) \
 		--tag $(BUILDBOX_CENTOS7_FIPS) -f Dockerfile-centos7 .
+	$(call LOG_GROUP_END)
 
 #
 # Builds a Docker buildbox for ARMv7/ARM64 builds
@@ -264,6 +265,7 @@ buildbox-centos7-fips:
 #
 .PHONY:buildbox-arm
 buildbox-arm:
+	$(call LOG_GROUP_START)
 	docker buildx build \
 		--build-arg UID=$(UID) \
 		--build-arg GID=$(GID) \
@@ -275,6 +277,7 @@ buildbox-arm:
 		--cache-from $(BUILDBOX_ARM) \
 		$(if $(PUSH),--push,--load) \
 		--tag $(BUILDBOX_ARM) -f Dockerfile-arm .
+	$(call LOG_GROUP_END)
 
 CONNECT_VERSION ?= $(VERSION)
 ifeq ($(CONNECT_VERSION),)
@@ -287,6 +290,7 @@ endif
 #
 .PHONY:buildbox-node
 buildbox-node:
+	$(call LOG_GROUP_START)
 	docker buildx build \
 		--build-arg BUILDARCH=$(RUNTIME_ARCH) \
 		--build-arg UID=$(UID) \
@@ -298,6 +302,7 @@ buildbox-node:
 		--cache-from $(BUILDBOX_NODE) \
 		$(if $(PUSH),--push,--load) \
 		--tag $(BUILDBOX_NODE) -f Dockerfile-node .
+	$(call LOG_GROUP_END)
 
 #
 # Builds Teleport Connect inside the buildbox container.
@@ -321,8 +326,10 @@ ui: buildbox
 # submodule is present.
 .PHONY: webassets
 webassets: buildbox-node
+	$(call LOG_GROUP_START)
 	docker run $(DOCKERFLAGS) $(NOROOT) $(BUILDBOX_NODE) \
 		/usr/bin/make ensure-webassets $(if $(wildcard ../e/Makefile),ensure-webassets-e)
+	$(call LOG_GROUP_END)
 
 # grpc generates GRPC stubs from inside the buildbox
 .PHONY: grpc
@@ -587,9 +594,11 @@ BUILDBOX_TARGET = $(or $(BUILDBOX_TARGET_$(BUILDBOX)),buildbox)
 #
 .PHONY:release
 release: $(BUILDBOX_TARGET)
+	$(call LOG_GROUP_START)
 	@echo "Build Assets Release"
 	docker run $(DOCKERFLAGS) $(NOROOT) $(BUILDBOX) \
 		/usr/bin/make $(RELEASE_TARGET) -e ADDFLAGS="$(ADDFLAGS)" OS=$(OS) ARCH=$(ARCH) RUNTIME=$(GOLANG_VERSION) FIDO2=$(FIDO2) PIV=$(PIV) REPRODUCIBLE=yes
+	$(call LOG_GROUP_END)
 
 
 .PHONY: release-ng-amd64 release-ng-amd64-fips release-ng-arm64 release-ng-386 release-ng-arm
@@ -609,6 +618,7 @@ release-ng-arm:
 .PHONY: release-ng
 release-ng: RELEASE_TARGET = release-unix-preserving-webassets
 release-ng: webassets buildbox-ng
+	$(call LOG_GROUP_START)
 	docker run --rm --interactive $(shell test -t 0 && echo --tty) \
 		--volume $(shell pwd)/..:/home/teleport \
 		--workdir /home/teleport \
@@ -623,6 +633,7 @@ release-ng: webassets buildbox-ng
 			PIV="$(PIV)" \
 			FIPS="$(FIPS)" \
 			REPRODUCIBLE=yes
+	$(call LOG_GROUP_END)
 
 #
 # Create a Teleport FIPS package using the build container.
@@ -647,9 +658,11 @@ release-fips: buildbox-centos7-fips webassets
 #
 .PHONY:release-centos7
 release-centos7: buildbox-centos7 webassets
+	$(LOG_GROUP_START)
 	$(REQUIRE_HOST_ARCH)
 	docker run $(DOCKERFLAGS) -i $(NOROOT) $(BUILDBOX_CENTOS7) \
 		/usr/bin/scl enable $(DEVTOOLSET) 'make release-unix-preserving-webassets -e ADDFLAGS="$(ADDFLAGS)" OS=$(OS) ARCH=$(ARCH) RUNTIME=$(GOLANG_VERSION) FIDO2=$(FIDO2) PIV=$(PIV) REPRODUCIBLE=no'
+	$(LOG_GROUP_END)
 
 #
 # Create a Teleport FIPS package for CentOS 7 using the build container.
@@ -661,8 +674,10 @@ release-centos7: buildbox-centos7 webassets
 #
 .PHONY:release-centos7-fips
 release-centos7-fips: buildbox-centos7-fips webassets
+	$(LOG_GROUP_START)
 	docker run $(DOCKERFLAGS) -i $(NOROOT) $(BUILDBOX_CENTOS7_FIPS) \
 		/usr/bin/scl enable $(DEVTOOLSET) '/usr/bin/make -C e release -e ADDFLAGS="$(ADDFLAGS)" OS=$(OS) ARCH=$(ARCH) RUNTIME=$(GOLANG_VERSION) FIDO2=$(FIDO2) PIV=$(PIV) FIPS=yes VERSION=$(VERSION) GITTAG=v$(VERSION) REPRODUCIBLE=no'
+	$(LOG_GROUP_END)
 
 #
 # Create a Windows Teleport package using the build container.

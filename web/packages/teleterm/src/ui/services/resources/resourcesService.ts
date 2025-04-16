@@ -16,38 +16,32 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import { App } from 'gen-proto-ts/teleport/lib/teleterm/v1/app_pb';
+import { WindowsDesktop } from 'gen-proto-ts/teleport/lib/teleterm/v1/windows_desktop_pb';
+
+import {
+  resourceOneOfIsApp,
+  resourceOneOfIsDatabase,
+  resourceOneOfIsKube,
+  resourceOneOfIsServer,
+  resourceOneOfIsWindowsDesktop,
+} from 'teleterm/helpers';
+import Logger from 'teleterm/logger';
+import type { TshdClient } from 'teleterm/services/tshd';
+import { getAppAddrWithProtocol } from 'teleterm/services/tshd/app';
 import {
   cloneAbortSignal,
   TshdRpcError,
 } from 'teleterm/services/tshd/cloneableClient';
-
-import {
-  resourceOneOfIsServer,
-  resourceOneOfIsDatabase,
-  resourceOneOfIsApp,
-  resourceOneOfIsKube,
-} from 'teleterm/helpers';
-
-import Logger from 'teleterm/logger';
-
-import { getAppAddrWithProtocol } from 'teleterm/services/tshd/app';
-
-import type { TshdClient } from 'teleterm/services/tshd';
 import type * as types from 'teleterm/services/tshd/types';
-import type * as uri from 'teleterm/ui/uri';
+import { getWindowsDesktopAddrWithoutDefaultPort } from 'teleterm/services/tshd/windowsDesktop';
 import type { ResourceTypeFilter } from 'teleterm/ui/Search/searchResult';
+import type * as uri from 'teleterm/ui/uri';
 
 export class ResourcesService {
   private logger = new Logger('ResourcesService');
 
   constructor(private tshClient: TshdClient) {}
-
-  async fetchServers(params: types.GetResourcesParams) {
-    const { response } = await this.tshClient.getServers(
-      makeGetResourcesParamsRequest(params)
-    );
-    return response;
-  }
 
   // TODO(ravicious): Refactor it to use logic similar to that in the Web UI.
   // https://github.com/gravitational/teleport/blob/2a2b08dbfdaf71706a5af3812d3a7ec843d099b4/lib/web/apiserver.go#L2471
@@ -56,39 +50,22 @@ export class ResourcesService {
     hostname: string
   ): Promise<types.Server | undefined> {
     const query = `name == "${hostname}"`;
-    const { agents: servers } = await this.fetchServers({
-      clusterUri,
-      query,
-      limit: 2,
-      sort: null,
-    });
+    const {
+      response: { agents: servers },
+    } = await this.tshClient.getServers(
+      makeGetResourcesParamsRequest({
+        clusterUri,
+        query,
+        limit: 2,
+        sort: null,
+      })
+    );
 
     if (servers.length > 1) {
       throw new AmbiguousHostnameError(hostname);
     }
 
     return servers[0];
-  }
-
-  async fetchDatabases(params: types.GetResourcesParams) {
-    const { response } = await this.tshClient.getDatabases(
-      makeGetResourcesParamsRequest(params)
-    );
-    return response;
-  }
-
-  async fetchKubes(params: types.GetResourcesParams) {
-    const { response } = await this.tshClient.getKubes(
-      makeGetResourcesParamsRequest(params)
-    );
-    return response;
-  }
-
-  async fetchApps(params: types.GetResourcesParams) {
-    const { response } = await this.tshClient.getApps(
-      makeGetResourcesParamsRequest(params)
-    );
-    return response;
   }
 
   async getDbUsers(dbUri: uri.DatabaseUri): Promise<string[]> {
@@ -142,6 +119,17 @@ export class ResourcesService {
             },
           };
         }
+        if (r.kind === 'windows_desktop') {
+          return {
+            ...r,
+            resource: {
+              ...r.resource,
+              addrWithoutDefaultPort: getWindowsDesktopAddrWithoutDefaultPort(
+                r.resource
+              ),
+            },
+          };
+        }
         return r;
       });
     } catch (err) {
@@ -188,6 +176,14 @@ export class ResourcesService {
             return {
               kind: 'kube' as const,
               resource: p.resource.kube,
+              requiresRequest: p.requiresRequest,
+            };
+          }
+
+          if (resourceOneOfIsWindowsDesktop(p.resource)) {
+            return {
+              kind: 'windows_desktop' as const,
+              resource: p.resource.windowsDesktop,
               requiresRequest: p.requiresRequest,
             };
           }
@@ -257,7 +253,12 @@ export type SearchResultKube = {
 };
 export type SearchResultApp = {
   kind: 'app';
-  resource: types.App & { addrWithProtocol: string };
+  resource: App & { addrWithProtocol: string };
+  requiresRequest: boolean;
+};
+export type SearchResultWindowsDesktop = {
+  kind: 'windows_desktop';
+  resource: WindowsDesktop & { addrWithoutDefaultPort: string };
   requiresRequest: boolean;
 };
 
@@ -265,7 +266,8 @@ export type SearchResult =
   | SearchResultServer
   | SearchResultDatabase
   | SearchResultKube
-  | SearchResultApp;
+  | SearchResultApp
+  | SearchResultWindowsDesktop;
 
 export type SearchResultResource<Kind extends SearchResult['kind']> =
   Kind extends 'server'
@@ -276,7 +278,9 @@ export type SearchResultResource<Kind extends SearchResult['kind']> =
         ? SearchResultDatabase['resource']
         : Kind extends 'kube'
           ? SearchResultKube['resource']
-          : never;
+          : Kind extends 'windows_desktop'
+            ? SearchResultWindowsDesktop['resource']
+            : never;
 
 function makeGetResourcesParamsRequest(params: types.GetResourcesParams) {
   return {
@@ -299,4 +303,9 @@ export type UnifiedResourceResponse =
       requiresRequest: boolean;
     }
   | { kind: 'kube'; resource: types.Kube; requiresRequest: boolean }
-  | { kind: 'app'; resource: types.App; requiresRequest: boolean };
+  | { kind: 'app'; resource: App; requiresRequest: boolean }
+  | {
+      kind: 'windows_desktop';
+      resource: WindowsDesktop;
+      requiresRequest: boolean;
+    };

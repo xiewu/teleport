@@ -25,6 +25,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -34,7 +35,6 @@ import (
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
 	"github.com/julienschmidt/httprouter"
-	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/types"
@@ -103,7 +103,7 @@ type Handler struct {
 
 	clusterName string
 
-	log *logrus.Entry
+	logger *slog.Logger
 }
 
 // NewHandler returns a new application handler.
@@ -116,9 +116,7 @@ func NewHandler(ctx context.Context, c *HandlerConfig) (*Handler, error) {
 	h := &Handler{
 		c:            c,
 		closeContext: ctx,
-		log: logrus.WithFields(logrus.Fields{
-			teleport.ComponentKey: teleport.ComponentAppProxy,
-		}),
+		logger:       slog.With(teleport.ComponentKey, teleport.ComponentAppProxy),
 	}
 
 	// Create a new session cache, this holds sessions that can be used to
@@ -135,7 +133,7 @@ func NewHandler(ctx context.Context, c *HandlerConfig) (*Handler, error) {
 	}
 
 	// Get the name of this cluster.
-	cn, err := h.c.AccessPoint.GetClusterName()
+	cn, err := h.c.AccessPoint.GetClusterName(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -174,9 +172,7 @@ func (h *Handler) HandleConnection(ctx context.Context, clientConn net.Conn) err
 		return trace.Wrap(err)
 	}
 
-	ws, err := h.c.AccessPoint.GetAppSession(ctx, types.GetAppSessionRequest{
-		SessionID: identity.RouteToApp.SessionID,
-	})
+	ws, err := h.getAppSessionFromAccessPoint(ctx, identity.RouteToApp.SessionID)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -336,7 +332,7 @@ func (h *Handler) handleForwardError(w http.ResponseWriter, req *http.Request, e
 func (h *Handler) authenticate(ctx context.Context, r *http.Request) (*session, error) {
 	ws, err := h.getAppSession(r)
 	if err != nil {
-		h.log.Warnf("Failed to fetch application session: %v.", err)
+		h.logger.WarnContext(ctx, "Failed to fetch application session", "error", err)
 		return nil, trace.AccessDenied("invalid session")
 	}
 
@@ -344,7 +340,7 @@ func (h *Handler) authenticate(ctx context.Context, r *http.Request) (*session, 
 	// process has seen.
 	session, err := h.getSession(ctx, ws)
 	if err != nil {
-		h.log.Warnf("Failed to get session: %v.", err)
+		h.logger.WarnContext(ctx, "Failed to get session", "error", err)
 		return nil, trace.AccessDenied("invalid session")
 	}
 
@@ -357,7 +353,7 @@ func (h *Handler) authenticate(ctx context.Context, r *http.Request) (*session, 
 func (h *Handler) renewSession(r *http.Request) (*session, error) {
 	ws, err := h.getAppSession(r)
 	if err != nil {
-		h.log.Debugf("Failed to fetch application session: not found.")
+		h.logger.DebugContext(r.Context(), "Failed to fetch application session: not found")
 		return nil, trace.AccessDenied("invalid session")
 	}
 
@@ -368,7 +364,7 @@ func (h *Handler) renewSession(r *http.Request) (*session, error) {
 	// Fetches a new session using the same flow as `authenticate`.
 	session, err := h.getSession(r.Context(), ws)
 	if err != nil {
-		h.log.Warnf("Failed to get session: %v.", err)
+		h.logger.WarnContext(r.Context(), "Failed to get session", "error", err)
 		return nil, trace.AccessDenied("invalid session")
 	}
 
@@ -387,7 +383,22 @@ func (h *Handler) getAppSession(r *http.Request) (ws types.WebSession, err error
 		ws, err = h.getAppSessionFromCookie(r)
 	}
 	if err != nil {
-		h.log.Warnf("Failed to get session: %v.", err)
+		h.logger.WarnContext(r.Context(), "Failed to get session", "error", err)
+		return nil, trace.AccessDenied("invalid session")
+	}
+	return ws, nil
+}
+
+func (h *Handler) getAppSessionFromAccessPoint(ctx context.Context, sessionID string) (types.WebSession, error) {
+	ws, err := h.c.AccessPoint.GetAppSession(ctx, types.GetAppSessionRequest{
+		SessionID: sessionID,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	// Do an extra check in case expired app session is still cached.
+	if ws.Expiry().Before(h.c.Clock.Now()) {
+		h.logger.DebugContext(ctx, "Session expired")
 		return nil, trace.AccessDenied("invalid session")
 	}
 	return ws, nil
@@ -405,9 +416,7 @@ func (h *Handler) getAppSessionFromCert(r *http.Request) (types.WebSession, erro
 	// Check that the session exists in the backend cache. This allows the user
 	// to logout and invalidate their application session immediately. This
 	// lookup should also be fast because it's in the local cache.
-	ws, err := h.c.AccessPoint.GetAppSession(r.Context(), types.GetAppSessionRequest{
-		SessionID: identity.RouteToApp.SessionID,
-	})
+	ws, err := h.getAppSessionFromAccessPoint(r.Context(), identity.RouteToApp.SessionID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -449,9 +458,7 @@ func (h *Handler) getAppSessionFromCookie(r *http.Request) (types.WebSession, er
 	// Check that the session exists in the backend cache. This allows the user
 	// to logout and invalidate their application session immediately. This
 	// lookup should also be fast because it's in the local cache.
-	ws, err := h.c.AccessPoint.GetAppSession(r.Context(), types.GetAppSessionRequest{
-		SessionID: sessionID,
-	})
+	ws, err := h.getAppSessionFromAccessPoint(r.Context(), sessionID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

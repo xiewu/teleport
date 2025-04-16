@@ -35,6 +35,7 @@ import (
 	"github.com/gravitational/teleport/api/client/databaseobject"
 	"github.com/gravitational/teleport/api/client/dynamicwindows"
 	"github.com/gravitational/teleport/api/client/externalauditstorage"
+	"github.com/gravitational/teleport/api/client/gitserver"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/client/secreport"
 	"github.com/gravitational/teleport/api/client/usertask"
@@ -43,21 +44,26 @@ import (
 	clusterconfigpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/clusterconfig/v1"
 	dbobjectimportrulev1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/dbobjectimportrule/v1"
 	devicepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/devicetrust/v1"
+	identitycenterv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/identitycenter/v1"
 	integrationv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/integration/v1"
 	loginrulepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/loginrule/v1"
 	machineidv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
 	notificationsv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/notifications/v1"
 	pluginspb "github.com/gravitational/teleport/api/gen/proto/go/teleport/plugins/v1"
+	provisioningv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/provisioning/v1"
 	resourceusagepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/resourceusage/v1"
 	samlidppb "github.com/gravitational/teleport/api/gen/proto/go/teleport/samlidp/v1"
+	stableunixusersv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/stableunixusers/v1"
 	trustpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/trust/v1"
 	userspb "github.com/gravitational/teleport/api/gen/proto/go/teleport/users/v1"
 	"github.com/gravitational/teleport/api/gen/proto/go/teleport/vnet/v1"
+	workloadidentityv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/workloadidentity/v1"
 	userpreferencesv1 "github.com/gravitational/teleport/api/gen/proto/go/userpreferences/v1"
 	"github.com/gravitational/teleport/api/mfa"
 	"github.com/gravitational/teleport/api/types"
 	apievents "github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/api/utils/keys"
+	"github.com/gravitational/teleport/api/utils/keys/hardwarekey"
 	accessgraphv1 "github.com/gravitational/teleport/gen/proto/go/accessgraph/v1alpha"
 	wantypes "github.com/gravitational/teleport/lib/auth/webauthntypes"
 	"github.com/gravitational/teleport/lib/defaults"
@@ -822,6 +828,26 @@ func (c *Client) ListNotificationStatesForAllUsers(ctx context.Context, pageSize
 	return nil, "", trace.NotImplemented(notImplementedMessage)
 }
 
+// CreateUniqueNotificationIdentifier not implemented: can only be called locally.
+func (c *Client) CreateUniqueNotificationIdentifier(ctx context.Context, prefix string, identifier string) (*notificationsv1.UniqueNotificationIdentifier, error) {
+	return nil, trace.NotImplemented(notImplementedMessage)
+}
+
+// GetUniqueNotificationIdentifier not implemented: can only be called locally.
+func (c *Client) GetUniqueNotificationIdentifier(ctx context.Context, prefix string, identifier string) (*notificationsv1.UniqueNotificationIdentifier, error) {
+	return nil, trace.NotImplemented(notImplementedMessage)
+}
+
+// DeleteUniqueNotificationIdentifier not implemented: can only be called locally.
+func (c *Client) DeleteUniqueNotificationIdentifier(ctx context.Context, prefix string, identifier string) error {
+	return trace.NotImplemented(notImplementedMessage)
+}
+
+// ListUniqueNotificationIdentifiersForPrefix not implemented: can only be called locally.
+func (c *Client) ListUniqueNotificationIdentifiersForPrefix(ctx context.Context, prefix string, pageSize int, startKey string) ([]*notificationsv1.UniqueNotificationIdentifier, string, error) {
+	return nil, "", trace.NotImplemented(notImplementedMessage)
+}
+
 // GetAccessGraphSettings gets the access graph settings from the backend.
 func (c *Client) GetAccessGraphSettings(context.Context) (*clusterconfigpb.AccessGraphSettings, error) {
 	return nil, trace.NotImplemented(notImplementedMessage)
@@ -1046,8 +1072,12 @@ type IdentityService interface {
 	UpsertSAMLConnector(ctx context.Context, connector types.SAMLConnector) (types.SAMLConnector, error)
 	// GetSAMLConnector returns SAML connector information by id
 	GetSAMLConnector(ctx context.Context, id string, withSecrets bool) (types.SAMLConnector, error)
+	// GetSAMLConnectorWithValidationOptions returns SAML connector information
+	GetSAMLConnectorWithValidationOptions(ctx context.Context, id string, withSecrets bool, opts ...types.SAMLConnectorValidationOption) (types.SAMLConnector, error)
 	// GetSAMLConnectors gets valid SAML connectors list
 	GetSAMLConnectors(ctx context.Context, withSecrets bool) ([]types.SAMLConnector, error)
+	// GetSAMLConnectorsWithValidationOptions gets valid SAML connectors list
+	GetSAMLConnectorsWithValidationOptions(ctx context.Context, withSecrets bool, opts ...types.SAMLConnectorValidationOption) ([]types.SAMLConnector, error)
 	// DeleteSAMLConnector deletes SAML connector by ID
 	DeleteSAMLConnector(ctx context.Context, connectorID string) error
 	// CreateSAMLAuthRequest creates SAML AuthnRequest
@@ -1401,7 +1431,7 @@ func UserPublicKeys(pubIn, sshPubIn, tlsPubIn []byte) (sshPubOut, tlsPubOut []by
 // sshAttIn and tlsAttIn will be returned.
 // [sshAttIn] and [tlsAttIn] should be the SSH and TLS attestation statements
 // set by any post-17.0.0 client.
-func UserAttestationStatements(attIn, sshAttIn, tlsAttIn *keys.AttestationStatement) (sshAttOut, tlsAttOut *keys.AttestationStatement) {
+func UserAttestationStatements(attIn, sshAttIn, tlsAttIn *hardwarekey.AttestationStatement) (sshAttOut, tlsAttOut *hardwarekey.AttestationStatement) {
 	if attIn == nil {
 		return sshAttIn, tlsAttIn
 	}
@@ -1444,14 +1474,14 @@ type AuthenticateSSHRequest struct {
 	// AttestationStatement is an attestation statement associated with the given public key.
 	//
 	// Deprecated: prefer SSHAttestationStatement and/or TLSAttestationStatement.
-	AttestationStatement *keys.AttestationStatement `json:"attestation_statement,omitempty"`
+	AttestationStatement *hardwarekey.AttestationStatement `json:"attestation_statement,omitempty"`
 
 	// SSHAttestationStatement is an attestation statement associated with the
 	// given SSH public key.
-	SSHAttestationStatement *keys.AttestationStatement `json:"ssh_attestation_statement,omitempty"`
+	SSHAttestationStatement *hardwarekey.AttestationStatement `json:"ssh_attestation_statement,omitempty"`
 	// TLSAttestationStatement is an attestation statement associated with the
 	// given TLS public key.
-	TLSAttestationStatement *keys.AttestationStatement `json:"tls_attestation_statement,omitempty"`
+	TLSAttestationStatement *hardwarekey.AttestationStatement `json:"tls_attestation_statement,omitempty"`
 }
 
 // CheckAndSetDefaults checks and sets default certificate values
@@ -1535,36 +1565,6 @@ func AuthoritiesToTrustedCerts(authorities []types.CertAuthority) []TrustedCerts
 	return out
 }
 
-// KubeCSR is a kubernetes CSR request
-type KubeCSR struct {
-	// Username of user's certificate
-	Username string `json:"username"`
-	// ClusterName is a name of the target cluster to generate certificate for
-	ClusterName string `json:"cluster_name"`
-	// CSR is a kubernetes CSR
-	CSR []byte `json:"csr"`
-}
-
-// CheckAndSetDefaults checks and sets defaults
-func (a *KubeCSR) CheckAndSetDefaults() error {
-	if len(a.CSR) == 0 {
-		return trace.BadParameter("missing parameter 'csr'")
-	}
-	return nil
-}
-
-// KubeCSRResponse is a response to kubernetes CSR request
-type KubeCSRResponse struct {
-	// Cert is a signed certificate PEM block
-	Cert []byte `json:"cert"`
-	// CertAuthorities is a list of PEM block with trusted cert authorities
-	CertAuthorities [][]byte `json:"cert_authorities"`
-	// TargetAddr is an optional target address
-	// of the kubernetes API server that can be set
-	// in the kubeconfig
-	TargetAddr string `json:"target_addr"`
-}
-
 // ClientI is a client to Auth service
 type ClientI interface {
 	IdentityService
@@ -1596,6 +1596,7 @@ type ClientI interface {
 	services.KubeWaitingContainer
 	services.Notifications
 	services.VnetConfigGetter
+	services.HealthCheckConfig
 	types.Events
 
 	types.WebSessionsGetter
@@ -1665,10 +1666,6 @@ type ClientI interface {
 	// short-lived certificates as a result
 	AuthenticateSSHUser(ctx context.Context, req AuthenticateSSHRequest) (*SSHLoginResponse, error)
 
-	// ProcessKubeCSR processes CSR request against Kubernetes CA, returns
-	// signed certificate if successful.
-	ProcessKubeCSR(req KubeCSR) (*KubeCSRResponse, error)
-
 	// Ping gets basic info about the auth server.
 	Ping(ctx context.Context) (proto.PingResponse, error)
 
@@ -1699,6 +1696,9 @@ type ClientI interface {
 
 	// GenerateAWSOIDCToken generates a token to be used to execute an AWS OIDC Integration action.
 	GenerateAWSOIDCToken(ctx context.Context, integration string) (string, error)
+
+	// GenerateAzureOIDCToken generates a token to be used to execute an Azure OIDC Integration action.
+	GenerateAzureOIDCToken(ctx context.Context, integration string) (string, error)
 
 	// ResetAuthPreference resets cluster auth preference to defaults.
 	ResetAuthPreference(ctx context.Context) error
@@ -1824,6 +1824,12 @@ type ClientI interface {
 	// (as per the default gRPC behavior).
 	WorkloadIdentityServiceClient() machineidv1pb.WorkloadIdentityServiceClient
 
+	// WorkloadIdentityIssuanceClient returns a workload identity issuance service client.
+	// Clients connecting to  older Teleport versions, still get a client
+	// when calling this method, but all RPCs will return "not implemented" errors
+	// (as per the default gRPC behavior).
+	WorkloadIdentityIssuanceClient() workloadidentityv1pb.WorkloadIdentityIssuanceServiceClient
+
 	// NotificationServiceClient returns a notification service client.
 	// Clients connecting to  older Teleport versions, still get a client
 	// when calling this method, but all RPCs will return "not implemented" errors
@@ -1845,6 +1851,9 @@ type ClientI interface {
 	// Clients connecting to older Teleport versions still get a client when calling this method, but all RPCs
 	// will return "not implemented" errors (as per the default gRPC behavior).
 	StaticHostUserClient() services.StaticHostUser
+
+	// StableUNIXUsersClient returns a client for the stable UNIX users API.
+	StableUNIXUsersClient() stableunixusersv1.StableUNIXUsersServiceClient
 
 	// CloneHTTPClient creates a new HTTP client with the same configuration.
 	CloneHTTPClient(params ...roundtrip.ClientParam) (*HTTPClient, error)
@@ -1872,6 +1881,9 @@ type ClientI interface {
 	// but may result in confusing behavior if it is used outside of those contexts.
 	GetSSHTargets(ctx context.Context, req *proto.GetSSHTargetsRequest) (*proto.GetSSHTargetsResponse, error)
 
+	// ResolveSSHTarget returns the server that would be resolved in an equivalent ssh dial request.
+	ResolveSSHTarget(ctx context.Context, req *proto.ResolveSSHTargetRequest) (*proto.ResolveSSHTargetResponse, error)
+
 	// PerformMFACeremony retrieves an MFA challenge from the server with the given challenge extensions
 	// and prompts the user to answer the challenge with the given promptOpts, and ultimately returning
 	// an MFA challenge response for the user.
@@ -1882,4 +1894,19 @@ type ClientI interface {
 
 	// GenerateAppToken creates a JWT token with application access.
 	GenerateAppToken(ctx context.Context, req types.GenerateAppTokenRequest) (string, error)
+
+	// IdentityCenterClient returns Identity Center service client.
+	IdentityCenterClient() identitycenterv1.IdentityCenterServiceClient
+
+	// ProvisioningServiceClient returns provisioning service client.
+	ProvisioningServiceClient() provisioningv1.ProvisioningServiceClient
+
+	// IntegrationsClient returns integrations client.
+	IntegrationsClient() integrationv1.IntegrationServiceClient
+
+	// GitServerClient returns git server client.
+	GitServerClient() *gitserver.Client
+
+	// GitServerReadOnlyClient returns the read-only client for Git servers.
+	GitServerReadOnlyClient() gitserver.ReadOnlyClient
 }

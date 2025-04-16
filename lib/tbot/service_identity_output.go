@@ -19,6 +19,7 @@
 package tbot
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -28,7 +29,6 @@ import (
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/api/client/proto"
-	"github.com/gravitational/teleport/api/client/webclient"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/config/openssh"
@@ -73,9 +73,10 @@ func (s *IdentityOutputService) Run(ctx context.Context) error {
 	defer unsubscribe()
 
 	err := runOnInterval(ctx, runOnIntervalConfig{
+		service:    s.String(),
 		name:       "output-renewal",
 		f:          s.generate,
-		interval:   s.botCfg.RenewalInterval,
+		interval:   cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
 		retryLimit: renewalRetryLimit,
 		log:        s.log,
 		reloadCh:   reloadCh,
@@ -112,13 +113,16 @@ func (s *IdentityOutputService) generate(ctx context.Context) error {
 		}
 	}
 
+	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
 	id, err := generateIdentity(
 		ctx,
 		s.botAuthClient,
 		s.getBotIdentity(),
 		roles,
-		s.botCfg.CertificateTTL,
-		nil,
+		effectiveLifetime.TTL,
+		func(req *proto.UserCertsRequest) {
+			req.ReissuableRoleImpersonation = s.cfg.AllowReissue
+		},
 	)
 	if err != nil {
 		return trace.Wrap(err, "generating identity")
@@ -138,15 +142,18 @@ func (s *IdentityOutputService) generate(ctx context.Context) error {
 			s.botAuthClient,
 			id,
 			roles,
-			s.botCfg.CertificateTTL,
+			cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
 			func(req *proto.UserCertsRequest) {
 				req.RouteToCluster = s.cfg.Cluster
+				req.ReissuableRoleImpersonation = s.cfg.AllowReissue
 			},
 		)
 		if err != nil {
 			return trace.Wrap(err)
 		}
 	}
+
+	warnOnEarlyExpiration(ctx, s.log.With("output", s), id, effectiveLifetime)
 
 	hostCAs, err := s.botAuthClient.GetCertAuthorities(ctx, types.HostCA, false)
 	if err != nil {
@@ -239,7 +246,7 @@ type alpnTester interface {
 func renderSSHConfig(
 	ctx context.Context,
 	log *slog.Logger,
-	proxyPing *webclient.PingResponse,
+	proxyPing *proxyPingResponse,
 	clusterNames []string,
 	dest bot.Destination,
 	certAuthGetter certAuthGetter,
@@ -253,11 +260,15 @@ func renderSSHConfig(
 	)
 	defer span.End()
 
-	proxyHost, proxyPort, err := utils.SplitHostPort(proxyPing.Proxy.SSH.PublicAddr)
+	proxyAddr, err := proxyPing.proxySSHAddr()
+	if err != nil {
+		return trace.Wrap(err, "determining proxy ssh addr")
+	}
+	proxyHost, proxyPort, err := utils.SplitHostPort(proxyAddr)
 	if err != nil {
 		return trace.BadParameter(
 			"proxy %+v has no usable public address: %v",
-			proxyPing.Proxy.SSH.PublicAddr, err,
+			proxyAddr, err,
 		)
 	}
 
@@ -310,7 +321,7 @@ func renderSSHConfig(
 	connUpgradeRequired := false
 	if proxyPing.Proxy.TLSRoutingEnabled {
 		connUpgradeRequired, err = alpnTester.isUpgradeRequired(
-			ctx, proxyPing.Proxy.SSH.PublicAddr, botCfg.Insecure,
+			ctx, proxyAddr, botCfg.Insecure,
 		)
 		if err != nil {
 			return trace.Wrap(err, "determining if ALPN upgrade is required")

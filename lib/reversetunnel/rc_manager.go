@@ -20,12 +20,12 @@ package reversetunnel
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/gravitational/teleport"
@@ -81,8 +81,8 @@ type RemoteClusterTunnelManagerConfig struct {
 	KubeDialAddr utils.NetAddr
 	// FIPS indicates if Teleport was started in FIPS mode.
 	FIPS bool
-	// Log is the logger
-	Log logrus.FieldLogger
+	// Logger is the logger
+	Logger *slog.Logger
 	// LocalAuthAddresses is a list of auth servers to use when dialing back to
 	// the local cluster.
 	LocalAuthAddresses []string
@@ -109,8 +109,8 @@ func (c *RemoteClusterTunnelManagerConfig) CheckAndSetDefaults() error {
 	if c.Clock == nil {
 		c.Clock = clockwork.NewRealClock()
 	}
-	if c.Log == nil {
-		c.Log = logrus.New()
+	if c.Logger == nil {
+		c.Logger = slog.Default()
 	}
 
 	return nil
@@ -153,7 +153,7 @@ func (w *RemoteClusterTunnelManager) Run(ctx context.Context) {
 	w.mu.Unlock()
 
 	if err := w.Sync(ctx); err != nil {
-		w.cfg.Log.Warningf("Failed to sync reverse tunnels: %v.", err)
+		w.cfg.Logger.WarnContext(ctx, "Failed to sync reverse tunnels", "error", err)
 	}
 
 	ticker := time.NewTicker(defaults.ResyncInterval)
@@ -162,15 +162,35 @@ func (w *RemoteClusterTunnelManager) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			w.cfg.Log.Debugf("Closing.")
+			w.cfg.Logger.DebugContext(ctx, "Closing")
 			return
 		case <-ticker.C:
 			if err := w.Sync(ctx); err != nil {
-				w.cfg.Log.Warningf("Failed to sync reverse tunnels: %v.", err)
+				w.cfg.Logger.WarnContext(ctx, "Failed to sync reverse tunnels", "error", err)
 				continue
 			}
 		}
 	}
+}
+
+func (w *RemoteClusterTunnelManager) listAllReverseTunnels(ctx context.Context) ([]apitypes.ReverseTunnel, error) {
+	var out []apitypes.ReverseTunnel
+	var nextToken string
+	for {
+		var page []apitypes.ReverseTunnel
+		var err error
+
+		const defaultPageSize = 0
+		page, nextToken, err = w.cfg.AccessPoint.ListReverseTunnels(ctx, defaultPageSize, nextToken)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		out = append(out, page...)
+		if nextToken == "" {
+			break
+		}
+	}
+	return out, nil
 }
 
 // Sync does a one-time sync of trusted clusters with running agent pools.
@@ -178,7 +198,7 @@ func (w *RemoteClusterTunnelManager) Run(ctx context.Context) {
 func (w *RemoteClusterTunnelManager) Sync(ctx context.Context) error {
 	// Fetch desired reverse tunnels and convert them to a set of
 	// remoteClusterKeys.
-	wantTunnels, err := w.cfg.AccessPoint.GetReverseTunnels(ctx)
+	wantTunnels, err := w.listAllReverseTunnels(ctx)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -247,7 +267,7 @@ func realNewAgentPool(ctx context.Context, cfg RemoteClusterTunnelManagerConfig,
 	}
 
 	if err := pool.Start(); err != nil {
-		cfg.Log.WithError(err).Error("Failed to start agent pool")
+		cfg.Logger.ErrorContext(ctx, "Failed to start agent pool", "error", err)
 	}
 
 	return pool, nil

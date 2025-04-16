@@ -16,7 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { IAM_ROLE_NAME_REGEX } from 'teleport/services/integrations/aws';
+/**
+ * ROLE_ARN_REGEX uses the same regex matcher used in the backend:
+ * https://github.com/gravitational/teleport/blob/2cba82cb332e769ebc8a658d32ff24ddda79daff/api/utils/aws/identifiers.go#L43
+ *
+ * The regex checks for alphanumerics and select few characters.
+ */
+const IAM_ROLE_NAME_REGEX = /^[\w+=,.@-]+$/;
 
 /**
  * The result of validating a field.
@@ -30,6 +36,8 @@ export interface ValidationResult {
  * A function to validate a field value.
  */
 export type Rule<T = string, R = ValidationResult> = (value: T) => () => R;
+
+type RuleResult<R extends Rule> = ReturnType<ReturnType<R>>;
 
 /**
  * requiredField checks for empty strings and arrays.
@@ -260,7 +268,7 @@ const requiredPort: Rule = port => () => {
  * @returns a rule function that ANDs all input rules
  */
 const requiredAll =
-  <T>(...rules: Rule<T | string | string[], ValidationResult>[]): Rule<T> =>
+  <T>(...rules: Rule<T, ValidationResult>[]): Rule<T> =>
   (value: T) =>
   () => {
     let messages = [];
@@ -280,6 +288,83 @@ const requiredAll =
     return { valid: true };
   };
 
+/** A result of the {@link arrayOf} validation rule. */
+export type ArrayValidationResult<R = ValidationResult> = ValidationResult & {
+  /** Results of validating each separate item. */
+  results: R[];
+};
+
+/** Validates an array by executing given rule on each of its elements. */
+const arrayOf =
+  <T, R extends ValidationResult>(
+    elementRule: Rule<T, R>
+  ): Rule<T[], ArrayValidationResult<R>> =>
+  (values: T[]) =>
+  () => {
+    const results = values.map(v => elementRule(v)());
+    return { results: results, valid: results.every(r => r.valid) };
+  };
+
+/**
+ * Passes a precomputed validation result instead of computing it inside the
+ * rule.
+ *
+ * This rule is a hacky way to allow the validation engine to operate with
+ * validation results computed outside of the validator's validation cycle. See
+ * the `Validation` component's documentation for more information about where
+ * this is useful and a detailed usage example.
+ */
+const precomputed =
+  <T>(res: ValidationResult): Rule<T> =>
+  () =>
+  () =>
+    res;
+
+/**
+ * A set of rules to be executed using `runRules` on a model object. The rule
+ * set contains a subset of keys of the object.
+ */
+export type RuleSet<K extends string | number | symbol> = Record<
+  K,
+  Rule<any, any>
+>;
+
+/** A result of executing a set of rules on a model object. */
+export type RuleSetValidationResult<R extends RuleSet<any>> = {
+  valid: boolean;
+  /**
+   * Each member of the `fields` object corresponds to a rule from within the
+   * rule set and contains the result of validating a model field of the same
+   * name.
+   */
+  fields: { [k in keyof R]: RuleResult<R[k]> }; // Record<keyof R, ValidationResult>;
+};
+
+/**
+ * Executes a set of rules on a model object, producing a precomputed
+ * validation result that can be used with `precomputed` rule to inject to
+ * field components, but also allows for consuming the validation data outside
+ * these fields.
+ *
+ * `K` is the subset of model field names.
+ * `M` is the validated model.
+ */
+export const runRules = <K extends string, M extends Record<K, any>>(
+  model: M,
+  rules: RuleSet<K>
+): RuleSetValidationResult<RuleSet<K>> => {
+  const fields = {} as {
+    [k in keyof RuleSet<K>]: RuleResult<RuleSet<K>[k]>;
+  };
+  let valid = true;
+  for (const key in rules) {
+    const modelValue = model[key];
+    fields[key] = rules[key](modelValue)();
+    valid &&= fields[key].valid;
+  }
+  return { fields, valid };
+};
+
 export {
   requiredToken,
   requiredPassword,
@@ -292,4 +377,6 @@ export {
   requiredMatchingRoleNameAndRoleArn,
   validAwsIAMRoleName,
   requiredPort,
+  arrayOf,
+  precomputed,
 };

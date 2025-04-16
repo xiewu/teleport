@@ -45,7 +45,7 @@ func (s *DatabaseObjectService) UpsertDatabaseObject(ctx context.Context, object
 }
 
 func (s *DatabaseObjectService) UpdateDatabaseObject(ctx context.Context, object *dbobjectv1.DatabaseObject) (*dbobjectv1.DatabaseObject, error) {
-	out, err := s.service.UpdateResource(ctx, object)
+	out, err := s.service.UnconditionalUpdateResource(ctx, object)
 	return out, trace.Wrap(err)
 }
 
@@ -74,7 +74,7 @@ const (
 
 func NewDatabaseObjectService(b backend.Backend) (*DatabaseObjectService, error) {
 	service, err := generic.NewServiceWrapper(
-		generic.ServiceWrapperConfig[*dbobjectv1.DatabaseObject]{
+		generic.ServiceConfig[*dbobjectv1.DatabaseObject]{
 			Backend:       b,
 			ResourceKind:  types.KindDatabaseObject,
 			BackendPrefix: backend.NewKey(databaseObjectPrefix),

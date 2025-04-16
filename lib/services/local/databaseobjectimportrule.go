@@ -43,7 +43,7 @@ func (s *databaseObjectImportRuleService) UpsertDatabaseObjectImportRule(ctx con
 }
 
 func (s *databaseObjectImportRuleService) UpdateDatabaseObjectImportRule(ctx context.Context, rule *databaseobjectimportrulev1.DatabaseObjectImportRule) (*databaseobjectimportrulev1.DatabaseObjectImportRule, error) {
-	out, err := s.service.UpdateResource(ctx, rule)
+	out, err := s.service.UnconditionalUpdateResource(ctx, rule)
 	return out, trace.Wrap(err)
 }
 
@@ -72,7 +72,7 @@ const (
 
 func NewDatabaseObjectImportRuleService(b backend.Backend) (services.DatabaseObjectImportRules, error) {
 	service, err := generic.NewServiceWrapper(
-		generic.ServiceWrapperConfig[*databaseobjectimportrulev1.DatabaseObjectImportRule]{
+		generic.ServiceConfig[*databaseobjectimportrulev1.DatabaseObjectImportRule]{
 			Backend:       b,
 			ResourceKind:  types.KindDatabaseObjectImportRule,
 			BackendPrefix: backend.NewKey(databaseObjectImportRulePrefix),

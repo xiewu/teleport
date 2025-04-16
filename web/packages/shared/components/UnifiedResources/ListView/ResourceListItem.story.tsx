@@ -16,30 +16,25 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
 import { Meta, StoryObj } from '@storybook/react';
 
 import { ButtonBorder, Flex } from 'design';
 
 import { apps } from 'teleport/Apps/fixtures';
 import { databases } from 'teleport/Databases/fixtures';
-
-import { kubes } from 'teleport/Kubes/fixtures';
 import { desktops } from 'teleport/Desktops/fixtures';
+import { kubes } from 'teleport/Kubes/fixtures';
 import { nodes } from 'teleport/Nodes/fixtures';
-
 import makeApp from 'teleport/services/apps/makeApps';
 
 import {
   makeUnifiedResourceViewItemApp,
   makeUnifiedResourceViewItemDatabase,
+  makeUnifiedResourceViewItemDesktop,
   makeUnifiedResourceViewItemKube,
   makeUnifiedResourceViewItemNode,
-  makeUnifiedResourceViewItemDesktop,
 } from '../shared/viewItemsFactory';
-
 import { PinningSupport } from '../types';
-
 import { ResourceListItem } from './ResourceListItem';
 
 const additionalResources = [
@@ -122,13 +117,10 @@ export const ListItems: Story = {
             selectResource={() => {}}
             selected={false}
             pinningSupport={PinningSupport.Supported}
-            name={res.name}
-            primaryIconName={res.primaryIconName}
-            SecondaryIcon={res.SecondaryIcon}
-            listViewProps={res.listViewProps}
-            labels={res.labels}
-            ActionButton={res.ActionButton}
             expandAllLabels={false}
+            onShowStatusInfo={() => null}
+            showingStatusInfo={false}
+            viewItem={res}
           />
         ))}
       </Flex>

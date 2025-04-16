@@ -23,6 +23,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -32,9 +33,9 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/gravitational/teleport/api/defaults"
-	"github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/api/utils/keypaths"
 	"github.com/gravitational/teleport/api/utils/keys"
+	"github.com/gravitational/teleport/api/utils/keys/hardwarekey"
 	"github.com/gravitational/teleport/api/utils/sshutils"
 )
 
@@ -107,7 +108,7 @@ type Profile struct {
 	PrivateKeyPolicy keys.PrivateKeyPolicy `yaml:"private_key_policy"`
 
 	// PIVSlot is a specific piv slot that Teleport clients should use for hardware key support.
-	PIVSlot keys.PIVSlot `yaml:"piv_slot"`
+	PIVSlot hardwarekey.PIVSlotKeyString `yaml:"piv_slot"`
 
 	// MissingClusterDetails means this profile was created with limited cluster details.
 	// Missing cluster details should be loaded into the profile by pinging the proxy.
@@ -119,6 +120,11 @@ type Profile struct {
 
 	// SSHDialTimeout is the timeout value that should be used for SSH connections.
 	SSHDialTimeout time.Duration `yaml:"ssh_dial_timeout,omitempty"`
+
+	// SSOHost is the host of the SSO provider used to log in. Clients can check this value, along
+	// with WebProxyAddr, to determine if a webpage is safe to open. Currently used by Teleport
+	// Connect in the proxy host allow list.
+	SSOHost string `yaml:"sso_host,omitempty"`
 }
 
 // Copy returns a shallow copy of p, or nil if p is nil.
@@ -276,16 +282,6 @@ func SetCurrentProfileName(dir string, name string) error {
 	return nil
 }
 
-// RemoveProfile removes cluster profile file
-func RemoveProfile(dir, name string) error {
-	profilePath := filepath.Join(dir, name+".yaml")
-	if err := os.Remove(profilePath); err != nil {
-		return trace.ConvertSystemError(err)
-	}
-
-	return nil
-}
-
 // GetCurrentProfileName attempts to load the current profile name.
 func GetCurrentProfileName(dir string) (name string, err error) {
 	if dir == "" {
@@ -304,33 +300,6 @@ func GetCurrentProfileName(dir string) (name string, err error) {
 		return "", trace.NotFound("current-profile is not set")
 	}
 	return name, nil
-}
-
-// ListProfileNames lists all available profiles.
-func ListProfileNames(dir string) ([]string, error) {
-	if dir == "" {
-		return nil, trace.BadParameter("cannot list profiles: missing dir")
-	}
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	var names []string
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-
-		if file.Type()&os.ModeSymlink != 0 {
-			continue
-		}
-		if !strings.HasSuffix(file.Name(), ".yaml") {
-			continue
-		}
-		names = append(names, strings.TrimSuffix(file.Name(), ".yaml"))
-	}
-	return names, nil
 }
 
 // FullProfilePath returns the full path to the user profile directory.
@@ -354,7 +323,7 @@ func defaultProfilePath() string {
 	}
 
 	home = os.TempDir()
-	if u, err := utils.CurrentUser(); err == nil && u.HomeDir != "" {
+	if u, err := user.Current(); err == nil && u.HomeDir != "" {
 		home = u.HomeDir
 	}
 	return filepath.Join(home, profileDir)

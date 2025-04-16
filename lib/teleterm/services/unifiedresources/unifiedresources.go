@@ -36,6 +36,7 @@ var supportedResourceKinds = []string{
 	types.KindKubernetesCluster,
 	types.KindApp,
 	types.KindSAMLIdPServiceProvider,
+	types.KindWindowsDesktop,
 }
 
 func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListUnifiedResourcesClient, req *proto.ListUnifiedResourcesRequest) (*ListResponse, error) {
@@ -51,6 +52,7 @@ func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListU
 	}
 
 	req.Kinds = kinds
+	req.IncludeLogins = true
 	enrichedResources, nextKey, err := apiclient.GetUnifiedResourcePage(ctx, client, req)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -92,29 +94,6 @@ func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListU
 				},
 				RequiresRequest: requiresRequest,
 			})
-		case types.AppServerOrSAMLIdPServiceProvider:
-			//nolint:staticcheck // SA1019. TODO(sshah) DELETE IN 17.0
-			if r.IsAppServer() {
-				app := r.GetAppServer().GetApp()
-				response.Resources = append(response.Resources, UnifiedResource{
-					App: &clusters.App{
-						URI:      cluster.URI.AppendApp(app.GetName()),
-						FQDN:     cluster.AssembleAppFQDN(app),
-						AWSRoles: cluster.GetAWSRoles(app),
-						App:      app,
-					},
-					RequiresRequest: requiresRequest,
-				})
-			} else {
-				provider := r.GetSAMLIdPServiceProvider()
-				response.Resources = append(response.Resources, UnifiedResource{
-					SAMLIdPServiceProvider: &clusters.SAMLIdPServiceProvider{
-						URI:      cluster.URI.AppendApp(provider.GetName()),
-						Provider: provider,
-					},
-					RequiresRequest: requiresRequest,
-				})
-			}
 		case types.SAMLIdPServiceProvider:
 			response.Resources = append(response.Resources, UnifiedResource{
 				SAMLIdPServiceProvider: &clusters.SAMLIdPServiceProvider{
@@ -141,6 +120,15 @@ func List(ctx context.Context, cluster *clusters.Cluster, client apiclient.ListU
 				},
 				RequiresRequest: requiresRequest,
 			})
+		case types.WindowsDesktop:
+			response.Resources = append(response.Resources, UnifiedResource{
+				WindowsDesktop: &clusters.WindowsDesktop{
+					URI:            cluster.URI.AppendWindowsDesktop(r.GetName()),
+					WindowsDesktop: r,
+					Logins:         enrichedResource.Logins,
+				},
+				RequiresRequest: requiresRequest,
+			})
 		}
 	}
 
@@ -160,5 +148,6 @@ type UnifiedResource struct {
 	Kube                   *clusters.Kube
 	App                    *clusters.App
 	SAMLIdPServiceProvider *clusters.SAMLIdPServiceProvider
+	WindowsDesktop         *clusters.WindowsDesktop
 	RequiresRequest        bool
 }

@@ -166,10 +166,14 @@ const (
 
 	// MaxRenewableCertTTL is the maximum TTL that a certificate renewal bot
 	// can request for a renewable user certificate.
-	MaxRenewableCertTTL = 24 * time.Hour
+	MaxRenewableCertTTL = 7 * 24 * time.Hour
 
 	// DefaultBotJoinTTL is the default TTL for bot join tokens.
 	DefaultBotJoinTTL = 1 * time.Hour
+
+	// DefaultBotMaxSessionTTL is the default max_session_ttl on generated bot
+	// roles, unless overridden during bot creation.
+	DefaultBotMaxSessionTTL = 12 * time.Hour
 
 	// RecoveryStartTokenTTL is a default expiry time for a recovery start token.
 	RecoveryStartTokenTTL = 3 * time.Hour
@@ -707,8 +711,8 @@ const (
 	// made for an existing file transfer request
 	WebsocketFileTransferDecision = "t"
 
-	// WebsocketWebauthnChallenge is sending a webauthn challenge.
-	WebsocketWebauthnChallenge = "n"
+	// WebsocketMFAChallenge is sending an MFA challenge. Only supports WebAuthn and SSO MFA.
+	WebsocketMFAChallenge = "n"
 
 	// WebsocketSessionMetadata is sending the data for a ssh session.
 	WebsocketSessionMetadata = "s"
@@ -721,6 +725,10 @@ const (
 
 	// WebsocketKubeExec provides latency information for a session.
 	WebsocketKubeExec = "k"
+
+	// WebsocketDatabaseSessionRequest is received when a new database session
+	// is requested.
+	WebsocketDatabaseSessionRequest = "d"
 )
 
 // The following are cryptographic primitives Teleport does not support in

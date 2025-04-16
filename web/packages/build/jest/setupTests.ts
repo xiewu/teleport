@@ -18,13 +18,19 @@
 
 import 'whatwg-fetch';
 
-const crypt = require('crypto');
-const path = require('path');
+import crypto from 'node:crypto';
+import path from 'node:path';
 
-const failOnConsole = require('jest-fail-on-console');
+import failOnConsole from 'jest-fail-on-console';
+import { configMocks } from 'jsdom-testing-mocks';
+import { act } from 'react';
+
+configMocks({ act });
 
 let entFailOnConsoleIgnoreList = [];
 try {
+  // Cannot do `await import` yet here.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   entFailOnConsoleIgnoreList = require('../../../../e/web/testsWithIgnoredConsole');
 } catch (err) {
   // Ignore errors related to teleport.e not being present. This allows OSS users and OSS CI to run
@@ -36,15 +42,9 @@ try {
 
 Object.defineProperty(globalThis, 'crypto', {
   value: {
-    randomUUID: () => crypt.randomUUID(),
+    randomUUID: () => crypto.randomUUID(),
   },
 });
-
-global.ResizeObserver = jest.fn().mockImplementation(() => ({
-  observe: jest.fn(),
-  unobserve: jest.fn(),
-  disconnect: jest.fn(),
-}));
 
 const rootDir = path.join(__dirname, '..', '..', '..', '..');
 // Do not add new paths to this list, instead fix the underlying problem which causes console.error

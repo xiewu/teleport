@@ -24,12 +24,13 @@ import (
 	"sync"
 
 	"github.com/gravitational/trace"
-	"github.com/gravitational/trace/trail"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/gravitational/teleport/api/client/proto"
+	mfav1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/mfa/v1"
 	"github.com/gravitational/teleport/api/mfa"
+	"github.com/gravitational/teleport/api/trail"
 	api "github.com/gravitational/teleport/gen/proto/go/teleport/lib/teleterm/v1"
 	wancli "github.com/gravitational/teleport/lib/auth/webauthncli"
 	wantypes "github.com/gravitational/teleport/lib/auth/webauthntypes"
@@ -63,10 +64,8 @@ func (s *Service) NewMFAPrompt(resourceURI uri.ResourceURI, cfg *libmfa.PromptCo
 }
 
 func (s *Service) promptAppMFA(ctx context.Context, in *api.PromptMFARequest) (*api.PromptMFAResponse, error) {
-	if err := s.importantModalSemaphore.Acquire(ctx); err != nil {
-		return nil, trace.Wrap(err)
-	}
-	defer s.importantModalSemaphore.Release()
+	s.mfaMu.Lock()
+	defer s.mfaMu.Unlock()
 
 	return s.tshdEventsClient.PromptMFA(ctx, in)
 }
@@ -75,13 +74,23 @@ func (s *Service) promptAppMFA(ctx context.Context, in *api.PromptMFARequest) (*
 func (p *mfaPrompt) Run(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
 	promptOTP := chal.TOTP != nil
 	promptWebauthn := chal.WebauthnChallenge != nil && p.cfg.WebauthnSupported
-
+	promptSSO := chal.SSOChallenge != nil && p.cfg.SSOMFACeremony != nil
+	scope := p.cfg.Extensions.GetScope()
 	// No prompt to run, no-op.
-	if !promptOTP && !promptWebauthn {
+	if !(promptOTP || promptWebauthn || promptSSO) {
 		return &proto.MFAAuthenticateResponse{}, nil
 	}
 
-	// Depending on the run opts, we may spawn an TOTP goroutine, webauth goroutine, or both.
+	var ssoChallenge *api.SSOChallenge
+	if promptSSO {
+		ssoChallenge = &api.SSOChallenge{
+			ConnectorId:   chal.SSOChallenge.Device.ConnectorId,
+			ConnectorType: chal.SSOChallenge.Device.ConnectorType,
+			DisplayName:   chal.SSOChallenge.Device.DisplayName,
+			RedirectUrl:   chal.SSOChallenge.RedirectUrl,
+		}
+	}
+
 	spawnGoroutines := func(ctx context.Context, wg *sync.WaitGroup, respC chan<- libmfa.MFAGoroutineResponse) {
 		ctx, cancel := context.WithCancelCause(ctx)
 
@@ -90,7 +99,14 @@ func (p *mfaPrompt) Run(ctx context.Context, chal *proto.MFAAuthenticateChalleng
 		go func() {
 			defer wg.Done()
 
-			resp, err := p.promptMFA(ctx, promptOTP, promptWebauthn)
+			resp, err := p.promptMFA(ctx, &api.PromptMFARequest{
+				ClusterUri:    p.resourceURI.GetClusterURI().String(),
+				Reason:        p.cfg.PromptReason,
+				Totp:          promptOTP,
+				Webauthn:      promptWebauthn,
+				Sso:           ssoChallenge,
+				PerSessionMfa: scope == mfav1.ChallengeScope_CHALLENGE_SCOPE_USER_SESSION,
+			})
 			respC <- libmfa.MFAGoroutineResponse{Resp: resp, Err: err}
 
 			// If the user closes the modal in the Electron app, we need to be able to cancel the other
@@ -110,9 +126,32 @@ func (p *mfaPrompt) Run(ctx context.Context, chal *proto.MFAAuthenticateChalleng
 				respC <- libmfa.MFAGoroutineResponse{Resp: resp, Err: trace.Wrap(err, "Webauthn authentication failed")}
 			}()
 		}
+
+		// Fire SSO goroutine.
+		if promptSSO {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				resp, err := p.promptSSO(ctx, chal)
+				respC <- libmfa.MFAGoroutineResponse{Resp: resp, Err: trace.Wrap(err, "SSO authentication failed")}
+			}()
+		}
 	}
 
 	return libmfa.HandleMFAPromptGoroutines(ctx, spawnGoroutines)
+}
+
+func (p *mfaPrompt) promptMFA(ctx context.Context, req *api.PromptMFARequest) (*proto.MFAAuthenticateResponse, error) {
+	resp, err := p.promptAppMFA(ctx, req)
+	if err != nil {
+		return nil, trail.FromGRPC(err)
+	}
+	return &proto.MFAAuthenticateResponse{
+		Response: &proto.MFAAuthenticateResponse_TOTP{
+			TOTP: &proto.TOTPResponse{Code: resp.TotpCode},
+		},
+	}, nil
 }
 
 func (p *mfaPrompt) promptWebauthn(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
@@ -126,19 +165,7 @@ func (p *mfaPrompt) promptWebauthn(ctx context.Context, chal *proto.MFAAuthentic
 	return resp, nil
 }
 
-func (p *mfaPrompt) promptMFA(ctx context.Context, promptOTP, promptWebauthn bool) (*proto.MFAAuthenticateResponse, error) {
-	resp, err := p.promptAppMFA(ctx, &api.PromptMFARequest{
-		ClusterUri: p.resourceURI.GetClusterURI().String(),
-		Reason:     p.cfg.PromptReason,
-		Totp:       promptOTP,
-		Webauthn:   promptWebauthn,
-	})
-	if err != nil {
-		return nil, trail.FromGRPC(err)
-	}
-	return &proto.MFAAuthenticateResponse{
-		Response: &proto.MFAAuthenticateResponse_TOTP{
-			TOTP: &proto.TOTPResponse{Code: resp.TotpCode},
-		},
-	}, nil
+func (c *mfaPrompt) promptSSO(ctx context.Context, chal *proto.MFAAuthenticateChallenge) (*proto.MFAAuthenticateResponse, error) {
+	resp, err := c.cfg.SSOMFACeremony.Run(ctx, chal)
+	return resp, trace.Wrap(err)
 }
