@@ -808,6 +808,10 @@ func Run(ctx context.Context, args []string, opts ...CliOption) error {
 	app.HelpFlag.Short('h')
 	app.Flag("piv-slot", "Specify a PIV slot key to use for Hardware Key support instead of the default. Ex: \"9d\"").Envar("TELEPORT_PIV_SLOT").StringVar(&cf.PIVSlot)
 
+	eventLog := app.Command("event-log", "Controls event log")
+	installEventLogCmd := eventLog.Command("install", "Installs event log")
+	uninstallEventLogCmd := eventLog.Command("uninstall", "Uninstalls event log")
+
 	ver := app.Command("version", "Print the tsh client and Proxy server versions for the current context.")
 	ver.Flag("format", defaults.FormatFlagDescription(defaults.DefaultFormats...)).Short('f').Default(teleport.Text).EnumVar(&cf.Format, defaults.DefaultFormats...)
 	ver.Flag("client", "Show the client version only (no server required).").
@@ -1527,6 +1531,10 @@ func Run(ctx context.Context, args []string, opts ...CliOption) error {
 		err = onLogout(&cf)
 	case show.FullCommand():
 		err = onShow(&cf)
+	case installEventLogCmd.FullCommand():
+		err = installEventLog()
+	case uninstallEventLogCmd.FullCommand():
+		err = uninstallEventLog()
 	case status.FullCommand():
 		// onStatus can be invoked directly with `tsh status` but is also
 		// invoked from other commands. When invoked directly, we use a
@@ -5049,6 +5057,9 @@ func printLoginInformation(cf *CLIConf, profile *client.ProfileStatus, profiles 
 // onStatus command shows which proxy the user is logged into and metadata
 // about the certificate.
 func onStatus(cf *CLIConf) error {
+	if err := testEventLog(); err != nil {
+		return trace.Wrap(err)
+	}
 	// Get the status of the active profile as well as the status
 	// of any other proxies the user is logged into.
 	//
