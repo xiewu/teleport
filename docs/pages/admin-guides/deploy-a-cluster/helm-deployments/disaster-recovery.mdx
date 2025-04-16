@@ -139,17 +139,6 @@ Service grant the services permissions to access backends in the new region.
 Make sure that the trust policies associated with these roles grant access to
 principals in the new region.
 
-{/* TODO Kubernetes operator procedure Hugo: "The good thing is that the
-operator should not attempt to takeover Teleport resource created from the other
-cluster if no CR exist. So I think it's OK to deploy with the operator. They
-will need to re-create all the CRs in Kube, else they will have dangling
-Teleport resources."
-
-Note that the teleport-cluster chart includes the teleport-operator chart as a
-dependency, though only grants necessary permissions to the operator user if
-`operator.enabled` is true in the values.
-*/}
-
 1. Install the `teleport-cluster` Helm chart using the new values:
 
    ```code
@@ -167,6 +156,12 @@ dependency, though only grants necessary permissions to the operator user if
    teleport-cluster-auth-000000000-00000     1/1     Running   0          114s
    teleport-cluster-proxy-0000000000-00000   1/1     Running   0          114s
    ```
+
+1. Once the Teleport Auth Service is running on the new cluster, make sure that
+   you have applied Teleport dynamic resources against the new cluster so the
+   Teleport Kubernetes operator can manage them. You should manage your Teleport
+   resources as a set of Kubernetes manifests applied using a GitOps tool like
+   Flux CD so that, when you launch the new cluster, you can readily apply them.
 
 ## Guidance  
 
