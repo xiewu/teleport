@@ -185,8 +185,12 @@ disrupt the expected functioning of a Teleport cluster, some operations may
 continue successfully. After the outage has concluded, services that had
 remained functional, or that come back online, can also become disruptive.
 
-1. Stop any Teleport Auth Service and Proxy Service processes in your cluster.
-   {/*TODO: Add an example command*/}
+1. Stop any Teleport Auth Service and Proxy Service processes in your cluster:
+
+   ```code
+   $ kubectl -n teleport delete deployment/teleport-cluster-auth
+   $ kubectl -n teleport delete deployment/teleport-cluster-proxy
+   ```
    
    {/*TODO: "force-cutting already open network connections. Agents connections
    are sticky and they will happily stay connected to the broken cluster, even
