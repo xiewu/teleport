@@ -71,9 +71,9 @@ configuration found [here](https://goteleport.com/docs/admin-guides/deploy-a-clu
 
 // EncryptionKeyPair is a keypair used for encrypting and decrypting data.
 message EncryptionKeyPair {
-  // PublicKey is the SSH public key.
+  // PublicKey is the public encryption key.
   bytes PublicKey = 1 [(gogoproto.jsontag) = "public_key,omitempty"];
-  // PrivateKey is the SSH private key.
+  // PrivateKey is the private decryption key.
   bytes PrivateKey = 2 [(gogoproto.jsontag) = "private_key,omitempty"];
   // PrivateKeyType is the type of the PrivateKey.
   PrivateKeyType PrivateKeyType = 3 [(gogoproto.jsontag) = "private_key_type,omitempty"];
