@@ -131,7 +131,7 @@ func Run(args []string) int {
 	enableCmd.Flag("path", "Directory to link the active Teleport installation's binaries into.").
 		Hidden().StringVar(&ccfg.Path)
 	enableCmd.Flag("enable-selinux", "Install an SELinux module to constrain Teleport SSH.").
-		Envar(enableSELinuxEnvVar).IsSetByUser(&ccfg.SELinuxFlagSet).BoolVar(&ccfg.EnableSELinux)
+		Hidden().Envar(enableSELinuxEnvVar).IsSetByUser(&ccfg.SELinuxFlagSet).BoolVar(&ccfg.EnableSELinux)
 	// TODO(sclevine): add force-fips and force-enterprise as hidden flags
 
 	disableCmd := app.Command("disable", "Disable agent managed updates. Does not affect the active installation of Teleport.")
@@ -154,7 +154,7 @@ func Run(args []string) int {
 	pinCmd.Flag("path", "Directory to link the active Teleport installation's binaries into.").
 		Hidden().StringVar(&ccfg.Path)
 	pinCmd.Flag("enable-selinux", "Install an SELinux module to constrain Teleport SSH.").
-		Envar(enableSELinuxEnvVar).IsSetByUser(&ccfg.SELinuxFlagSet).BoolVar(&ccfg.EnableSELinux)
+		Hidden().Envar(enableSELinuxEnvVar).IsSetByUser(&ccfg.SELinuxFlagSet).BoolVar(&ccfg.EnableSELinux)
 
 	unpinCmd := app.Command("unpin", "Unpin the current version, allowing it to be updated.")
 
