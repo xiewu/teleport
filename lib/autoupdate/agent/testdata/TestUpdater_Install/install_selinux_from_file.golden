@@ -5,7 +5,7 @@ spec:
     path: /usr/local/bin
     enabled: false
     pinned: false
-    enable_selinux: true
+    selinux_ssh: true
 status:
     id_file: updater-id-file
     active:

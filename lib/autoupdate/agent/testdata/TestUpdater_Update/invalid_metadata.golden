@@ -5,7 +5,6 @@ spec:
     path: ""
     enabled: false
     pinned: false
-    enable_selinux: false
 status:
     active:
         version: ""

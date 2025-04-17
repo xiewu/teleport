@@ -1382,7 +1382,7 @@ func TestUpdater_Remove(t *testing.T) {
 					return tt.processActive, tt.isActiveErr
 				},
 			}
-			updater.TeardownNamespace = func(_ context.Context) error {
+			updater.TeardownNamespace = func(_ context.Context, _ bool) error {
 				teardownCalls++
 				return nil
 			}
@@ -1697,7 +1697,7 @@ func TestUpdater_Install(t *testing.T) {
 				Version: updateConfigVersion,
 				Kind:    updateConfigKind,
 				Spec: UpdateSpec{
-					EnableSELinux: true,
+					SELinuxSSH: true,
 				},
 				Status: UpdateStatus{
 					Active: NewRevision("old-version", 0),
@@ -1718,7 +1718,7 @@ func TestUpdater_Install(t *testing.T) {
 				Version: updateConfigVersion,
 				Kind:    updateConfigKind,
 				Spec: UpdateSpec{
-					EnableSELinux: false,
+					SELinuxSSH: false,
 				},
 				Status: UpdateStatus{
 					Active: NewRevision("old-version", 0),
@@ -1726,9 +1726,9 @@ func TestUpdater_Install(t *testing.T) {
 			},
 			userCfg: OverrideConfig{
 				UpdateSpec: UpdateSpec{
-					EnableSELinux: true,
+					SELinuxSSH: true,
 				},
-				SELinuxFlagSet: true,
+				SELinuxChanged: true,
 			},
 
 			installedRevision: NewRevision("16.3.0", 0),
@@ -2050,7 +2050,7 @@ func TestUpdater_Setup(t *testing.T) {
 				Version: updateConfigVersion,
 				Kind:    updateConfigKind,
 				Spec: UpdateSpec{
-					EnableSELinux: false,
+					SELinuxSSH: false,
 				},
 			},
 			installSELinux: true,
@@ -2063,7 +2063,7 @@ func TestUpdater_Setup(t *testing.T) {
 				Version: updateConfigVersion,
 				Kind:    updateConfigKind,
 				Spec: UpdateSpec{
-					EnableSELinux: true,
+					SELinuxSSH: true,
 				},
 			},
 			installSELinux: false,
@@ -2077,7 +2077,7 @@ func TestUpdater_Setup(t *testing.T) {
 				Version: updateConfigVersion,
 				Kind:    updateConfigKind,
 				Spec: UpdateSpec{
-					EnableSELinux: false,
+					SELinuxSSH: false,
 				},
 			},
 			installSELinux: false,

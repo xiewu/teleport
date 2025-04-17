@@ -174,9 +174,9 @@ func NewLocalUpdater(cfg LocalUpdaterConfig, ns *Namespace) (*Updater, error) {
 			}
 			args = append(args, "setup", "--path", pathDir)
 			if enableSELinux {
-				args = append(args, "--install-selinux")
+				args = append(args, "--selinux-ssh")
 			} else {
-				args = append(args, "--no-install-selinux")
+				args = append(args, "--no-selinux-ssh")
 			}
 			if reload {
 				args = append(args, "--reload")
@@ -252,7 +252,7 @@ type Updater struct {
 	// and configures an SELinux module.
 	SetupNamespace func(ctx context.Context, path string, installSELinux, removeSELinux bool) error
 	// TeardownNamespace removes all traces of the updater service in the current Namespace, including Teleport.
-	TeardownNamespace func(ctx context.Context) error
+	TeardownNamespace func(ctx context.Context, removeSELinux bool) error
 	// LogConfigWarnings logs warnings related to the configuration Namespace.
 	LogConfigWarnings func(ctx context.Context, pathDir string)
 }
@@ -357,8 +357,8 @@ type OverrideConfig struct {
 	AllowOverwrite bool
 	// AllowProxyConflict when proxies in teleport.yaml and update.yaml are mismatched.
 	AllowProxyConflict bool
-	// SELinuxFlagSet specifies whether the user explicitly toggled SELinux behavior.
-	SELinuxFlagSet bool
+	// SELinuxChanged specifies whether the user explicitly toggled SELinux behavior.
+	SELinuxChanged bool
 }
 
 func deref[T any](ptr *T) T {
@@ -483,7 +483,7 @@ func (u *Updater) Remove(ctx context.Context, force bool) error {
 	active := cfg.Status.Active
 	if active.Version == "" {
 		u.Log.InfoContext(ctx, "No installation of Teleport managed by the updater. Removing updater configuration.")
-		if err := u.TeardownNamespace(ctx); err != nil {
+		if err := u.TeardownNamespace(ctx, cfg.Spec.SELinuxSSH); err != nil {
 			return trace.Wrap(err)
 		}
 		u.Log.InfoContext(ctx, "Automatic update configuration for Teleport successfully uninstalled.")
@@ -579,7 +579,7 @@ func (u *Updater) Remove(ctx context.Context, force bool) error {
 		return trace.Wrap(err, "failed to start system package version of Teleport")
 	}
 	u.Log.InfoContext(ctx, "Auto-updating Teleport removed and replaced by Teleport package.", "version", active)
-	if err := u.TeardownNamespace(ctx); err != nil {
+	if err := u.TeardownNamespace(ctx, cfg.Spec.SELinuxSSH); err != nil {
 		return trace.Wrap(err)
 	}
 	u.Log.InfoContext(ctx, "Auto-update configuration for Teleport successfully uninstalled.")
@@ -600,7 +600,7 @@ func (u *Updater) removeWithoutSystem(ctx context.Context, cfg *UpdateConfig) er
 		return trace.Wrap(err)
 	}
 	u.Log.InfoContext(ctx, "Teleport uninstalled.", "version", cfg.Status.Active)
-	if err := u.TeardownNamespace(ctx); err != nil {
+	if err := u.TeardownNamespace(ctx, cfg.Spec.SELinuxSSH); err != nil {
 		return trace.Wrap(err)
 	}
 	u.Log.InfoContext(ctx, "Automatic update configuration for Teleport successfully uninstalled.")
@@ -1005,7 +1005,7 @@ func (u *Updater) update(ctx context.Context, cfg *UpdateConfig, target Revision
 			u.Log.ErrorContext(ctx, "Failed to revert Teleport symlinks. Installation likely broken.")
 			return false
 		}
-		if err := u.SetupNamespace(ctx, cfg.Spec.Path, cfg.Spec.EnableSELinux, false); err != nil {
+		if err := u.SetupNamespace(ctx, cfg.Spec.Path, cfg.Spec.SELinuxSSH, false); err != nil {
 			u.Log.ErrorContext(ctx, "Failed to revert configuration after failed restart.", errorKey, err)
 			return false
 		}
@@ -1013,7 +1013,7 @@ func (u *Updater) update(ctx context.Context, cfg *UpdateConfig, target Revision
 	}
 
 	if cfg.Status.Active != target {
-		err := u.ReexecSetup(ctx, cfg.Spec.Path, cfg.Spec.EnableSELinux, true)
+		err := u.ReexecSetup(ctx, cfg.Spec.Path, cfg.Spec.SELinuxSSH, true)
 		if errors.Is(err, context.Canceled) {
 			return trace.Errorf("check canceled")
 		}
@@ -1036,7 +1036,7 @@ func (u *Updater) update(ctx context.Context, cfg *UpdateConfig, target Revision
 		}
 		cfg.Status.Active = target
 	} else {
-		err := u.ReexecSetup(ctx, cfg.Spec.Path, cfg.Spec.EnableSELinux, false)
+		err := u.ReexecSetup(ctx, cfg.Spec.Path, cfg.Spec.SELinuxSSH, false)
 		if errors.Is(err, context.Canceled) {
 			return trace.Errorf("check canceled")
 		}
@@ -1074,7 +1074,7 @@ func (u *Updater) Setup(ctx context.Context, path string, installSELinux, restar
 		if err := validateConfigSpec(&cfg.Spec, OverrideConfig{}); err != nil {
 			return trace.Wrap(err)
 		}
-		removeSELinux = cfg.Spec.EnableSELinux
+		removeSELinux = cfg.Spec.SELinuxSSH
 	}
 
 	// Setup teleport-updater configuration and sync systemd.
