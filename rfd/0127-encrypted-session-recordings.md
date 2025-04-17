@@ -213,20 +213,16 @@ with an `age` encryption writer.
 
 In async modes the session recording data is written to intermediate `.part`
 files. These files are collected until they're ready for upload and are then
-combined into a single `.tar` file. In order to encrypt individual parts, we
-will build a special `io.Writer` that contains a single instance of the age
-encryptor that can proxy writes across multiple files. This will require
-maintaining a concurrency-safe mapping of in-progress uploads to encrypted
-writers which incurs a bit of added complexity. However it intentionally avoids
-any sort of intermediate key management which seems a worthwhile tradeoff.
-Because the data is already encrypted, exploding the final `.tar` file back
-into events to be uploaded to the auth service is not possible. Instead the
-auth service must accept a binary upload of the `.tar` file which it can
-then proxy to long term storage. This will be done using the
-`UploadEncryptedSessionRecording` streaming RPC. When using S3 compatible long
-term storage, the auth service will need to use the `PutObject` API rather than
-performing a multipart upload. This is to prevent any loss of parts that would
-make decryption impossible.
+combined into a single `.tar` file. In order to prevent all session recording
+data from being lost in the event of an agent crashing, each part will be
+encrypted individually much like the encrypted batches in `sync` modes. Because
+the data is already encrypted, exploding the final `.tar` file back into events
+to be uploaded to the auth service is not possible. Instead the auth service
+must accept a binary upload of the `.tar` file which it can then proxy to long
+term storage. This will be done using the `UploadEncryptedSessionRecording`
+streaming RPC. When using S3 compatible long term storage, the auth service
+will need to use the `PutObject` API rather than performing a multipart upload.
+This is to prevent any loss of parts that would make decryption impossible.
 
 ### Protocols
 
@@ -374,6 +370,15 @@ If a recording was encrypted with a rotated key, the auth server will also need
 to search the list of rotated keys to find and unwrap the correct key. Public
 keys are included with their rotated private keys in order to facilitate faster
 searching.
+
+It's important to note that encrypted sessions are a series of concatenated
+`age` output files, one for each batch of messages encrypted for a given
+session. Both `sync` and `async` modes try and avoid situations where an
+encrypted batch of messages would be split between parts of a multipart upload,
+but the auth service should also try and recover in situations where this might
+not be the case by splitting on `age` headers. If we mistakenly concatenate
+output that was not continuous or part of the same batch, decryption will fail
+and we would then be forced to return an error.
 
 ![decryption](assets/0127-decryption.png)
 
