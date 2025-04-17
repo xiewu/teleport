@@ -80,13 +80,11 @@ If the Teleport Auth Service in your cluster uses Amazon Key Management Service
 for certificate authority private keys, you must replicate your keys to the new
 AWS region before reinstalling the `teleport-cluster` Helm chart. See the [AWS
 documentation](https://docs.aws.amazon.com/kms/latest/developerguide/multi-region-keys-overview.html")
-for information about using KMS keys in multiple regions.
-
-{/* TODO: How would a user enable KMS in the teleport-cluster Helm chart? I
-don't see `ca_key_params` in the Auth Service values, which you need to enable
-KMS:
-https://goteleport.com/docs/admin-guides/deploy-a-cluster/aws-kms/#step-23-configure-your-auth-service-to-use-kms-keys
--*/}
+for information about using KMS keys in multiple regions. Note that KMS support
+is only possible in the `teleport-cluster` Helm chart using the
+`auth.teleportConfig` values field ([chart
+reference](../../../reference/helm-reference/teleport-cluster.mdx/#authteleportconfig),
+and is not recommended for most `teleport-cluster` users.
 
 ### Route 53: Updating DNS records to point to the new cluster.  
 
