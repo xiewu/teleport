@@ -24,6 +24,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -69,6 +70,9 @@ type UpdateSpec struct {
 	Enabled bool `yaml:"enabled"`
 	// Pinned controls whether the active_version is pinned.
 	Pinned bool `yaml:"pinned"`
+	// EnableSELinux controls whether an SELinux module will be installed to
+	// constrain Teleport SSH.
+	EnableSELinux bool `yaml:"enable_selinux"`
 }
 
 // UpdateStatus describes the status field in update.yaml.
@@ -233,6 +237,12 @@ func validateConfigSpec(spec *UpdateSpec, override OverrideConfig) error {
 	}
 	if override.Pinned {
 		spec.Pinned = true
+	}
+	if override.SELinuxFlagSet {
+		spec.EnableSELinux = override.EnableSELinux
+	}
+	if spec.EnableSELinux && runtime.GOOS != "linux" {
+		return trace.Errorf("SELinux is only supported on Linux")
 	}
 	return nil
 }

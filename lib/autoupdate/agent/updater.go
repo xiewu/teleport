@@ -159,7 +159,7 @@ func NewLocalUpdater(cfg LocalUpdaterConfig, ns *Namespace) (*Updater, error) {
 			Ready:       debugClient,
 			Log:         cfg.Log,
 		},
-		ReexecSetup: func(ctx context.Context, pathDir string, reload bool) error {
+		ReexecSetup: func(ctx context.Context, pathDir string, enableSELinux, reload bool) error {
 			name := filepath.Join(pathDir, BinaryName)
 			if cfg.SelfSetup && runtime.GOOS == constants.LinuxOS {
 				name = "/proc/self/exe"
@@ -173,6 +173,11 @@ func NewLocalUpdater(cfg LocalUpdaterConfig, ns *Namespace) (*Updater, error) {
 				args = append(args, "--debug")
 			}
 			args = append(args, "setup", "--path", pathDir)
+			if enableSELinux {
+				args = append(args, "--install-selinux")
+			} else {
+				args = append(args, "--no-install-selinux")
+			}
 			if reload {
 				args = append(args, "--reload")
 			}
@@ -240,10 +245,12 @@ type Updater struct {
 	// Process manages a running instance of Teleport.
 	Process Process
 	// ReexecSetup re-execs teleport-update with the setup command.
-	// This configures the updater service, verifies the installation, and optionally reloads Teleport.
-	ReexecSetup func(ctx context.Context, path string, reload bool) error
-	// SetupNamespace configures the Teleport updater service for the current Namespace.
-	SetupNamespace func(ctx context.Context, path string) error
+	// This configures an SELinux module, configures the updater service,
+	// verifies the installation, and optionally reloads Teleport.
+	ReexecSetup func(ctx context.Context, path string, installSELinux, reload bool) error
+	// SetupNamespace configures the Teleport updater service for the current Namespace
+	// and configures an SELinux module.
+	SetupNamespace func(ctx context.Context, path string, installSELinux, removeSELinux bool) error
 	// TeardownNamespace removes all traces of the updater service in the current Namespace, including Teleport.
 	TeardownNamespace func(ctx context.Context) error
 	// LogConfigWarnings logs warnings related to the configuration Namespace.
@@ -350,6 +357,8 @@ type OverrideConfig struct {
 	AllowOverwrite bool
 	// AllowProxyConflict when proxies in teleport.yaml and update.yaml are mismatched.
 	AllowProxyConflict bool
+	// SELinuxFlagSet specifies whether the user explicitly toggled SELinux behavior.
+	SELinuxFlagSet bool
 }
 
 func deref[T any](ptr *T) T {
@@ -996,7 +1005,7 @@ func (u *Updater) update(ctx context.Context, cfg *UpdateConfig, target Revision
 			u.Log.ErrorContext(ctx, "Failed to revert Teleport symlinks. Installation likely broken.")
 			return false
 		}
-		if err := u.SetupNamespace(ctx, cfg.Spec.Path); err != nil {
+		if err := u.SetupNamespace(ctx, cfg.Spec.Path, cfg.Spec.EnableSELinux, false); err != nil {
 			u.Log.ErrorContext(ctx, "Failed to revert configuration after failed restart.", errorKey, err)
 			return false
 		}
@@ -1004,7 +1013,7 @@ func (u *Updater) update(ctx context.Context, cfg *UpdateConfig, target Revision
 	}
 
 	if cfg.Status.Active != target {
-		err := u.ReexecSetup(ctx, cfg.Spec.Path, true)
+		err := u.ReexecSetup(ctx, cfg.Spec.Path, cfg.Spec.EnableSELinux, true)
 		if errors.Is(err, context.Canceled) {
 			return trace.Errorf("check canceled")
 		}
@@ -1027,7 +1036,7 @@ func (u *Updater) update(ctx context.Context, cfg *UpdateConfig, target Revision
 		}
 		cfg.Status.Active = target
 	} else {
-		err := u.ReexecSetup(ctx, cfg.Spec.Path, false)
+		err := u.ReexecSetup(ctx, cfg.Spec.Path, cfg.Spec.EnableSELinux, false)
 		if errors.Is(err, context.Canceled) {
 			return trace.Errorf("check canceled")
 		}
@@ -1053,10 +1062,23 @@ func (u *Updater) update(ctx context.Context, cfg *UpdateConfig, target Revision
 // Setup writes updater configuration and verifies the Teleport installation.
 // If restart is true, Setup also restarts Teleport.
 // Setup is safe to run concurrently with other Updater commands.
-func (u *Updater) Setup(ctx context.Context, path string, restart bool) error {
-	// Setup teleport-updater configuration and sync systemd.
+func (u *Updater) Setup(ctx context.Context, path string, installSELinux, restart bool) error {
+	// The SELinux module needs to be removed if it was previously
+	// installed but is not supposed to be installed now.
+	var removeSELinux bool
+	if !installSELinux {
+		cfg, err := readConfig(u.UpdateConfigFile)
+		if err != nil {
+			return trace.Wrap(err, "failed to read %s", updateConfigName)
+		}
+		if err := validateConfigSpec(&cfg.Spec, OverrideConfig{}); err != nil {
+			return trace.Wrap(err)
+		}
+		removeSELinux = cfg.Spec.EnableSELinux
+	}
 
-	err := u.SetupNamespace(ctx, path)
+	// Setup teleport-updater configuration and sync systemd.
+	err := u.SetupNamespace(ctx, path, installSELinux, removeSELinux)
 	if errors.Is(err, context.Canceled) {
 		return trace.Errorf("sync canceled")
 	}

@@ -7,6 +7,7 @@ spec:
     base_url: https://example.com
     enabled: false
     pinned: false
+    enable_selinux: false
 status:
     active:
         version: old-version

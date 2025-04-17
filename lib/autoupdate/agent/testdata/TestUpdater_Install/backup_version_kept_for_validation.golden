@@ -5,6 +5,7 @@ spec:
     path: /usr/local/bin
     enabled: false
     pinned: false
+    enable_selinux: false
 status:
     id_file: updater-id-file
     active:
