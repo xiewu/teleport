@@ -245,11 +245,6 @@ Commands:
 
 // TODO: update this for my needs
 func TestUseDocsUsageTemplate(t *testing.T) {
-	conf := struct {
-		name       string
-		boxName    string
-		rocketName string
-	}
 	makeApp := func(usageWriter io.Writer) *kingpin.Application {
 		app := InitCLIParser("TestUpdateAppUsageTemplate", "some help message")
 		app.UsageWriter(usageWriter)
@@ -262,20 +257,20 @@ func TestUseDocsUsageTemplate(t *testing.T) {
 		createBox := create.Command("box", "Box.")
 		createBox.Flag("size", "Size of the box in cubic centimeters").Int()
 		createRocket := create.Command("rocket", "Rocket.")
-		createBox.Flag("launch", "Whether to launch the Rocket").Bool()
+		createRocket.Flag("launch", "Whether to launch the Rocket").Bool()
 
 		return app
 	}
 
 	tests := []struct {
-		name           string
-		inputArgs      []string
-		outputContains string
+		name      string
+		inputArgs []string
+		expected  string
 	}{
 		{
 			name:      "no subcommand",
 			inputArgs: []string{},
-			outputContains: `
+			expected: `
 Commands:
   help          Show help.
   hello         Hello.
@@ -286,7 +281,7 @@ Commands:
 		{
 			name:      "known subcommand",
 			inputArgs: []string{"create"},
-			outputContains: `
+			expected: `
 Commands:
   create box    Box.
   create rocket Rocket.
@@ -295,7 +290,7 @@ Commands:
 		{
 			name:      "unknown subcommand",
 			inputArgs: []string{"unknown"},
-			outputContains: `
+			expected: `
 Commands:
   help          Show help.
   hello         Hello.
@@ -305,7 +300,6 @@ Commands:
 		},
 	}
 	for _, tt := range tests {
-		// TODO: Get these to work
 		t.Run(tt.name, func(t *testing.T) {
 			t.Run("help flag", func(t *testing.T) {
 				var buffer bytes.Buffer
@@ -314,7 +308,7 @@ Commands:
 				UseDocsUsageTemplate(app, "")
 
 				app.Usage(args)
-				require.Contains(t, buffer.String(), tt.outputContains)
+				require.Equal(t, buffer.String(), tt.expected)
 			})
 
 			t.Run("help command", func(t *testing.T) {
@@ -327,7 +321,7 @@ Commands:
 				// See kingpin.Application.init for more details.
 				_, err := app.Parse(args)
 				require.NoError(t, err)
-				require.Contains(t, buffer.String(), tt.outputContains)
+				require.Equal(t, buffer.String(), tt.expected)
 			})
 		})
 	}
