@@ -186,11 +186,13 @@ remained functional, or that come back online, can also become disruptive.
    $ kubectl -n teleport delete deployment/teleport-cluster-auth
    $ kubectl -n teleport delete deployment/teleport-cluster-proxy
    ```
-   
-   {/*TODO: "force-cutting already open network connections. Agents connections
-   are sticky and they will happily stay connected to the broken cluster, even
-   days after the DNS entry got changed." */}
 
+1. Teleport Agents can remain connected to your previous Teleport cluster. For
+   any Agents running outside the region affected by the disaster, plan to
+   restart them once you have changed the DNS record for your Teleport cluster
+   to point to your newly redeployed Proxy Service. If you have deployed Agents
+   in the affected region, you will need to redeploy them to the new region.
+   
 ### Testing your disaster recovery procedure
 
 We strongly recommended testing your disaster recovery plan. Schedule time to
