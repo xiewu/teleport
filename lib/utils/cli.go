@@ -540,10 +540,10 @@ func FormatAlert(alert types.ClusterAlert) string {
 	return buf.String()
 }
 
-// DocsHelpTemplate is a help text template for CLI reference documentation.
+// docsUsageTemplate is a help text template for CLI reference documentation.
 // Based on LongHelpTemplate in alecthomas/kingpin. See:
 // https://github.com/alecthomas/kingpin/blob/68c06706edae8d9a6f7806dc575a5a9f47409821/templates.go#L197
-const DocsHelpTemplate = `{{define "FormatCommand" -}}
+const docsUsageTemplate = `{{define "FormatCommand" -}}
 {{if .FlagSummary}} {{.FlagSummary}}{{end -}}
 {{range .Args}}{{if not .Hidden}} {{if not .Required}}[{{end}}{{if .PlaceHolder}}{{.PlaceHolder}}{{else}}<{{.Name}}>{{end}}{{if .Value|IsCumulative}}...{{end}}{{if not .Required}}]{{end}}{{end}}{{end -}}
 {{end -}}
@@ -580,3 +580,9 @@ Commands:
 {{template "FormatCommands" .App}}
 {{end -}}
 `
+
+// UseDocsUsageTemplate updates the kingpin usage template to print a docs page.
+// It prepends header to the usage template.
+func UseDocsUsageTemplate(app *kingpin.Application, header string) {
+	app.UsageTemplate(header + "\n" + docsUsageTemplate)
+}

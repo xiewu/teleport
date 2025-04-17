@@ -242,3 +242,93 @@ Commands:
 		})
 	}
 }
+
+// TODO: update this for my needs
+func TestUseDocsUsageTemplate(t *testing.T) {
+	conf := struct {
+		name       string
+		boxName    string
+		rocketName string
+	}
+	makeApp := func(usageWriter io.Writer) *kingpin.Application {
+		app := InitCLIParser("TestUpdateAppUsageTemplate", "some help message")
+		app.UsageWriter(usageWriter)
+		app.Terminate(func(int) {})
+
+		app.Command("hello", "Hello.")
+
+		create := app.Command("create", "Create.")
+		create.Flag("name", "The name of the resource").Default("myresource").String()
+		createBox := create.Command("box", "Box.")
+		createBox.Flag("size", "Size of the box in cubic centimeters").Int()
+		createRocket := create.Command("rocket", "Rocket.")
+		createBox.Flag("launch", "Whether to launch the Rocket").Bool()
+
+		return app
+	}
+
+	tests := []struct {
+		name           string
+		inputArgs      []string
+		outputContains string
+	}{
+		{
+			name:      "no subcommand",
+			inputArgs: []string{},
+			outputContains: `
+Commands:
+  help          Show help.
+  hello         Hello.
+  create box    Box.
+  create rocket Rocket.
+`,
+		},
+		{
+			name:      "known subcommand",
+			inputArgs: []string{"create"},
+			outputContains: `
+Commands:
+  create box    Box.
+  create rocket Rocket.
+`,
+		},
+		{
+			name:      "unknown subcommand",
+			inputArgs: []string{"unknown"},
+			outputContains: `
+Commands:
+  help          Show help.
+  hello         Hello.
+  create box    Box.
+  create rocket Rocket.
+`,
+		},
+	}
+	for _, tt := range tests {
+		// TODO: Get these to work
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("help flag", func(t *testing.T) {
+				var buffer bytes.Buffer
+				app := makeApp(&buffer)
+				args := append(tt.inputArgs, "--help")
+				UseDocsUsageTemplate(app, "")
+
+				app.Usage(args)
+				require.Contains(t, buffer.String(), tt.outputContains)
+			})
+
+			t.Run("help command", func(t *testing.T) {
+				var buffer bytes.Buffer
+				app := makeApp(&buffer)
+				args := append([]string{"help"}, tt.inputArgs...)
+				UpdateAppUsageTemplate(app, args)
+
+				// HelpCommand is triggered on PreAction during Parse.
+				// See kingpin.Application.init for more details.
+				_, err := app.Parse(args)
+				require.NoError(t, err)
+				require.Contains(t, buffer.String(), tt.outputContains)
+			})
+		})
+	}
+}
