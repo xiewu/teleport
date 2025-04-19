@@ -20,6 +20,7 @@ package teleterm
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
