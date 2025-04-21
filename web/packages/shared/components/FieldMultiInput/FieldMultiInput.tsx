@@ -86,7 +86,7 @@ export function FieldMultiInput({
 
   const theme = useTheme();
   // Index of the input to be focused after the next rendering.
-  const toFocus = useRef<number | undefined>();
+  const toFocus = useRef<number | undefined>(undefined);
 
   const setFocus = (element: HTMLInputElement) => {
     element?.focus();
@@ -132,7 +132,7 @@ export function FieldMultiInput({
           // difficult to use) or to keep the array with generated IDs as local
           // state (which would require us to write a prop/state reconciliation
           // procedure whose complexity would probably outweigh the benefits).
-          <Flex key={i} alignItems="center" gap={2}>
+          (<Flex key={i} alignItems="center" gap={2}>
             <Box flex="1">
               <FieldInput
                 value={val}
@@ -157,7 +157,7 @@ export function FieldMultiInput({
             >
               <Icon.Cross size="small" color={theme.colors.text.muted} />
             </ButtonIcon>
-          </Flex>
+          </Flex>)
         ))}
         <ButtonSecondary
           alignSelf="start"
