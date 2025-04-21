@@ -284,9 +284,8 @@ For more information on preventing Teleport roles from making changes to your
 cluster state backend, read [Session and Identity
 Locking](../../access-controls/guides/locking.mdx).
 
-{/* TODO: Hugo: "This will not be enough to avoid some things to break. Bot
-certs are renewed every 20 minutes. Bots whose cert have been renewed since the
-last backup will automatically get locked out of the cluster because of the
-certificate generation mismatch. If the outage takes more than 40 minutes, bot
-certs will start to expire, also locking bots out of the cluster."
-/*}
+{/* TODO: move this paragraph somewhere else*/}
+Note that, at this point, any Machine & Workload Identity bots that have joined
+the cluster with a static token will likely miss their renewal periods and
+become locked out of the cluster. We recommend using delegated join methods to
+prevent this scenario. 
