@@ -71,6 +71,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/rds v1.94.2
 	github.com/aws/aws-sdk-go-v2/service/redshift v1.54.1
 	github.com/aws/aws-sdk-go-v2/service/redshiftserverless v1.26.2
+	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.17.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.79.0
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.35.2
 	github.com/aws/aws-sdk-go-v2/service/sns v1.34.2

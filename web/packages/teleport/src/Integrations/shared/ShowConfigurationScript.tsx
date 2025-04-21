@@ -40,8 +40,8 @@ export function ShowConfigurationScript({
           </Link>{' '}
           and copy and paste the command provided below. Upon executing in the
           AWS Shell, the command will download and execute Teleport binary that
-          configures Teleport as an OIDC identity provider for AWS and creates
-          an IAM role required for the integration.
+          configures Teleport as a IAM Roles Anywhere trusted entity. After
+          running the script, copy its output and paste it in the field below.
         </Text>
       )}
       <Box mb={2} mt={3}>

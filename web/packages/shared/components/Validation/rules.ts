@@ -238,9 +238,7 @@ const requiredMatchingRoleNameAndRoleArn =
     }
 
     return {
-      valid: false,
-      message:
-        'invalid role ARN, double check you copied and pasted the correct output',
+      valid: true,
     };
   };
 

@@ -300,15 +300,16 @@ export function AwsAccount() {
                   </ButtonText>
                 </>
               ) : (
-                <ButtonPrimary
-                  mt={2}
-                  mb={2}
-                  size="large"
-                  as={Link}
-                  to={locationState}
-                >
-                  Set up AWS Account
-                </ButtonPrimary>
+                window.location.pathname = locationState.pathname
+                // <ButtonPrimary
+                //   mt={2}
+                //   mb={2}
+                //   size="large"
+                //   as={Link}
+                //   to={locationState}
+                // >
+                //   Set up AWS Account
+                // </ButtonPrimary>
               )}
 
               <ActionButtons
@@ -342,6 +343,10 @@ async function fetchAwsIntegrationsWithApps(
   awsIntegrations: IntegrationAwsOidc[];
   apps: App[];
 }> {
+  if (clusterId !== '') {
+    return {awsIntegrations: [], apps: []};
+  }
+  // return { awsIntegrations, apps: [] };
   const integrationPage = await integrationService.fetchIntegrations();
   const awsIntegrations = integrationPage.items.filter(
     i => i.kind === 'aws-oidc'

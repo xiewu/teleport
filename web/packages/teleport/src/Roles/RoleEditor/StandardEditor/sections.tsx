@@ -92,7 +92,9 @@ export const SectionBox = ({
   onRemove?(): void;
 }>) => {
   const theme = useTheme();
-  const [expansionState, setExpansionState] = useState(ExpansionState.Expanded);
+  const [expansionState, setExpansionState] = useState(
+    ExpansionState.Collapsed
+  );
   const expandTooltip =
     expansionState === ExpansionState.Collapsed ? 'Collapse' : 'Expand';
   const validator = useValidation();

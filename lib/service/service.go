@@ -2554,6 +2554,11 @@ func (process *TeleportProcess) initAuthService() error {
 		return trace.Wrap(err)
 	})
 
+	process.RegisterFunc("update.aws-ra.profile-sync.service", func() error {
+		err := process.initAWSRAProfileSync()
+		return trace.Wrap(err)
+	})
+
 	// execute this when process is asked to exit:
 	process.OnExit("auth.shutdown", func(payload any) {
 		// The listeners have to be closed here, because if shutdown
@@ -4854,6 +4859,25 @@ func (process *TeleportProcess) initProxyEndpoint(conn *Connector) error {
 			return trace.Wrap(err)
 		}
 
+		ctx := process.GracefulExitContext()
+		awsRACA, err := process.localAuth.GetCertAuthority(ctx, types.CertAuthID{
+			Type:       types.AWSRACA,
+			DomainName: clusterName,
+		}, true)
+		if err != nil {
+			return trace.Wrap(err)
+		}
+
+		tlsCert, tlsSigner, err := process.localAuth.GetKeyStore().GetTLSCertAndSigner(ctx, awsRACA)
+		if err != nil {
+			return trace.Wrap(err)
+		}
+
+		tlsCA, err := tlsca.FromCertAndSigner(tlsCert, tlsSigner)
+		if err != nil {
+			return trace.Wrap(err)
+		}
+
 		connectionsHandler, err := app.NewConnectionsHandler(process.GracefulExitContext(), &app.ConnectionsHandlerConfig{
 			Clock:             process.Clock,
 			DataDir:           cfg.DataDir,
@@ -4868,6 +4892,7 @@ func (process *TeleportProcess) initProxyEndpoint(conn *Connector) error {
 			ServiceComponent:  teleport.ComponentWebProxy,
 			AWSConfigOptions: []awsconfig.OptionsFn{
 				awsconfig.WithOIDCIntegrationClient(conn.Client),
+				awsconfig.WithRolesAnywhereIntegrationClient(tlsCA),
 			},
 		})
 		if err != nil {

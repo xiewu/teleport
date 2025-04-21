@@ -389,7 +389,7 @@ const cfg = {
       '/v1/webapi/sites/:clusterId/integrations/aws-oidc/:name/ping',
 
     awsConfigureIamScriptOidcIdpPath:
-      '/v1/webapi/scripts/integrations/configure/awsoidc-idp.sh?integrationName=:integrationName&role=:roleName&policyPreset=:policyPreset?',
+      '/v1/webapi/scripts/integrations/configure/awsra.sh?integrationName=:integrationName&role=:roleName&policyPreset=:policyPreset?',
     awsConfigureIamScriptDeployServicePath:
       '/v1/webapi/scripts/integrations/configure/deployservice-iam.sh?integrationName=:integrationName&awsRegion=:region&role=:awsOidcRoleArn&taskRole=:taskRoleArn&awsAccountID=:accountID',
     awsConfigureIamScriptListDatabasesPath:

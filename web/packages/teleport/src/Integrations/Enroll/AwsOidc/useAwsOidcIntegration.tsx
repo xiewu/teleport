@@ -20,15 +20,10 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router';
 
 import { Validator } from 'shared/components/Validation';
-import {
-  makeErrorAttempt,
-  makeProcessingAttempt,
-  useAsync,
-} from 'shared/hooks/useAsync';
+import { makeProcessingAttempt, useAsync } from 'shared/hooks/useAsync';
 
 import cfg from 'teleport/config';
 import { DiscoverUrlLocationState } from 'teleport/Discover/useDiscover';
-import { ApiError } from 'teleport/services/api/parseError';
 import {
   AwsOidcPolicyPreset,
   IntegrationAwsOidc,
@@ -42,26 +37,28 @@ import {
   IntegrationEnrollKind,
   userEventService,
 } from 'teleport/services/userEvent';
-import useStickyClusterId from 'teleport/useStickyClusterId';
 
 type integrationConfig = {
   name: string;
   roleName: string;
   roleArn: string;
+  trustAnchor: string;
+  profileName: string;
 };
 
 export function useAwsOidcIntegration() {
   const [integrationConfig, setIntegrationConfig] = useState<integrationConfig>(
     {
-      name: '',
-      roleName: '',
+      name: 'my-integration',
+      roleName: 'TeleportSyncRolesAnywhere',
       roleArn: '',
+      trustAnchor: 'TeleportAnchor',
+      profileName: 'TeleportSyncRolesAnywhere',
     }
   );
   const [scriptUrl, setScriptUrl] = useState('');
   const [createdIntegration, setCreatedIntegration] =
     useState<IntegrationAwsOidc>();
-  const { clusterId } = useStickyClusterId();
 
   const location = useLocation<DiscoverUrlLocationState>();
 
@@ -104,32 +101,6 @@ export function useAwsOidcIntegration() {
       return;
     }
     setCreateIntegrationAttempt(makeProcessingAttempt());
-
-    try {
-      await integrationService.pingAwsOidcIntegration(
-        {
-          integrationName: integrationConfig.name,
-          clusterId,
-        },
-        { roleArn: integrationConfig.roleArn }
-      );
-    } catch (err) {
-      // DELETE IN v18.0
-      // Ignore not found error and just allow it to create which
-      // is how it used to work before anyways.
-      //
-      // If this request went to an older proxy, that didn't set the
-      // the integrationName empty if roleArn isn't empty, then the backend
-      // will never be able to successfully health check b/c it expects
-      // integration to exist first before creating.
-      const isNotFoundErr =
-        err instanceof ApiError && err.response.status === 404;
-
-      if (!isNotFoundErr) {
-        setCreateIntegrationAttempt(makeErrorAttempt(err));
-        return;
-      }
-    }
 
     const [, err] = await runCreateIntegration({
       name: integrationConfig.name,

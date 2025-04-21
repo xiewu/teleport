@@ -16,8 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { Link, Text } from 'design';
-import FieldInput from 'shared/components/FieldInput';
+import { Text } from 'design';
+//import FieldInput from 'shared/components/FieldInput';
+import { FieldTextArea } from 'shared/components/FieldTextArea';
 import { requiredMatchingRoleNameAndRoleArn } from 'shared/components/Validation/rules';
 
 export function RoleArnInput({
@@ -37,28 +38,23 @@ export function RoleArnInput({
     <>
       {description || (
         <Text>
-          Once Teleport completes setting up OIDC identity provider and creating
-          a role named "{roleName}" in AWS cloud shell (step 2), go to your{' '}
-          <Link
-            target="_blank"
-            href={`https://console.aws.amazon.com/iamv2/home#/roles/details/${roleName}`}
-          >
-            IAM Role dashboard
-          </Link>{' '}
-          and copy and paste the role ARN below. Teleport will use this role to
-          identity itself to AWS.
+          Once the script above completes, copy and paste its output down below.
+          <Text>
+            You can run the script again if you've already closed the window.
+          </Text>
         </Text>
       )}
-      <FieldInput
+      <FieldTextArea
         mt={3}
         rule={requiredMatchingRoleNameAndRoleArn(roleName)}
         value={roleArn}
-        label="Role ARN (Amazon Resource Name)"
-        placeholder={`arn:aws:iam::123456789012:role/${roleName}`}
-        width="500px"
+        label="Trust Anchor, Profile and Role ARNs"
+        placeholder={`arn:aws:rolesanywhere:eu-west-2:123456789012:trust-anchor/00000000-1111-2222-3333-444444444444
+arn:aws:rolesanywhere:eu-west-2:123456789012:profile/00000000-1111-2222-3333-555555555555
+arn:aws:iam::123456789012:role/MarcoRASyncRole`}
+        //width="800px"
         onChange={e => setRoleArn(e.target.value)}
         disabled={disabled}
-        toolTipContent={`Unique AWS resource identifier and uses the format: arn:aws:iam::<ACCOUNT_ID>:role/<IAM_ROLE_NAME>`}
       />
     </>
   );
