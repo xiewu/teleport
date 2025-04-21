@@ -51,6 +51,7 @@ type collections struct {
 	staticTokens    *collection[types.StaticTokens]
 	certAuthorities *collection[types.CertAuthority]
 	users           *collection[types.User]
+	proxyServers    *collection[types.Server]
 }
 
 // setupCollections ensures that the appropriate [collection] is
@@ -89,6 +90,14 @@ func setupCollections(c Config) (*collections, error) {
 
 			out.users = collect
 			out.byKind[resourceKind] = out.users
+		case types.KindProxy:
+			collect, err := newProxyServerCollection(c.Presence, watch)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+
+			out.proxyServers = collect
+			out.byKind[resourceKind] = out.proxyServers
 		}
 	}
 

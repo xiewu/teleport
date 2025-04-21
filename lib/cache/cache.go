@@ -2257,19 +2257,6 @@ func (c *Cache) GetAuthServers() ([]types.Server, error) {
 	return rg.reader.GetAuthServers()
 }
 
-// GetProxies is a part of auth.Cache implementation
-func (c *Cache) GetProxies() ([]types.Server, error) {
-	_, span := c.Tracer.Start(context.TODO(), "cache/GetProxies")
-	defer span.End()
-
-	rg, err := readLegacyCollectionCache(c, c.legacyCacheCollections.proxies)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	defer rg.Release()
-	return rg.reader.GetProxies()
-}
-
 type remoteClustersCacheKey struct {
 	name string
 }
