@@ -225,16 +225,68 @@ recovery procedure. Possibilities include:
 
 ### Imposing a change freeze during the disaster recovery window  
 
+If a Teleport admin makes an update to a record on the cluster state backend
+after the last backup, that update will not be reflected on the backend when
+restoring it during a disaster recovery procedure.
+
+For dynamic resources, you can prevent the cluster state backend in the
+unavailable region from falling out of sync with the backup in the new region by
+configuring dynamic resources using infrastructure as code. In this setup,
+dynamic resource configurations exist in a source repository managed with a
+version control tool.  An automated system ensures that every update to your
+dynamic resource configuration triggers an update on the cluster state backend.
+This way, you can reapply all dynamic resources against the new cluster state
+backend without missing any updates.
+
+You should also impose a change freeze for dynamic resources during the disaster
+recovery procedure. Lock any Teleport roles that include permissions to edit
+dynamic resources.
+
+Teleport roles allow access to modifying dynamic resources with the
+`spec.allow.rules` field. You can query your Teleport cluster for all roles with
+these permissions using your JSON parsing tool of choice. For example, you can
+use the following `jq` command to list all roles with one or more rule that
+grants permissions to modify backend resources:
+
+```code
+$ tctl get roles --format json | jq -r '.[] | select(.spec.allow.rules | length > 0) | .metadata.name'
+dashboard-admin
+dashboard-user
+device-admin
+device-enroll
+group-access
+```
+
+Create a lock using a `tctl lock` command, e.g.:
+
+```code
+$ tctl lock --role=contractor --message="Change freeze during disaster recovery" --ttl=3h
+```
+
+Teleport manages access to certificate authority rotations using the same
+role-based access controls it offers for dynamic resources. In this case, the
+resource name is `cert_authority`. A rotation requires the following
+permissions:
+
+```json
+{
+  "resources": [
+    "cert_authority"
+  ],
+  "verbs": [
+    "create",
+    "update"
+  ]
+}
+```
+
+For more information on preventing Teleport roles from making changes to your
+cluster state backend, read [Session and Identity
+Locking](../../access-controls/guides/locking.mdx).
+
 {/* TODO: Hugo: "This will not be enough to avoid some things to break. Bot
 certs are renewed every 20 minutes. Bots whose cert have been renewed since the
 last backup will automatically get locked out of the cluster because of the
 certificate generation mismatch. If the outage takes more than 40 minutes, bot
 certs will start to expire, also locking bots out of the cluster."
-
-From the outline:
-    - no CA rotations   
-    - no dynamic resource creation/modification.  
-
-*/}
-
-
+/*}
