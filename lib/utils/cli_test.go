@@ -246,7 +246,7 @@ Commands:
 // TODO: update this for my needs
 func TestUseDocsUsageTemplate(t *testing.T) {
 	makeApp := func(usageWriter io.Writer) *kingpin.Application {
-		app := InitCLIParser("TestUpdateAppUsageTemplate", "some help message")
+		app := InitCLIParser("TestUpdateDocsUsageTemplate", "some help message")
 		app.UsageWriter(usageWriter)
 		app.Terminate(func(int) {})
 
@@ -258,6 +258,12 @@ func TestUseDocsUsageTemplate(t *testing.T) {
 		createBox.Flag("size", "Size of the box in cubic centimeters").Int()
 		createRocket := create.Command("rocket", "Rocket.")
 		createRocket.Flag("launch", "Whether to launch the Rocket").Bool()
+
+		app.HelpCommand = app.Command("docs", "Create a docs page").PreAction(func(context *kingpin.ParseContext) error {
+			UseDocsUsageTemplate(app, "")
+			app.Usage([]string{})
+			return nil
+		})
 
 		return app
 	}
@@ -285,28 +291,15 @@ func TestUseDocsUsageTemplate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Run("help flag", func(t *testing.T) {
-				var buffer bytes.Buffer
-				app := makeApp(&buffer)
-				args := append(tt.inputArgs, "--help")
-				UseDocsUsageTemplate(app, "")
+			var buffer bytes.Buffer
+			app := makeApp(&buffer)
+			args := append([]string{"docs"}, tt.inputArgs...)
 
-				app.Usage(args)
-				require.Equal(t, buffer.String(), tt.expected)
-			})
-
-			t.Run("help command", func(t *testing.T) {
-				var buffer bytes.Buffer
-				app := makeApp(&buffer)
-				args := append([]string{"help"}, tt.inputArgs...)
-				UseDocsUsageTemplate(app, "")
-
-				// HelpCommand is triggered on PreAction during Parse.
-				// See kingpin.Application.init for more details.
-				_, err := app.Parse(args)
-				require.NoError(t, err)
-				require.Equal(t, buffer.String(), tt.expected)
-			})
+			// HelpCommand is triggered on PreAction during Parse.
+			// See kingpin.Application.init for more details.
+			_, err := app.Parse(args)
+			require.NoError(t, err)
+			require.Equal(t, buffer.String(), tt.expected)
 		})
 	}
 }

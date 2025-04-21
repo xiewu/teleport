@@ -540,6 +540,17 @@ func FormatAlert(alert types.ClusterAlert) string {
 	return buf.String()
 }
 
+// formatTwoColMarkdownTable formats the provided row data into a two-column
+// Markdown table, minus the header. Must take a [][2]string to accept the
+// result of ArgsToTwoColumns and FlagsToTwoColumns.
+func formatTwoColMarkdownTable(rows [][2]string) string {
+	buf := bytes.NewBuffer(nil)
+	for _, r := range rows {
+		buf.WriteString("|" + r[0] + "|" + r[1] + "|")
+	}
+	return buf.String()
+}
+
 // docsUsageTemplate is a help text template for CLI reference documentation.
 // Based on LongHelpTemplate in alecthomas/kingpin. See:
 // https://github.com/alecthomas/kingpin/blob/68c06706edae8d9a6f7806dc575a5a9f47409821/templates.go#L197
@@ -577,11 +588,17 @@ usage: {{.App.Name}}{{template "FormatUsage" .App}}
 
 {{if .Context.Flags -}}
 Flags:
-{{.Context.Flags|FlagsToTwoColumns|FormatTwoColumns}}
+
+|Flag|Description|
+|---|---|
+{{.Context.Flags|FlagsToTwoColumns|FormatTwoColMarkdownTable}}
 {{end -}}
 {{if .Context.Args -}}
 Args:
-{{.Context.Args|ArgsToTwoColumns|FormatTwoColumns}}
+
+|Argument|Description|
+|---|---|
+{{.Context.Args|ArgsToTwoColumns|FormatTwoColMarkdownTable}}
 {{end -}}
 {{if .App.Commands -}}
 Commands:
@@ -592,5 +609,8 @@ Commands:
 // UseDocsUsageTemplate updates the kingpin usage template to print a docs page.
 // It prepends header to the usage template.
 func UseDocsUsageTemplate(app *kingpin.Application, header string) {
+	app.UsageFuncs(map[string]any{
+		"FormatTwoColMarkdownTable": formatTwoColMarkdownTable,
+	})
 	app.UsageTemplate(header + "\n" + docsUsageTemplate)
 }
