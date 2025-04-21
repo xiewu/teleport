@@ -244,7 +244,7 @@ Commands:
 }
 
 // TODO: update this for my needs
-func TestUseDocsUsageTemplate(t *testing.T) {
+func TestUseDocsCommand(t *testing.T) {
 	makeApp := func(usageWriter io.Writer) *kingpin.Application {
 		app := InitCLIParser("TestUpdateDocsUsageTemplate", "some help message")
 		app.UsageWriter(usageWriter)
@@ -258,12 +258,7 @@ func TestUseDocsUsageTemplate(t *testing.T) {
 		createBox.Flag("size", "Size of the box in cubic centimeters").Int()
 		createRocket := create.Command("rocket", "Rocket.")
 		createRocket.Flag("launch", "Whether to launch the Rocket").Bool()
-
-		app.HelpCommand = app.Command("docs", "Create a docs page").PreAction(func(context *kingpin.ParseContext) error {
-			UseDocsUsageTemplate(app, "")
-			app.Usage([]string{})
-			return nil
-		})
+		UseDocsCommand(app)
 
 		return app
 	}
