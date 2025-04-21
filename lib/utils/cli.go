@@ -565,8 +565,16 @@ const docsUsageTemplate = `{{define "FormatCommand" -}}
 {{end -}}
 
 {{end -}}
+---
+title: {{.App.Name}} Reference
+description: Provides a comprehensive list of commands, arguments, and flags for {{.App.Name}}.
+---
+
+This guide provides a comprehensive list of commands, arguments, and flags for
+{{.App.Name}}.
 
 usage: {{.App.Name}}{{template "FormatUsage" .App}}
+
 {{if .Context.Flags -}}
 Flags:
 {{.Context.Flags|FlagsToTwoColumns|FormatTwoColumns}}
