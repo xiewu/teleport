@@ -9240,7 +9240,7 @@ func testForceListenerInTunnelMode(t *testing.T, suite *integrationTestSuite) {
 			tconf.SSH.Addr = utils.NetAddr{
 				Addr: helpers.NewListenerOn(t, Host, service.ListenerNodeSSH, &tconf.FileDescriptors),
 			}
-			tconf.SSH.ForceListenInTunnel = true
+			tconf.SSH.ForceListen = true
 		}
 
 		return tconf

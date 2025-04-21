@@ -1454,7 +1454,7 @@ type SSH struct {
 	// SSH node.
 	DisableCreateHostUser bool `yaml:"disable_create_host_user,omitempty"`
 
-	// ForceListenInTunnel enables listening on the configured ListenAddress
+	// ForceListen enables listening on the configured ListenAddress
 	// when connected to the cluster via a reverse tunnel. If no ListenAddress is
 	// configured, the default address is used.
 	//
@@ -1462,7 +1462,7 @@ type SSH struct {
 	// All connections still require a valid user certificate to be presented and will
 	// not permit any additional access. This is intended to provide an optional connection
 	// path to reduce latency if the Proxy is not co-located with the user and service.
-	ForceListenInTunnel bool `yaml:"force_listen_in_tunnel,omitempty"`
+	ForceListen bool `yaml:"force_listen,omitempty"`
 }
 
 // AllowTCPForwarding checks whether the config file allows TCP forwarding or not.

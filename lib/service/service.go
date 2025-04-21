@@ -3024,7 +3024,7 @@ func (process *TeleportProcess) initSSH() error {
 			logger.WarnContext(process.ExitContext(), warn)
 		}
 
-		useLocalListener := cfg.SSH.ForceListenInTunnel || !conn.UseTunnel()
+		useLocalListener := cfg.SSH.ForceListen || !conn.UseTunnel()
 
 		// Provide helpful log message if listen_addr or public_addr are not being
 		// used (tunnel is used to connect to cluster).

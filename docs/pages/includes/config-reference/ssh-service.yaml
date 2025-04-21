@@ -40,7 +40,7 @@ ssh_service:
   # path to reduce latency if the Proxy is not co-located with the user and service.
   #
   # Set to false by default.
-  force_listen_in_tunnel: false
+  force_listen: false
 
   # Enhanced Session Recording
   enhanced_recording:
