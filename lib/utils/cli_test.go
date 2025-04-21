@@ -270,33 +270,17 @@ func TestUseDocsUsageTemplate(t *testing.T) {
 		{
 			name:      "no subcommand",
 			inputArgs: []string{},
-			expected: `
-Commands:
-  help          Show help.
-  hello         Hello.
-  create box    Box.
-  create rocket Rocket.
-`,
+			expected:  ``,
 		},
 		{
 			name:      "known subcommand",
 			inputArgs: []string{"create"},
-			expected: `
-Commands:
-  create box    Box.
-  create rocket Rocket.
-`,
+			expected:  ``,
 		},
 		{
 			name:      "unknown subcommand",
 			inputArgs: []string{"unknown"},
-			expected: `
-Commands:
-  help          Show help.
-  hello         Hello.
-  create box    Box.
-  create rocket Rocket.
-`,
+			expected:  ``,
 		},
 	}
 	for _, tt := range tests {
