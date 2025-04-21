@@ -299,7 +299,7 @@ func TestUseDocsUsageTemplate(t *testing.T) {
 				var buffer bytes.Buffer
 				app := makeApp(&buffer)
 				args := append([]string{"help"}, tt.inputArgs...)
-				UpdateAppUsageTemplate(app, args)
+				UseDocsUsageTemplate(app, "")
 
 				// HelpCommand is triggered on PreAction during Parse.
 				// See kingpin.Application.init for more details.
